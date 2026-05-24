@@ -1,8 +1,47 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import type { Page } from '@shared/types'
+import type { Page, HierarchyLevel } from '@shared/types'
 import Sidebar from '../components/Sidebar'
 import { useProject } from '../App'
+
+// Flatten nested HierarchyLevel tree into ordered [{depth, name}] list
+function flattenHierarchy(levels: HierarchyLevel[]): { depth: number; name: string }[] {
+  const out: { depth: number; name: string }[] = []
+  function walk(node: HierarchyLevel, depth: number): void {
+    out.push({ depth, name: node.name })
+    for (const child of node.children ?? []) walk(child, depth + 1)
+  }
+  for (const l of levels) walk(l, 1)
+  return out
+}
+
+type TagInfo =
+  | { kind: 'ref';   start: number; end: number; inner: string; level: string }
+  | { kind: 'note';  start: number; end: number; inner: string }
+  | { kind: 'self';  start: number; end: number; tag: string }   // <tab/>, <lb/>, etc.
+
+function detectCursorTag(text: string, pos: number): TagInfo | null {
+  // Paired tags: <ref ...>...</ref>  |  <note>...</note>
+  const paired = /<(ref|note)([^>]*)>(.*?)<\/(ref|note)>/gs
+  let m: RegExpExecArray | null
+  while ((m = paired.exec(text)) !== null) {
+    if (pos >= m.index && pos <= m.index + m[0].length) {
+      if (m[1] === 'ref') {
+        const lm = m[2].match(/level="([^"]*)"/)
+        return { kind: 'ref', start: m.index, end: m.index + m[0].length, inner: m[3], level: lm ? lm[1] : '' }
+      }
+      return { kind: 'note', start: m.index, end: m.index + m[0].length, inner: m[3] }
+    }
+  }
+  // Self-closing tags: <tab/>, <lb/>, <lb break="no"/>
+  const self = /<(tab|lb)[^>]*\/>/g
+  while ((m = self.exec(text)) !== null) {
+    if (pos >= m.index && pos <= m.index + m[0].length) {
+      return { kind: 'self', start: m.index, end: m.index + m[0].length, tag: m[0] }
+    }
+  }
+  return null
+}
 
 function highlightMarkdown(text: string): string {
   return text
@@ -56,8 +95,11 @@ export default function Review(): React.JSX.Element {
   const [imageUrl, setImageUrl] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [saveMsg, setSaveMsg] = useState('')
+  const [cursorTag, setCursorTag] = useState<TagInfo | null>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const highlightRef = useRef<HTMLDivElement>(null)
+
+  const levelList = flattenHierarchy(project?.hierarchy ?? [])
 
   const currentPage = activePages[currentIdx] ?? null
 
@@ -177,6 +219,18 @@ export default function Review(): React.JSX.Element {
       setSaving(false)
     }
   }, [project, currentPage, currentState, content])
+
+  const updateCursorTag = (): void => {
+    const ta = textareaRef.current
+    if (!ta) return
+    setCursorTag(detectCursorTag(ta.value, ta.selectionStart))
+  }
+
+  // Replace the tag at [start, end) with arbitrary text, then refocus
+  const replaceTag = (start: number, end: number, replacement: string): void => {
+    setContent(content.slice(0, start) + replacement + content.slice(end))
+    setTimeout(() => textareaRef.current?.focus(), 0)
+  }
 
   const insertTag = (open: string, close: string): void => {
     const ta = textareaRef.current
@@ -400,6 +454,108 @@ export default function Review(): React.JSX.Element {
           </div>
         </div>
 
+        {/* Tag context bar — shown when cursor is inside any editable tag */}
+        {cursorTag !== null && (
+          <div
+            className="px-8 h-9 flex items-center gap-2 border-b shrink-0 text-[11.5px] overflow-x-auto"
+            style={{ borderColor: 'var(--line)', background: '#fdf4ff', flexShrink: 0 }}
+          >
+            {/* Current tag label */}
+            <span className="font-mono shrink-0" style={{ color: '#7b2d8b' }}>
+              {cursorTag.kind === 'ref'
+                ? (cursorTag.level ? `<ref level="${cursorTag.level}">` : '<ref>')
+                : cursorTag.kind === 'note'
+                ? '<note>'
+                : cursorTag.tag}
+            </span>
+
+            <span className="shrink-0" style={{ color: 'var(--mute)' }}>→</span>
+
+            {/* Ref: level buttons */}
+            {cursorTag.kind === 'ref' && levelList.length === 0 && (
+              <span className="text-[11px] italic shrink-0" style={{ color: 'var(--mute)' }}>
+                no levels defined —{' '}
+                <button
+                  className="underline"
+                  style={{ color: 'var(--mute)' }}
+                  onClick={() => navigate('/export')}
+                >
+                  configure in TEI Export
+                </button>
+              </span>
+            )}
+            {cursorTag.kind === 'ref' && levelList.length > 0 && (
+              <>
+                <span className="text-[10px] shrink-0" style={{ color: 'var(--mute)' }}>
+                  level (from TEI Export):
+                </span>
+                {levelList.map((l) => (
+                  <button
+                    key={l.depth}
+                    className="btn btn-quiet !py-0 !px-2 !text-[11px] font-mono shrink-0"
+                    style={String(l.depth) === cursorTag.level
+                      ? { background: '#c0392b', color: '#fff', borderColor: '#c0392b' }
+                      : {}}
+                    onClick={() => replaceTag(cursorTag.start, cursorTag.end, `<ref level="${l.depth}">${cursorTag.inner}</ref>`)}
+                    title={l.name}
+                  >
+                    {l.depth} <span className="opacity-60 ml-0.5 text-[10px]">{l.name}</span>
+                  </button>
+                ))}
+                <button
+                  className="btn btn-quiet !py-0 !px-2 !text-[11px] shrink-0"
+                  style={!cursorTag.level ? { background: '#7b2d8b', color: '#fff', borderColor: '#7b2d8b' } : {}}
+                  onClick={() => replaceTag(cursorTag.start, cursorTag.end, `<ref>${cursorTag.inner}</ref>`)}
+                  title="Unclassified ref (no level)"
+                >
+                  none
+                </button>
+              </>
+            )}
+
+            {/* Ref ↔ Note conversions */}
+            {cursorTag.kind === 'ref' && (
+              <button
+                className="btn btn-quiet !py-0 !px-2 !text-[11px] shrink-0"
+                onClick={() => replaceTag(cursorTag.start, cursorTag.end, `<note>${cursorTag.inner}</note>`)}
+                title="Convert to <note>"
+              >
+                → &lt;note&gt;
+              </button>
+            )}
+            {cursorTag.kind === 'note' && (
+              <button
+                className="btn btn-quiet !py-0 !px-2 !text-[11px] shrink-0"
+                onClick={() => replaceTag(cursorTag.start, cursorTag.end, `<ref level="">${cursorTag.inner}</ref>`)}
+                title="Convert to <ref>"
+              >
+                → &lt;ref&gt;
+              </button>
+            )}
+
+            {/* Unwrap (keep text) — paired tags only */}
+            {(cursorTag.kind === 'ref' || cursorTag.kind === 'note') && (
+              <button
+                className="btn btn-quiet !py-0 !px-2 !text-[11px] shrink-0"
+                onClick={() => replaceTag(cursorTag.start, cursorTag.end, cursorTag.inner)}
+                title="Remove tags, keep text"
+              >
+                unwrap
+              </button>
+            )}
+
+            {/* Delete */}
+            <button
+              className="btn btn-quiet !py-0 !px-2 !text-[11px] shrink-0"
+              style={{ color: '#c0392b' }}
+              onClick={() => replaceTag(cursorTag.start, cursorTag.end, '')}
+              title="Delete tag and its content"
+            >
+              delete
+            </button>
+          </div>
+        )}
+
         {/* Main two-column editor */}
         <div className="flex-1 grid overflow-hidden" style={{ gridTemplateColumns: '1fr 1fr' }}>
           {/* Left — image */}
@@ -444,7 +600,9 @@ export default function Review(): React.JSX.Element {
                 className="absolute inset-0 w-full h-full p-4 font-mono text-[12.5px] leading-relaxed resize-none outline-none caret-[var(--ink)]"
                 style={{ color: 'var(--ink)', zIndex: 2, background: 'transparent' }}
                 value={content}
-                onChange={(e) => setContent(e.target.value)}
+                onChange={(e) => { setContent(e.target.value); updateCursorTag() }}
+                onClick={updateCursorTag}
+                onKeyUp={updateCursorTag}
                 onScroll={syncScroll}
                 spellCheck={false}
                 placeholder={currentState?.loaded ? '' : 'Loading…'}

@@ -8,9 +8,43 @@ Inference is delegated to a local [LM Studio](https://lmstudio.ai/) server runni
 
 ---
 
+## Installation
+
+No technical skills or build tools are required. Pre-built executables for Windows, macOS, and Linux are available on the [GitHub Releases](../../releases) page.
+
+| Platform | File |
+|---|---|
+| Windows | `CLLG-Desktop-Setup-*.exe` — run the installer |
+| macOS | `CLLG-Desktop-*.dmg` — open and drag to Applications |
+| Linux | `CLLG-Desktop-*.AppImage` — run directly |
+
+**Linux note:** After downloading the AppImage, mark it as executable before running:
+
+```bash
+chmod +x CLLG-Desktop-*.AppImage
+./CLLG-Desktop-*.AppImage
+```
+
+If the application fails to start with a sandbox error, add the `--no-sandbox` flag:
+
+```bash
+./CLLG-Desktop-*.AppImage --no-sandbox
+```
+
+---
+
 ## Requirements
 
-- [LM Studio](https://lmstudio.ai/) with a vision-capable model loaded and the local server running
+### LM Studio (required)
+
+Download and install [LM Studio](https://lmstudio.ai/) separately. CLLG Desktop does not bundle an inference engine — it sends pages to a local LM Studio server running on your machine.
+
+1. Open LM Studio and download a vision-capable model (Qwen2.5-VL 7B or compatible).
+2. Start the local server from the "Local Server" tab (default port: 1234).
+3. Keep LM Studio running while using CLLG Desktop.
+
+### Documents and configuration
+
 - A scanned document: PDF, DjVu, or a folder of page images (JPEG, PNG, TIFF)
 - A YAML configuration file describing the document's reference hierarchy (see below)
 

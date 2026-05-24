@@ -1,7 +1,8 @@
 import { ipcMain, BrowserWindow } from 'electron'
 import { readFile, writeFile } from 'fs/promises'
+import { join } from 'path'
 import type { TEIParams } from '@shared/types'
-import { runMd2Tei } from './md2tei'
+import { runMd2Tei, scanRefs } from './md2tei'
 
 export function registerTEIHandlers(): void {
   ipcMain.handle('tei:generate', async (event, params: TEIParams): Promise<void> => {
@@ -21,5 +22,10 @@ export function registerTEIHandlers(): void {
 
     await writeFile(params.outputPath, teiXml, 'utf-8')
     log(`[cllg.tei] done ✓ → ${params.outputPath}`)
+  })
+
+  ipcMain.handle('md:scanRefs', async (_, projectDir: string) => {
+    const text = await readFile(join(projectDir, 'ocr_output.md'), 'utf-8').catch(() => '')
+    return scanRefs(text)
   })
 }

@@ -33,6 +33,8 @@ export interface HierarchyLevel {
   format: string
   missingFirst: boolean
   allowGaps: boolean
+  isMilestone: boolean
+  color?: string          // hex color for highlighting, e.g. '#c0392b'
   children: HierarchyLevel[]
 }
 
@@ -79,7 +81,7 @@ export interface TEIParams {
   outputPath: string
   markdownPath: string
   yamlConfigPath: string
-  yamlContent: string   // written to yamlConfigPath before spawning Python
+  yamlContent: string
 }
 
 export interface LMTestResult {

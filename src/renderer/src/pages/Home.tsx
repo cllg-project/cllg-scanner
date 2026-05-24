@@ -383,7 +383,7 @@ export default function Home(): React.JSX.Element {
         mode, sourcePath,
         doc: result!.doc, imagePaths: [],
         totalPages: n,
-        rangeText: `1-${n}`
+        rangeText: ''
       })
     } catch (err) {
       setErrorMessage({
@@ -413,7 +413,7 @@ export default function Home(): React.JSX.Element {
         doc: null,
         imagePaths: files.map((f) => f.path),
         totalPages: files.length,
-        rangeText: `1-${files.length}`
+        rangeText: ''
       })
     } finally {
       setImportStep(null)

@@ -41,7 +41,7 @@ export function registerProjectHandlers(): void {
       lmConfig: {
         endpoint: 'http://localhost:1234',
         model: '',
-        contextLength: 2048,
+        contextLength: 4096,
         temperature: 0
       },
       createdAt: new Date().toISOString(),

@@ -1,7 +1,7 @@
 import { ipcMain, shell, dialog } from 'electron'
 import { writeFile, readFile, readdir, copyFile } from 'fs/promises'
 import { mkdirSync } from 'fs'
-import { join, extname, basename } from 'path'
+import { join, extname, basename, isAbsolute } from 'path'
 import type { Project } from '@shared/types'
 
 const IMAGE_EXTS = new Set(['.jpg', '.jpeg', '.png', '.tif', '.tiff', '.bmp', '.webp'])
@@ -32,6 +32,12 @@ export function registerPDFHandlers(): void {
       return filePath
     }
   )
+
+  // Join path segments; if the last segment is already absolute, return it unchanged
+  ipcMain.handle('path:join', (_event, ...parts: string[]) => {
+    const last = parts[parts.length - 1]
+    return isAbsolute(last) ? last : join(...parts)
+  })
 
   // Load an image file and return as base64 data URL
   ipcMain.handle('page:loadImage', async (_event, absolutePath: string) => {

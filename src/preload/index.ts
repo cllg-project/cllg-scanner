@@ -61,6 +61,9 @@ const api = {
   loadImageAsDataUrl: (absolutePath: string): Promise<string> =>
     ipcRenderer.invoke('page:loadImage', absolutePath),
 
+  joinPaths: (...parts: string[]): Promise<string> =>
+    ipcRenderer.invoke('path:join', ...parts),
+
   // ── OCR ──────────────────────────────────────────────────────────────
   testLMStudio: (endpoint: string, apiKey?: string): Promise<LMTestResult> =>
     ipcRenderer.invoke('ocr:test', endpoint, apiKey),
@@ -74,6 +77,9 @@ const api = {
   // ── TEI ──────────────────────────────────────────────────────────────
   generateTEI: (params: TEIParams): Promise<void> =>
     ipcRenderer.invoke('tei:generate', params),
+
+  scanRefs: (projectDir: string): Promise<{ format: string; sample: string[]; count: number }[]> =>
+    ipcRenderer.invoke('md:scanRefs', projectDir),
 
   openInFinder: (path: string): void =>
     ipcRenderer.send('shell:openPath', path),

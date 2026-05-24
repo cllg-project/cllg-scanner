@@ -4,6 +4,7 @@ import type { Project } from '@shared/types'
 import Home from './pages/Home'
 import Masker from './pages/Masker'
 import OCRRun from './pages/OCRRun'
+import Config from './pages/Config'
 import Review from './pages/Review'
 import Export from './pages/Export'
 
@@ -43,6 +44,7 @@ export default function App(): React.JSX.Element {
           <Route path="/" element={<Home />} />
           <Route path="/masker" element={<Masker />} />
           <Route path="/ocr" element={<OCRRun />} />
+          <Route path="/config" element={<Config />} />
           <Route path="/review" element={<Review />} />
           <Route path="/export" element={<Export />} />
         </Routes>

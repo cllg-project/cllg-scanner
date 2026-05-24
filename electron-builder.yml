@@ -1,6 +1,7 @@
 appId: com.cllg.desktop
 productName: CLLG Desktop
 copyright: Copyright © 2024
+afterPack: afterPack.js
 
 directories:
   output: dist
@@ -9,7 +10,6 @@ files:
   - out/**/*
   - node_modules/**/*
   - '!**/.git/**'
-  - '!python/**'
 
 win:
   target:

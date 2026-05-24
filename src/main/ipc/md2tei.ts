@@ -52,13 +52,21 @@ function allElems(root: Node, tag: string): Element[] {
 
 // ── Level structures ──────────────────────────────────────────────────────────
 
-interface LevelDef { level: number; name: string; isMilestone: boolean }
+interface LevelDef {
+  level: number
+  name: string
+  format: string
+  isMilestone: boolean
+  missingFirst: boolean
+}
 
 function buildLevels(structure: Record<string, unknown>, depth = 1): LevelDef[] {
   const out: LevelDef[] = [{
     level: depth,
     name: String(structure.name ?? `lvl${depth}`),
+    format: String(structure.format ?? 'Arabic'),
     isMilestone: !!structure.is_milestone,
+    missingFirst: !!structure.missing_first,
   }]
   if (structure.child) out.push(...buildLevels(structure.child as Record<string, unknown>, depth + 1))
   return out
@@ -70,6 +78,16 @@ function levelMap(ls: LevelDef[]): Record<number, string> {
 
 function milestoneSet(ls: LevelDef[]): Set<number> {
   return new Set(ls.filter(l => l.isMilestone).map(l => l.level))
+}
+
+function startValue(format: string): string {
+  switch (format.toLowerCase()) {
+    case 'roman':     return 'I'
+    case 'alpha':     return 'a'
+    case 'greek':     return 'α'
+    case 'stephanus': return '1a'
+    default:          return '1'   // Arabic and custom regexes
+  }
 }
 
 // ── Continuation marking ──────────────────────────────────────────────────────
@@ -89,76 +107,141 @@ function markContinuations(md: string): string {
   return out.join('\n')
 }
 
+// ── Line tokeniser ────────────────────────────────────────────────────────────
+
+type LineToken =
+  | { kind: 'text'; value: string }
+  | { kind: 'ref';  attrStr: string; inner: string }
+  | { kind: 'note'; inner: string }
+  | { kind: 'lb';   raw: string }
+
+function tokenizeLine(s: string): LineToken[] {
+  const tokens: LineToken[] = []
+  const re = /(<lb[^>]*\/>|<ref[^>]*>.*?<\/ref>|<note>.*?<\/note>|<tab\/>)/gs
+  let last = 0
+  let m: RegExpExecArray | null
+  while ((m = re.exec(s)) !== null) {
+    if (m.index > last) tokens.push({ kind: 'text', value: s.slice(last, m.index) })
+    const tag = m[0]
+    if (tag.startsWith('<lb'))   tokens.push({ kind: 'lb', raw: tag })
+    else if (tag.startsWith('<tab')) { /* structural indent — drop */ }
+    else if (tag.startsWith('<ref')) {
+      const am = /^<ref([^>]*)>(.*?)<\/ref>$/s.exec(tag)
+      if (am) tokens.push({ kind: 'ref', attrStr: am[1], inner: am[2] })
+    } else if (tag.startsWith('<note')) {
+      const nm = /^<note>(.*?)<\/note>$/s.exec(tag)
+      if (nm) tokens.push({ kind: 'note', inner: nm[1] })
+    }
+    last = m.index + m[0].length
+  }
+  if (last < s.length) tokens.push({ kind: 'text', value: s.slice(last) })
+  return tokens
+}
+
 // ── Build div/milestone/p body ────────────────────────────────────────────────
+//
+// Rules:
+//   • <ref level="N"> where N is a div-level  → close current <p>, close deeper
+//     divs, open <div type="…" n="…">; if any ancestor div-level with
+//     missing_first=true hasn't been opened yet, auto-open it first
+//   • <ref level="N"> where N is a milestone  → inline within current <p>;
+//     outside only if no paragraph is open yet
+//   • Heading lines (#…): text after the first div-ref goes into <head>, not <p>
+//   • All other text / <note> / <lb/>          → inline content of current <p>
+//   • Unclassified <ref> (no level or level 0) → treated as <note>
+//   • Plain text before any div is open + a div-level with missing_first=true
+//     → auto-open that div with its format's start value
 
 function buildBody(
   md: string,
   lm: Record<number, string>,
-  ms: Set<number>
+  ms: Set<number>,
+  levels: LevelDef[]
 ): string {
   const out: string[] = []
   const stack: number[] = []
+  let pParts: string[] = []
+  let inHead = false
 
-  for (const line of md.split('\n')) {
-    const s = line.trim()
+  // div-level defs in ascending level order, excluding milestones
+  const divLevels = levels.filter(l => !l.isMilestone).sort((a, b) => a.level - b.level)
+
+  function flushP(): void {
+    const content = pParts.join('').trim()
+    pParts = []
+    if (!content) { inHead = false; return }
+    out.push(inHead ? `<head>${content}</head>` : `<p>${content}</p>`)
+    inHead = false
+  }
+
+  // Before opening a div at `targetLevel` (or before emitting top-level content),
+  // auto-open any ancestor div-levels that have missing_first=true and aren't yet open.
+  function autoOpenAncestors(targetLevel: number): void {
+    for (const ldef of divLevels) {
+      if (ldef.level >= targetLevel) break
+      if (stack.includes(ldef.level)) continue
+      if (!ldef.missingFirst) continue
+      out.push(`<div type="${ldef.name}" n="${startValue(ldef.format)}">`)
+      stack.push(ldef.level)
+    }
+  }
+
+  for (const rawLine of md.split('\n')) {
+    const s = rawLine.trim()
     if (!s) continue
 
-    if (s.startsWith('<pb')) { out.push(s); continue }
+    if (s.startsWith('<pb')) { flushP(); out.push(s); continue }
 
-    const notes = [...s.matchAll(/<note>(.*?)<\/note>/gs)].map(m => m[1])
-    const refs  = [...s.matchAll(/<ref([^>]*)>(.*?)<\/ref>/g)].map(m => [m[1], m[2]] as const)
+    const isHeading = s.startsWith('#')
+    const stripped  = isHeading ? s.replace(/^#+\s*/, '') : s
+    inHead = isHeading
 
-    if (!refs.length) {
-      const notesXml = notes.map(n => n.trim()).filter(Boolean).map(n => `<note>${esc(n)}</note>`).join('')
-      const txt = s.replace(/<tab\/>\s*/g, '').replace(/<note>.*?<\/note>/gs, '').trim()
-      if (txt || notesXml) out.push(`<p>${esc(txt)}${notesXml}</p>`)
-      continue
+    for (const tok of tokenizeLine(stripped)) {
+      switch (tok.kind) {
+        case 'text': {
+          const t = tok.value.replace(/\s+/g, ' ')
+          if (t.trim()) {
+            // Text before any div is open: auto-open missing_first ancestors
+            if (stack.length === 0) autoOpenAncestors(Infinity)
+            pParts.push(esc(t))
+          } else if (pParts.length > 0) {
+            pParts.push(esc(t))
+          }
+          break
+        }
+        case 'lb':
+          pParts.push(tok.raw)
+          break
+        case 'note':
+          pParts.push(`<note>${esc(tok.inner.trim())}</note>`)
+          break
+        case 'ref': {
+          const lvlStr = parseAttrStr(tok.attrStr, 'level')
+          const lvl    = lvlStr !== null ? (parseInt(lvlStr, 10) || null) : null
+          const val    = tok.inner.trim()
+          if (!lvl) {
+            pParts.push(`<note>${esc(val)}</note>`)
+          } else if (ms.has(lvl)) {
+            const ms_xml = `<milestone unit="${lm[lvl] ?? `level${lvl}`}" n="${val}"/>`
+            if (pParts.length > 0) {
+              pParts.push(ms_xml)
+            } else {
+              autoOpenAncestors(lvl)
+              out.push(ms_xml)
+            }
+          } else {
+            flushP()
+            while (stack.length && stack[stack.length - 1] >= lvl) { out.push('</div>'); stack.pop() }
+            autoOpenAncestors(lvl)
+            out.push(`<div type="${lm[lvl] ?? `level${lvl}`}" n="${val}">`)
+            stack.push(lvl)
+          }
+          break
+        }
+      }
     }
 
-    const pRef = (a: string, v: string): [string, number | null] => {
-      const ls = parseAttrStr(a, 'level')
-      const lvl = ls !== null ? (parseInt(ls, 10) || null) : null
-      return [v.trim(), lvl]
-    }
-
-    const emitInline = (a: string, v: string): string => {
-      const [val, lvl] = pRef(a, v)
-      if (!lvl) return `<note>${esc(val)}</note>`
-      if (ms.has(lvl)) return `<milestone unit="${lm[lvl] ?? `level${lvl}`}" n="${val}"/>`
-      return `<note>${esc(val)}</note>`
-    }
-
-    const [fa, fv] = refs[0]
-    const [rv, rl] = pRef(fa, fv)
-    const extras  = refs.slice(1).map(([a, v]) => emitInline(a, v)).join('')
-    const txt     = s.replace(/<ref[^>]*>.*?<\/ref>/g, '').replace(/<note>.*?<\/note>/gs, '').replace(/<tab\/>\s*/g, '').trim()
-    const pNotes  = notes.map(n => n.trim()).filter(Boolean).map(n => `<note>${esc(n)}</note>`).join('')
-
-    if (!rl) {
-      out.push(`<note>${esc(rv)}</note>`)
-      if (txt) out.push(`<p>${esc(txt)}${extras}${pNotes}</p>`)
-      else if (extras || pNotes) out.push(extras + pNotes)
-      continue
-    }
-
-    if (ms.has(rl)) {
-      out.push(`<milestone unit="${lm[rl] ?? `level${rl}`}" n="${rv}"/>`)
-      if (txt) out.push(`<p>${esc(txt)}${extras}${pNotes}</p>`)
-      else if (extras || pNotes) out.push(extras + pNotes)
-      continue
-    }
-
-    while (stack.length && stack[stack.length - 1] >= rl) { out.push('</div>'); stack.pop() }
-    out.push(`<div type="${lm[rl] ?? `level${rl}`}" n="${rv}">`)
-    stack.push(rl)
-
-    if (s.startsWith('#')) {
-      const h = s.replace(/^#+\s*/, '').replace(/<ref[^>]*>.*?<\/ref>\s*/g, '').replace(/<note>.*?<\/note>/gs, '').trim()
-      if (h) out.push(`<head>${esc(h)}</head>`)
-      if (pNotes) out.push(pNotes)
-    } else if (txt || extras || pNotes) {
-      out.push(`<p>${esc(txt)}${extras}${pNotes}</p>`)
-    }
+    flushP()
   }
 
   while (stack.length) { out.push('</div>'); stack.pop() }
@@ -271,6 +354,73 @@ function replaceHyphenation(doc: Document): void {
   }
 }
 
+// ── Inject missing-first child structural elements ────────────────────────────
+//
+// Post-processing pass: for every <div type="X"> whose child level has
+// missing_first=true, if the first meaningful child (after <head>) is not
+// already the expected <div type="…"> or <milestone unit="…">, inject the
+// implicit start element before it.
+//
+// This catches cases where content runs at the start of a parent div before
+// any explicit first child reference was written.
+
+function injectMissingFirstChildren(doc: Document, levels: LevelDef[]): void {
+  // Build map: parent div-type name → child LevelDef (only when missingFirst=true)
+  const childMap = new Map<string, LevelDef>()
+  for (let i = 0; i < levels.length - 1; i++) {
+    const parent = levels[i]
+    const child  = levels[i + 1]
+    if (!parent.isMilestone && child.missingFirst) {
+      childMap.set(parent.name, child)
+    }
+  }
+  if (childMap.size === 0) return
+
+  for (const div of allElems(doc.documentElement, 'div')) {
+    const divType = (div as Element).getAttribute('type') ?? ''
+    const childDef = childMap.get(divType)
+    if (!childDef) continue
+
+    // Find first meaningful child — skip <head> and <pb>
+    const kids = childElems(div)
+    const firstMeaningful = kids.find(k => !isTag(k, 'head') && !isTag(k, 'pb'))
+    if (!firstMeaningful) continue
+
+    const sv = startValue(childDef.format)
+
+    if (childDef.isMilestone) {
+      // Already has the expected milestone at the start?
+      if (isTag(firstMeaningful, 'milestone') &&
+          (firstMeaningful as Element).getAttribute('unit') === childDef.name) continue
+      const ms = doc.createElementNS(NS, 'milestone')
+      ms.setAttribute('unit', childDef.name)
+      ms.setAttribute('n', sv)
+      div.insertBefore(ms, firstMeaningful)
+    } else {
+      // Already has the expected child div at the start?
+      if (isTag(firstMeaningful, 'div') &&
+          (firstMeaningful as Element).getAttribute('type') === childDef.name) continue
+      // Inject an empty opening div — content that precedes the first explicit
+      // child div is wrapped into it by moving siblings until the next child div.
+      const newDiv = doc.createElementNS(NS, 'div')
+      newDiv.setAttribute('type', childDef.name)
+      newDiv.setAttribute('n', sv)
+      div.insertBefore(newDiv, firstMeaningful)
+      // Move all children up to (but not including) the next sibling div of same type
+      let sib = firstMeaningful as Node | null
+      while (sib) {
+        const next = sib.nextSibling
+        if (sib.nodeType === ELEM) {
+          const sibEl = sib as Element
+          if (sibEl.localName === 'div' && sibEl.getAttribute('type') === childDef.name) break
+        }
+        newDiv.appendChild(sib)
+        sib = next
+      }
+    }
+  }
+}
+
 // ── citeStructure ─────────────────────────────────────────────────────────────
 
 function buildCiteStructure(doc: Document, structNode: Record<string, unknown>, isRoot = true): Element {
@@ -337,6 +487,45 @@ function prettyPrint(xml: string, space = '  '): string {
   return lines.join('\n')
 }
 
+// ── Reference scanner ─────────────────────────────────────────────────────────
+
+export interface RefScanResult {
+  format: string
+  sample: string[]
+  count: number
+}
+
+const SCAN_PATTERNS: { format: string; re: RegExp }[] = [
+  { format: 'Roman',  re: /^M{0,4}(?:CM|CD|D?C{0,3})(?:XC|XL|L?X{0,3})(?:IX|IV|V?I{0,3})$/i },
+  { format: 'Arabic', re: /^\d+$/ },
+  { format: 'Greek',  re: /^[Ͱ-Ͽἀ-῿]+$/ },
+  { format: 'Alpha',  re: /^[a-z]{1,2}$/ },
+]
+
+export function scanRefs(markdownText: string): RefScanResult[] {
+  const tokenRe = /\[([^\]]{1,20})\]/g
+  const buckets = new Map<string, Map<string, number>>()
+  let m: RegExpExecArray | null
+  while ((m = tokenRe.exec(markdownText)) !== null) {
+    const tok = m[1].trim()
+    for (const { format, re } of SCAN_PATTERNS) {
+      if (re.test(tok) && tok.length > 0) {
+        if (!buckets.has(format)) buckets.set(format, new Map())
+        const b = buckets.get(format)!
+        b.set(tok, (b.get(tok) ?? 0) + 1)
+        break
+      }
+    }
+  }
+  return [...buckets.entries()]
+    .map(([format, vals]) => ({
+      format,
+      sample: [...vals.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8).map(([v]) => v),
+      count: vals.size,
+    }))
+    .sort((a, b) => b.count - a.count)
+}
+
 // ── Main entry ────────────────────────────────────────────────────────────────
 
 export interface Md2TeiParams {
@@ -357,7 +546,7 @@ export function runMd2Tei({ markdownText, yamlConfigText, log }: Md2TeiParams): 
   const md = markContinuations(markdownText)
 
   log('[md2tei] Building TEI body')
-  const body = buildBody(md, lm, ms)
+  const body = buildBody(md, lm, ms, levels)
 
   const teiStr = `<?xml version="1.0" encoding="UTF-8"?>
 <TEI xmlns="http://www.tei-c.org/ns/1.0">
@@ -383,6 +572,9 @@ ${body}
 
   log('[md2tei] Merging continuation paragraphs')
   mergeContinuations(doc)
+
+  log('[md2tei] Injecting missing-first child elements')
+  injectMissingFirstChildren(doc, levels)
 
   log('[md2tei] Replacing hyphenation with <lb/>')
   replaceHyphenation(doc)

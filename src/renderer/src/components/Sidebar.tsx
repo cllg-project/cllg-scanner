@@ -36,6 +36,16 @@ const NAV = [
     label: 'OCR Run'
   },
   {
+    path: '/config',
+    icon: (
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+        <path d="M4 6h16M4 12h10M4 18h7" />
+        <circle cx="19" cy="17" r="3" /><path d="m21.5 19.5-1.5-1.5" />
+      </svg>
+    ),
+    label: 'Structure'
+  },
+  {
     path: '/review',
     icon: (
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">

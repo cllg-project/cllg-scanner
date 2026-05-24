@@ -5,7 +5,7 @@ import Sidebar from '../components/Sidebar'
 import { useProject } from '../App'
 
 async function renderMaskedPage(projectDir: string, page: Page): Promise<string> {
-  const imgPath = page.imagePath.startsWith('/') ? page.imagePath : `${projectDir}/${page.imagePath}`
+  const imgPath = await window.api.joinPaths(projectDir, page.imagePath)
   const dataUrl = await window.api.loadImageAsDataUrl(imgPath)
   const img = await new Promise<HTMLImageElement>((res, rej) => {
     const el = new window.Image()
@@ -44,7 +44,7 @@ export default function OCRRun(): React.JSX.Element {
     project?.lmConfig ?? {
       endpoint: 'http://localhost:1234',
       model: '',
-      contextLength: 2048,
+      contextLength: 4096,
       temperature: 0
     }
   )
@@ -211,7 +211,7 @@ export default function OCRRun(): React.JSX.Element {
         <div className="px-10 pt-8 pb-5 border-b flex items-end justify-between" style={{ borderColor: 'var(--line)' }}>
           <div>
             <div className="font-mono text-[10px] tracking-[.18em] uppercase" style={{ color: 'var(--mute)' }}>
-              Step 03 of 05
+              Step 03 of 06
             </div>
             <h2 className="font-serif text-[28px] leading-tight mt-1">OCR run</h2>
             <div className="text-[12.5px] mt-1" style={{ color: 'var(--mute)' }}>
@@ -487,8 +487,8 @@ export default function OCRRun(): React.JSX.Element {
 
         {/* Next step */}
         <div className="px-10 pb-10 flex justify-end">
-          <button className="btn btn-primary" onClick={() => navigate('/review')}>
-            Next: Review
+          <button className="btn btn-primary" onClick={() => navigate('/config')}>
+            Next: Structure
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m9 6 6 6-6 6" /></svg>
           </button>
         </div>

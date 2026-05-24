@@ -4,15 +4,65 @@ import type { Page, HierarchyLevel } from '@shared/types'
 import Sidebar from '../components/Sidebar'
 import { useProject } from '../App'
 
-// Flatten nested HierarchyLevel tree into ordered [{depth, name}] list
-function flattenHierarchy(levels: HierarchyLevel[]): { depth: number; name: string }[] {
-  const out: { depth: number; name: string }[] = []
+interface FlatLevel { depth: number; name: string; pattern: string; color?: string }
+
+function flattenHierarchy(levels: HierarchyLevel[]): FlatLevel[] {
+  const out: FlatLevel[] = []
   function walk(node: HierarchyLevel, depth: number): void {
-    out.push({ depth, name: node.name })
+    out.push({ depth, name: node.name, pattern: node.pattern, color: node.color })
     for (const child of node.children ?? []) walk(child, depth + 1)
   }
   for (const l of levels) walk(l, 1)
   return out
+}
+
+// Default palette for levels 1–5 (index 0 = L1). Beyond 5 uses LEVEL_COLOR_DEFAULT.
+const LEVEL_COLORS_DEFAULT = [
+  { fg: '#c0392b' }, // L1 — red
+  { fg: '#1565c0' }, // L2 — blue
+  { fg: '#2e7d32' }, // L3 — green
+  { fg: '#e65100' }, // L4 — orange
+  { fg: '#6a1b9a' }, // L5 — purple
+]
+const LEVEL_FG_DEFAULT = '#37474f'
+
+function hexToRgb(hex: string): { r: number; g: number; b: number } | null {
+  const m = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(hex)
+  return m ? { r: parseInt(m[1], 16), g: parseInt(m[2], 16), b: parseInt(m[3], 16) } : null
+}
+
+function levelColor(level: FlatLevel): { bg: string; fg: string } {
+  const fg = level.color ?? LEVEL_COLORS_DEFAULT[level.depth - 1]?.fg ?? LEVEL_FG_DEFAULT
+  const rgb = hexToRgb(fg)
+  const bg = rgb ? `rgba(${rgb.r},${rgb.g},${rgb.b},0.10)` : '#eceff1'
+  return { fg, bg }
+}
+
+const FORMAT_RE: Record<string, RegExp> = {
+  Roman:     /^M{0,4}(?:CM|CD|D?C{0,3})(?:XC|XL|L?X{0,3})(?:IX|IV|V?I{0,3})$/i,
+  Arabic:    /^\d+$/,
+  Greek:     /^[Ͱ-Ͽἀ-῿]+$/,
+  Alpha:     /^[a-z]{1,2}$/,
+  Stephanus: /^\d+[a-e]$/,
+}
+
+function matchLevel(token: string, levels: FlatLevel[]): FlatLevel | null {
+  for (const l of levels) {
+    const re = FORMAT_RE[l.pattern] ?? (() => { try { return new RegExp(`^${l.pattern}$`) } catch { return null } })()
+    if (re?.test(token)) return l
+  }
+  return null
+}
+
+// Matches <ref>xxx</ref>, <ref level="">xxx</ref>, <ref level="0">xxx</ref>
+const UNCLASSIFIED_REF = /<ref(?:\s+level="(?:0|)")?>(.*?)<\/ref>/gs
+
+function annotateContent(text: string, levels: FlatLevel[]): string {
+  return text.replace(UNCLASSIFIED_REF, (match, inner) => {
+    const token = inner.trim()
+    const level = matchLevel(token, levels)
+    return level ? `<ref level="${level.depth}">${inner}</ref>` : match
+  })
 }
 
 type TagInfo =
@@ -43,14 +93,17 @@ function detectCursorTag(text: string, pos: number): TagInfo | null {
   return null
 }
 
-function highlightMarkdown(text: string): string {
+function highlightMarkdown(text: string, levelMap: Map<number, FlatLevel>): string {
   return text
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
-    // <ref level="N"> where N is a real positive integer → classified (red)
-    .replace(/(&lt;ref\s+level="[1-9]\d*"&gt;)(.*?)(&lt;\/ref&gt;)/g,
-      '<mark class="tag-ref">$1$2$3</mark>')
+    // <ref level="N"> — use per-level color via inline style
+    .replace(/(&lt;ref\s+level="([1-9]\d*)"&gt;)(.*?)(&lt;\/ref&gt;)/g, (_, open, n, inner, close) => {
+      const lv = levelMap.get(Number(n))
+      const { fg, bg } = lv ? levelColor(lv) : { fg: LEVEL_FG_DEFAULT, bg: '#eceff1' }
+      return `<mark style="background:${bg};color:${fg};font-weight:600">${open}${inner}${close}</mark>`
+    })
     // plain <ref>, <ref level="">, <ref level="0"> → unclassified (violet)
     .replace(/(&lt;ref(?:\s+level="(?:0|)")?&gt;)(.*?)(&lt;\/ref&gt;)/g,
       '<mark class="tag-ref-u">$1$2$3</mark>')
@@ -67,6 +120,13 @@ function highlightMarkdown(text: string): string {
     // trailing hyphen on a word → will become <lb break="no"/> in TEI
     .replace(/(\p{L}+-)(?=[\t ]|&lt;|$)/gmu,
       '<mark class="tag-lb">$1</mark>')
+}
+
+interface ScanInfo {
+  total: number
+  matched: number
+  byLevel: { depth: number; name: string; tokens: string[] }[]
+  unmatched: string[]
 }
 
 interface PageState {
@@ -98,8 +158,10 @@ export default function Review(): React.JSX.Element {
   const [cursorTag, setCursorTag] = useState<TagInfo | null>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const highlightRef = useRef<HTMLDivElement>(null)
+  const [scanInfo, setScanInfo] = useState<ScanInfo | null>(null)
 
   const levelList = flattenHierarchy(project?.hierarchy ?? [])
+  const levelMap = new Map(levelList.map((l) => [l.depth, l]))
 
   const currentPage = activePages[currentIdx] ?? null
 
@@ -127,8 +189,10 @@ export default function Review(): React.JSX.Element {
     if (!currentPage || !project) return
     setImageUrl(null)
     const imgPath = currentPage.maskedImagePath ?? currentPage.imagePath
-    const abs = imgPath.startsWith('/') ? imgPath : `${project.projectDir}/${imgPath}`
-    window.api.loadImageAsDataUrl(abs).then(setImageUrl).catch(() => setImageUrl(null))
+    window.api.joinPaths(project.projectDir, imgPath)
+      .then((abs) => window.api.loadImageAsDataUrl(abs))
+      .then(setImageUrl)
+      .catch(() => setImageUrl(null))
   }, [currentPage, project])
 
   const syncScroll = (): void => {
@@ -226,6 +290,37 @@ export default function Review(): React.JSX.Element {
     setCursorTag(detectCursorTag(ta.value, ta.selectionStart))
   }
 
+  const runScan = useCallback((): void => {
+    const byLevel = new Map<number, { depth: number; name: string; tokens: string[] }>()
+    const unmatched: string[] = []
+    let total = 0
+    const re = new RegExp(UNCLASSIFIED_REF.source, 'gs')
+    for (const m of content.matchAll(re)) {
+      const tok = m[1].trim()
+      if (!tok) continue
+      total++
+      const level = matchLevel(tok, levelList)
+      if (level) {
+        if (!byLevel.has(level.depth)) byLevel.set(level.depth, { depth: level.depth, name: level.name, tokens: [] })
+        const entry = byLevel.get(level.depth)!
+        if (!entry.tokens.includes(tok)) entry.tokens.push(tok)
+      } else {
+        if (!unmatched.includes(tok)) unmatched.push(tok)
+      }
+    }
+    setScanInfo({
+      total,
+      matched: total - unmatched.length,
+      byLevel: Array.from(byLevel.values()).sort((a, b) => a.depth - b.depth),
+      unmatched,
+    })
+  }, [content, levelList])
+
+  const applyAnnotations = useCallback((): void => {
+    setContent(annotateContent(content, levelList))
+    setScanInfo(null)
+  }, [content, levelList]) // eslint-disable-line react-hooks/exhaustive-deps
+
   // Replace the tag at [start, end) with arbitrary text, then refocus
   const replaceTag = (start: number, end: number, replacement: string): void => {
     setContent(content.slice(0, start) + replacement + content.slice(end))
@@ -246,6 +341,13 @@ export default function Review(): React.JSX.Element {
       ta.focus()
     }, 0)
   }
+
+  // Autosave 1.5s after the user stops typing
+  useEffect(() => {
+    if (!currentState?.dirty) return
+    const t = setTimeout(() => saveCurrent(), 1500)
+    return () => clearTimeout(t)
+  }, [content]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -302,7 +404,7 @@ export default function Review(): React.JSX.Element {
           <div className="text-center">
             <div className="font-serif text-[20px] mb-2">No processed pages yet</div>
             <div className="text-[13px] mb-5" style={{ color: 'var(--mute)' }}>Run OCR first to populate the review.</div>
-            <button className="btn btn-primary" onClick={() => navigate('/ocr')}>← Back to OCR</button>
+            <button className="btn btn-primary" onClick={() => navigate('/config')}>← Back to Structure</button>
           </div>
         </main>
       </div>
@@ -318,7 +420,7 @@ export default function Review(): React.JSX.Element {
         <div className="px-8 pt-6 pb-4 border-b flex items-end justify-between shrink-0" style={{ borderColor: 'var(--line)' }}>
           <div>
             <div className="font-mono text-[10px] tracking-[.18em] uppercase" style={{ color: 'var(--mute)' }}>
-              Step 04 of 05
+              Step 05 of 06
             </div>
             <h2 className="font-serif text-[28px] leading-tight mt-1">Review</h2>
             <div className="text-[12.5px] mt-1" style={{ color: 'var(--mute)' }}>
@@ -399,6 +501,19 @@ export default function Review(): React.JSX.Element {
             title="Insert <lb/> line-break element"
           >
             &lt;lb/&gt;
+          </button>
+
+          <div className="w-px h-5 mx-1" style={{ background: 'var(--line-2)' }} />
+
+          <button
+            className="btn btn-quiet !py-0.5 !px-2 !text-[11px] gap-1"
+            onClick={runScan}
+            title="Scan page for [token] reference patterns and annotate"
+          >
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <circle cx="11" cy="11" r="8" /><path d="m21 21-4.35-4.35" />
+            </svg>
+            Scan refs
           </button>
 
           <div className="w-px h-5 mx-1" style={{ background: 'var(--line-2)' }} />
@@ -489,19 +604,21 @@ export default function Review(): React.JSX.Element {
                 <span className="text-[10px] shrink-0" style={{ color: 'var(--mute)' }}>
                   level (from TEI Export):
                 </span>
-                {levelList.map((l) => (
-                  <button
-                    key={l.depth}
-                    className="btn btn-quiet !py-0 !px-2 !text-[11px] font-mono shrink-0"
-                    style={String(l.depth) === cursorTag.level
-                      ? { background: '#c0392b', color: '#fff', borderColor: '#c0392b' }
-                      : {}}
-                    onClick={() => replaceTag(cursorTag.start, cursorTag.end, `<ref level="${l.depth}">${cursorTag.inner}</ref>`)}
-                    title={l.name}
-                  >
-                    {l.depth} <span className="opacity-60 ml-0.5 text-[10px]">{l.name}</span>
-                  </button>
-                ))}
+                {levelList.map((l) => {
+                  const { fg, bg } = levelColor(l)
+                  const active = String(l.depth) === cursorTag.level
+                  return (
+                    <button
+                      key={l.depth}
+                      className="btn btn-quiet !py-0 !px-2 !text-[11px] font-mono shrink-0"
+                      style={active ? { background: fg, color: '#fff', borderColor: fg } : { borderColor: fg, color: fg }}
+                      onClick={() => replaceTag(cursorTag.start, cursorTag.end, `<ref level="${l.depth}">${cursorTag.inner}</ref>`)}
+                      title={l.name}
+                    >
+                      {l.depth} <span className="opacity-60 ml-0.5 text-[10px]">{l.name}</span>
+                    </button>
+                  )
+                })}
                 <button
                   className="btn btn-quiet !py-0 !px-2 !text-[11px] shrink-0"
                   style={!cursorTag.level ? { background: '#7b2d8b', color: '#fff', borderColor: '#7b2d8b' } : {}}
@@ -556,6 +673,53 @@ export default function Review(): React.JSX.Element {
           </div>
         )}
 
+        {/* Scan results panel */}
+        {scanInfo !== null && (
+          <div
+            className="px-8 py-2.5 border-b shrink-0 flex items-center gap-4 text-[11.5px] flex-wrap"
+            style={{ borderColor: 'var(--line)', background: '#f0f9ff' }}
+          >
+            <span className="font-mono font-semibold shrink-0" style={{ color: '#0369a1' }}>
+              {scanInfo.total} unclassified &lt;ref&gt;{scanInfo.total !== 1 ? 's' : ''} found
+            </span>
+            {scanInfo.total === 0 ? (
+              <span style={{ color: 'var(--mute)' }}>No unclassified &lt;ref&gt; tags on this page.</span>
+            ) : (
+              <>
+                {scanInfo.byLevel.map((l) => (
+                  <span key={l.depth} className="font-mono shrink-0" style={{ color: 'var(--ink)' }}>
+                    <span className="font-semibold" style={{ color: 'var(--oxblood)' }}>L{l.depth} {l.name}:</span>{' '}
+                    {l.tokens.slice(0, 6).join(', ')}{l.tokens.length > 6 ? ` +${l.tokens.length - 6}` : ''}
+                  </span>
+                ))}
+                {scanInfo.unmatched.length > 0 && (
+                  <span className="font-mono shrink-0" style={{ color: '#7b2d8b' }}>
+                    <span className="font-semibold">unmatched:</span>{' '}
+                    {scanInfo.unmatched.slice(0, 5).join(', ')}{scanInfo.unmatched.length > 5 ? ` +${scanInfo.unmatched.length - 5}` : ''}
+                  </span>
+                )}
+                <button
+                  className="btn btn-quiet !py-0.5 !px-2.5 !text-[11px] shrink-0"
+                  style={{ background: '#0369a1', color: '#fff', borderColor: '#0369a1' }}
+                  onClick={applyAnnotations}
+                  title="Replace all matched [token] with <ref level=&quot;N&quot;>token</ref>"
+                >
+                  Annotate {scanInfo.matched} matched
+                </button>
+              </>
+            )}
+            <button
+              className="tool-btn !w-5 !h-5 ml-auto shrink-0"
+              onClick={() => setScanInfo(null)}
+              title="Dismiss"
+            >
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M18 6 6 18M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+        )}
+
         {/* Main two-column editor */}
         <div className="flex-1 grid overflow-hidden" style={{ gridTemplateColumns: '1fr 1fr' }}>
           {/* Left — image */}
@@ -592,7 +756,7 @@ export default function Review(): React.JSX.Element {
                 aria-hidden="true"
                 className="absolute inset-0 p-4 overflow-y-auto pointer-events-none font-mono text-[12.5px] leading-relaxed whitespace-pre-wrap break-words"
                 style={{ color: 'transparent', background: 'transparent', zIndex: 1 }}
-                dangerouslySetInnerHTML={{ __html: highlightMarkdown(content) }}
+                dangerouslySetInnerHTML={{ __html: highlightMarkdown(content, levelMap) }}
               />
               {/* Editable textarea — transparent so highlight layer shows through */}
               <textarea
@@ -644,7 +808,6 @@ export default function Review(): React.JSX.Element {
       </main>
 
       <style>{`
-        mark.tag-ref  { background: #fdecea; color: #c0392b; font-weight: 600; }
         mark.tag-ref-u{ background: #f5e6fa; color: #7b2d8b; font-weight: 600; }
         mark.tag-note { background: #f0e8ff; color: #6d28d9; font-weight: 600; }
         mark.tag-misc { background: #e5e7eb; color: #4b5563; }

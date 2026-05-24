@@ -12,20 +12,11 @@ jobs:
       matrix:
         include:
           - os: ubuntu-latest
-            platform: linux
             eb_platform: linux
-            python_os: linux
-            python_arch: x86_64-unknown-linux-gnu
           - os: windows-latest
-            platform: win32
             eb_platform: win
-            python_os: windows
-            python_arch: x86_64-pc-windows-msvc
           - os: macos-latest
-            platform: darwin
             eb_platform: mac
-            python_os: apple
-            python_arch: aarch64-apple-darwin
 
     runs-on: ${{ matrix.os }}
 
@@ -48,43 +39,6 @@ jobs:
       - name: Install Node dependencies
         run: npm ci
 
-      # Download python-build-standalone for target platform
-      - name: Download portable Python
-        shell: bash
-        run: |
-          # python-build-standalone by Astral (https://github.com/astral-sh/python-build-standalone)
-          PYTHON_VERSION="3.12.7"
-          RELEASE_DATE="20241016"
-          ARCH="${{ matrix.python_arch }}"
-
-          if [[ "${{ matrix.platform }}" == "win32" ]]; then
-            FILE="cpython-${PYTHON_VERSION}+${RELEASE_DATE}-${ARCH}-install_only.tar.gz"
-          elif [[ "${{ matrix.platform }}" == "darwin" ]]; then
-            FILE="cpython-${PYTHON_VERSION}+${RELEASE_DATE}-${ARCH}-install_only.tar.gz"
-          else
-            FILE="cpython-${PYTHON_VERSION}+${RELEASE_DATE}-${ARCH}-install_only.tar.gz"
-          fi
-
-          URL="https://github.com/astral-sh/python-build-standalone/releases/download/${RELEASE_DATE}/${FILE}"
-          echo "Downloading $URL"
-          curl -L "$URL" -o python.tar.gz
-
-          mkdir -p resources/python-${{ matrix.platform }}
-          tar -xzf python.tar.gz -C resources/python-${{ matrix.platform }} --strip-components=1
-
-      # Install Python pipeline dependencies into the bundled Python
-      - name: Install Python deps into bundled Python
-        shell: bash
-        run: |
-          PYTHON_DIR="resources/python-${{ matrix.platform }}"
-          if [[ "${{ matrix.platform }}" == "win32" ]]; then
-            PYTHON_BIN="$PYTHON_DIR/python.exe"
-          else
-            PYTHON_BIN="$PYTHON_DIR/bin/python3"
-          fi
-          "$PYTHON_BIN" -m pip install --upgrade pip
-          "$PYTHON_BIN" -m pip install lxml pyyaml regex
-
       - name: Install AppImage dependencies
         if: matrix.platform == 'linux'
         run: sudo apt-get install -y libfuse2
@@ -96,6 +50,7 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CSC_IDENTITY_AUTO_DISCOVERY: false
         run: |
           TAG="${GITHUB_REF_NAME#v}"
           if [[ "$TAG" =~ ^[0-9]+\.[0-9]+\.[0-9] ]]; then

@@ -1,0 +1,60 @@
+appId: com.cllg.desktop
+productName: CLLG Desktop
+copyright: Copyright © 2024
+
+directories:
+  buildResources: resources
+  output: dist
+
+files:
+  - out/**/*
+  - python/**/*
+  - '!**/.git/**'
+  - '!**/node_modules/**'
+
+# Bundle the pipeline scripts alongside the app
+extraResources:
+  - from: ../cllg_pipeline/original_cli
+    to: python/cllg_pipeline/original_cli
+    filter:
+      - cllg_pipeline.py
+      - pyparams.py
+      - tei_all.rng
+
+# Platform-specific Python runtime (downloaded by CI and placed here)
+# The CI places: resources/python-darwin, resources/python-linux, resources/python-win32
+extraFiles:
+  - from: resources/python-${os}
+    to: python-runtime
+    filter:
+      - '**/*'
+
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  icon: resources/icon.ico
+
+mac:
+  target:
+    - target: dmg
+      arch:
+        - x64
+        - arm64
+  icon: resources/icon.icns
+  category: public.app-category.developer-tools
+
+linux:
+  target:
+    - target: AppImage
+      arch:
+        - x64
+  icon: resources/icon.png
+  category: Utility
+
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  installerIcon: resources/icon.ico
+  uninstallerIcon: resources/icon.ico

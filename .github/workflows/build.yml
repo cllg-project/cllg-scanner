@@ -13,14 +13,17 @@ jobs:
         include:
           - os: ubuntu-latest
             platform: linux
+            eb_platform: linux
             python_os: linux
             python_arch: x86_64-unknown-linux-gnu
           - os: windows-latest
             platform: win32
+            eb_platform: win
             python_os: windows
             python_arch: x86_64-pc-windows-msvc
           - os: macos-latest
             platform: darwin
+            eb_platform: mac
             python_os: apple
             python_arch: aarch64-apple-darwin
 
@@ -35,6 +38,10 @@ jobs:
           node-version: '20'
           cache: npm
           cache-dependency-path: cllg-desktop/package-lock.json
+
+      - name: Install Node dependencies
+        working-directory: cllg-desktop
+        run: npm ci
 
       # Download python-build-standalone for target platform
       - name: Download portable Python
@@ -73,10 +80,6 @@ jobs:
           "$PYTHON_BIN" -m pip install --upgrade pip
           "$PYTHON_BIN" -m pip install lxml pyyaml regex
 
-      - name: Install Node dependencies
-        working-directory: cllg-desktop
-        run: npm ci
-
       - name: Build app
         working-directory: cllg-desktop
         run: npm run build
@@ -85,7 +88,7 @@ jobs:
         working-directory: cllg-desktop
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npx electron-builder --${{ matrix.platform }}
+        run: npx electron-builder --${{ matrix.eb_platform }}
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4

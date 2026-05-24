@@ -3,13 +3,12 @@ productName: CLLG Desktop
 copyright: Copyright © 2024
 
 directories:
-  buildResources: resources
   output: dist
 
 files:
   - out/**/*
+  - node_modules/**/*
   - '!**/.git/**'
-  - '!**/node_modules/**'
   - '!python/**'
 
 win:
@@ -17,16 +16,14 @@ win:
     - target: nsis
       arch:
         - x64
-        - arm64
-  icon: resources/icon.ico
+  icon: cllg.ico
 
 mac:
   target:
     - target: dmg
       arch:
-        - x64
         - arm64
-  icon: resources/icon.icns
+  icon: cllg.ico
   category: public.app-category.developer-tools
 
 linux:
@@ -34,12 +31,11 @@ linux:
     - target: AppImage
       arch:
         - x64
-        - arm64
-  icon: resources/icon.png
+  icon: cllg.png
   category: Utility
 
 nsis:
   oneClick: false
   allowToChangeInstallationDirectory: true
-  installerIcon: resources/icon.ico
-  uninstallerIcon: resources/icon.ico
+  installerIcon: cllg.ico
+  uninstallerIcon: cllg.ico

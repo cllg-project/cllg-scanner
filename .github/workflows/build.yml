@@ -30,17 +30,22 @@ jobs:
     runs-on: ${{ matrix.os }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4.2.2
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v4.4.0
         with:
           node-version: '20'
-          cache: npm
-          cache-dependency-path: cllg-desktop/package-lock.json
+
+      - name: Cache npm dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: ${{ runner.os }}-npm-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-npm-
 
       - name: Install Node dependencies
-        working-directory: cllg-desktop
         run: npm ci
 
       # Download python-build-standalone for target platform
@@ -64,14 +69,14 @@ jobs:
           echo "Downloading $URL"
           curl -L "$URL" -o python.tar.gz
 
-          mkdir -p cllg-desktop/resources/python-${{ matrix.platform }}
-          tar -xzf python.tar.gz -C cllg-desktop/resources/python-${{ matrix.platform }} --strip-components=1
+          mkdir -p resources/python-${{ matrix.platform }}
+          tar -xzf python.tar.gz -C resources/python-${{ matrix.platform }} --strip-components=1
 
       # Install Python pipeline dependencies into the bundled Python
       - name: Install Python deps into bundled Python
         shell: bash
         run: |
-          PYTHON_DIR="cllg-desktop/resources/python-${{ matrix.platform }}"
+          PYTHON_DIR="resources/python-${{ matrix.platform }}"
           if [[ "${{ matrix.platform }}" == "win32" ]]; then
             PYTHON_BIN="$PYTHON_DIR/python.exe"
           else
@@ -80,32 +85,45 @@ jobs:
           "$PYTHON_BIN" -m pip install --upgrade pip
           "$PYTHON_BIN" -m pip install lxml pyyaml regex
 
+      - name: Install AppImage dependencies
+        if: matrix.platform == 'linux'
+        run: sudo apt-get install -y libfuse2
+
       - name: Build app
-        working-directory: cllg-desktop
         run: npm run build
 
       - name: Package (electron-builder)
-        working-directory: cllg-desktop
+        shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npx electron-builder --${{ matrix.eb_platform }}
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          if [[ "$TAG" =~ ^[0-9]+\.[0-9]+\.[0-9] ]]; then
+            VERSION="$TAG"
+          else
+            VERSION="0.0.1"
+          fi
+          npx electron-builder --${{ matrix.eb_platform }} --publish never \
+            --config.extraMetadata.version="$VERSION"
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v4.6.2
         with:
           name: cllg-desktop-${{ matrix.platform }}
           path: |
-            cllg-desktop/dist/*.exe
-            cllg-desktop/dist/*.dmg
-            cllg-desktop/dist/*.AppImage
+            dist/*.exe
+            dist/*.dmg
+            dist/*.AppImage
           retention-days: 30
 
   release:
     needs: build
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/')
+    permissions:
+      contents: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v4.3.0
         with:
           path: artifacts
           merge-multiple: true

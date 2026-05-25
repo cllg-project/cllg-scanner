@@ -175,3 +175,12 @@ Requires Node 20+ and npm 10+.
 The application is built with Electron 31, React 18, and TypeScript. PDF rendering uses pdfjs-dist in the renderer process. Canvas masking uses Konva. TEI conversion runs in the main process using a pure TypeScript implementation with no external tools or native dependencies.
 
 LM Studio is called via its native HTTP API at `{endpoint}/api/v1/chat`. The application also accepts the OpenAI-compatible response format as a fallback.
+
+---
+
+## Acknowledgments
+
+The project *« Corpus Liberatum Linguae Graecae »* was supported by the French National Research Agency (ANR) under the France 2030 grant reference number *« ANR-24-RRII-0002 »* operated by the Inria Quadrant Program.
+
+**Project Leader:** Thibault Clérice  
+**Project Members:** Nicolas Angleraud, Antonia Karamolegkou, Benoît Sagot

@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useState } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { useProject } from '../App'
 
@@ -66,10 +66,63 @@ const NAV = [
   }
 ]
 
+function AboutModal({ onClose }: { onClose: () => void }): React.JSX.Element {
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center"
+      style={{ background: 'rgba(0,0,0,0.55)' }}
+      onClick={onClose}
+    >
+      <div
+        className="rounded-xl shadow-2xl max-w-md w-full mx-4 p-7"
+        style={{ background: 'var(--paper)', color: 'var(--ink)', border: '1px solid var(--line)' }}
+        onClick={e => e.stopPropagation()}
+      >
+        <div className="flex items-start justify-between mb-5">
+          <h2 className="font-serif text-[22px] leading-tight">CLLG Desktop</h2>
+          <button
+            className="tool-btn"
+            onClick={onClose}
+            title="Close"
+            style={{ marginTop: 2 }}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M18 6 6 18M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+
+        <div className="text-[12.5px] leading-relaxed space-y-4" style={{ color: 'var(--ink)' }}>
+          <div>
+            <div className="font-mono text-[10px] tracking-[.14em] uppercase mb-2" style={{ color: 'var(--mute)' }}>
+              Acknowledgments
+            </div>
+            <p>
+              The project <em>« Corpus Liberatum Linguae Graecae »</em> was supported by the French
+              National Research Agency (ANR) under the France 2030 grant reference number{' '}
+              <span className="font-mono">« ANR-24-RRII-0002 »</span> operated by the Inria Quadrant
+              Program.
+            </p>
+          </div>
+
+          <div className="pt-1 space-y-1" style={{ borderTop: '1px solid var(--line)' }}>
+            <div className="font-mono text-[10px] tracking-[.14em] uppercase mb-2" style={{ color: 'var(--mute)' }}>
+              Team
+            </div>
+            <div><span className="text-[11px] font-medium" style={{ color: 'var(--mute)' }}>Project Leader</span><span className="ml-2">Thibault Clérice</span></div>
+            <div><span className="text-[11px] font-medium" style={{ color: 'var(--mute)' }}>Members</span><span className="ml-2">Nicolas Angleraud, Antonia Karamolegkou, Benoît Sagot</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function Sidebar({ collapsed = false }: SidebarProps): React.JSX.Element {
   const location = useLocation()
   const navigate = useNavigate()
   const { project } = useProject()
+  const [showAbout, setShowAbout] = useState(false)
 
   return (
     <aside
@@ -128,14 +181,26 @@ export default function Sidebar({ collapsed = false }: SidebarProps): React.JSX.
           C
         </div>
         {!collapsed && (
-          <div className="text-[11.5px] leading-tight">
+          <div className="text-[11.5px] leading-tight flex-1 min-w-0">
             <div style={{ color: '#e9e3d3' }}>Local workspace</div>
             <div className="font-mono text-[10px]" style={{ color: '#8e8472' }}>
               offline
             </div>
           </div>
         )}
+        <button
+          onClick={() => setShowAbout(true)}
+          title="About / Acknowledgments"
+          className="shrink-0 flex items-center justify-center w-6 h-6 rounded-full opacity-50 hover:opacity-100 transition-opacity"
+          style={{ color: '#e9e3d9' }}
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <circle cx="12" cy="12" r="10" /><path d="M12 16v-4M12 8h.01" />
+          </svg>
+        </button>
       </div>
+
+      {showAbout && <AboutModal onClose={() => setShowAbout(false)} />}
     </aside>
   )
 }

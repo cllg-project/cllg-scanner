@@ -66,6 +66,18 @@ const NAV = [
   }
 ]
 
+const CREDITS: { name: string; author: string; license: string }[] = [
+  { name: 'Electron',       author: 'OpenJS Foundation',  license: 'MIT' },
+  { name: 'React',          author: 'Meta Platforms',     license: 'MIT' },
+  { name: 'PDF.js',         author: 'Mozilla Foundation', license: 'Apache 2.0' },
+  { name: 'Konva',          author: 'Anton Lavrenov',     license: 'MIT' },
+  { name: '@xmldom/xmldom', author: 'xmldom contributors', license: 'MIT' },
+  { name: 'yaml',           author: 'Eemeli Aro',         license: 'ISC' },
+  { name: 'react-router',   author: 'Remix Software',     license: 'MIT' },
+  { name: 'Tailwind CSS',   author: 'Tailwind Labs',      license: 'MIT' },
+  { name: 'electron-vite',  author: 'Alex Wei',           license: 'MIT' },
+]
+
 function AboutModal({ onClose }: { onClose: () => void }): React.JSX.Element {
   return (
     <div
@@ -74,25 +86,26 @@ function AboutModal({ onClose }: { onClose: () => void }): React.JSX.Element {
       onClick={onClose}
     >
       <div
-        className="rounded-xl shadow-2xl max-w-md w-full mx-4 p-7"
-        style={{ background: 'var(--paper)', color: 'var(--ink)', border: '1px solid var(--line)' }}
+        className="rounded-xl shadow-2xl max-w-lg w-full mx-4 p-7 overflow-y-auto"
+        style={{ background: 'var(--paper)', color: 'var(--ink)', border: '1px solid var(--line)', maxHeight: '90vh' }}
         onClick={e => e.stopPropagation()}
       >
         <div className="flex items-start justify-between mb-5">
-          <h2 className="font-serif text-[22px] leading-tight">CLLG Desktop</h2>
-          <button
-            className="tool-btn"
-            onClick={onClose}
-            title="Close"
-            style={{ marginTop: 2 }}
-          >
+          <div>
+            <h2 className="font-serif text-[22px] leading-tight">CLLG Desktop</h2>
+            <div className="font-mono text-[10px] tracking-[.14em] uppercase mt-0.5" style={{ color: 'var(--mute)' }}>
+              Apache License 2.0
+            </div>
+          </div>
+          <button className="tool-btn" onClick={onClose} title="Close" style={{ marginTop: 2 }}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <path d="M18 6 6 18M6 6l12 12" />
             </svg>
           </button>
         </div>
 
-        <div className="text-[12.5px] leading-relaxed space-y-4" style={{ color: 'var(--ink)' }}>
+        <div className="text-[12.5px] leading-relaxed space-y-5" style={{ color: 'var(--ink)' }}>
+
           <div>
             <div className="font-mono text-[10px] tracking-[.14em] uppercase mb-2" style={{ color: 'var(--mute)' }}>
               Acknowledgments
@@ -105,13 +118,44 @@ function AboutModal({ onClose }: { onClose: () => void }): React.JSX.Element {
             </p>
           </div>
 
-          <div className="pt-1 space-y-1" style={{ borderTop: '1px solid var(--line)' }}>
+          <div className="space-y-1 pt-1" style={{ borderTop: '1px solid var(--line)' }}>
             <div className="font-mono text-[10px] tracking-[.14em] uppercase mb-2" style={{ color: 'var(--mute)' }}>
               Team
             </div>
-            <div><span className="text-[11px] font-medium" style={{ color: 'var(--mute)' }}>Project Leader</span><span className="ml-2">Thibault Clérice</span></div>
-            <div><span className="text-[11px] font-medium" style={{ color: 'var(--mute)' }}>Members</span><span className="ml-2">Nicolas Angleraud, Antonia Karamolegkou, Benoît Sagot</span></div>
+            <div>
+              <span className="text-[11px] font-medium" style={{ color: 'var(--mute)' }}>Project Leader</span>
+              <span className="ml-2">Thibault Clérice</span>
+            </div>
+            <div>
+              <span className="text-[11px] font-medium" style={{ color: 'var(--mute)' }}>Members</span>
+              <span className="ml-2">Nicolas Angleraud, Antonia Karamolegkou, Benoît Sagot</span>
+            </div>
           </div>
+
+          <div className="pt-1" style={{ borderTop: '1px solid var(--line)' }}>
+            <div className="font-mono text-[10px] tracking-[.14em] uppercase mb-2" style={{ color: 'var(--mute)' }}>
+              Open-source dependencies
+            </div>
+            <table className="w-full text-[11.5px]" style={{ borderCollapse: 'collapse' }}>
+              <thead>
+                <tr style={{ color: 'var(--mute)' }}>
+                  <th className="text-left font-mono font-normal pb-1.5 pr-4">Library</th>
+                  <th className="text-left font-mono font-normal pb-1.5 pr-4">Author</th>
+                  <th className="text-left font-mono font-normal pb-1.5">License</th>
+                </tr>
+              </thead>
+              <tbody>
+                {CREDITS.map(c => (
+                  <tr key={c.name} style={{ borderTop: '1px solid var(--line-2)' }}>
+                    <td className="py-1 pr-4 font-mono">{c.name}</td>
+                    <td className="py-1 pr-4">{c.author}</td>
+                    <td className="py-1 font-mono text-[10.5px]" style={{ color: 'var(--mute)' }}>{c.license}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
         </div>
       </div>
     </div>

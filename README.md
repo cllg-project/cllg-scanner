@@ -2,6 +2,8 @@
 
 ![CLLG Desktop](cllg.png)
 
+[![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
+
 A desktop application for OCR processing of ancient Greek and Latin scholarly texts. It converts scanned documents — PDFs, DjVu files, or image folders — into structured TEI XML through a guided five-step workflow.
 
 Inference is delegated to a local [LM Studio](https://lmstudio.ai/) server running a vision model (Qwen2.5-VL or compatible). No data leaves your machine.
@@ -178,9 +180,33 @@ LM Studio is called via its native HTTP API at `{endpoint}/api/v1/chat`. The app
 
 ---
 
+## License
+
+CLLG Desktop is released under the [Apache License 2.0](LICENSE).
+
+You are free to use, modify, and redistribute this software. Attribution is required; the names of the contributors and the project may not be used to endorse or promote derived works without explicit permission.
+
+---
+
 ## Acknowledgments
 
 The project *« Corpus Liberatum Linguae Graecae »* was supported by the French National Research Agency (ANR) under the France 2030 grant reference number *« ANR-24-RRII-0002 »* operated by the Inria Quadrant Program.
 
 **Project Leader:** Thibault Clérice  
 **Project Members:** Nicolas Angleraud, Antonia Karamolegkou, Benoît Sagot
+
+---
+
+## Open-source dependencies
+
+| Library | Author | License |
+|---|---|---|
+| [Electron](https://github.com/electron/electron) | OpenJS Foundation | MIT |
+| [React](https://github.com/facebook/react) | Meta Platforms | MIT |
+| [PDF.js](https://github.com/mozilla/pdf.js) | Mozilla Foundation | Apache 2.0 |
+| [Konva](https://github.com/konvajs/konva) | Anton Lavrenov | MIT |
+| [@xmldom/xmldom](https://github.com/xmldom/xmldom) | xmldom contributors | MIT |
+| [yaml](https://github.com/eemeli/yaml) | Eemeli Aro | ISC |
+| [react-router](https://github.com/remix-run/react-router) | Remix Software | MIT |
+| [Tailwind CSS](https://github.com/tailwindlabs/tailwindcss) | Tailwind Labs | MIT |
+| [electron-vite](https://github.com/alex8088/electron-vite) | Alex Wei | MIT |

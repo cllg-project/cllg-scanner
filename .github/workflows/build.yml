@@ -40,7 +40,7 @@ jobs:
         run: npm ci
 
       - name: Install AppImage dependencies
-        if: matrix.platform == 'linux'
+        if: matrix.eb_platform == 'linux'
         run: sudo apt-get install -y libfuse2
 
       - name: Build app
@@ -64,7 +64,7 @@ jobs:
       - name: Upload artifacts
         uses: actions/upload-artifact@v4.6.2
         with:
-          name: cllg-desktop-${{ matrix.platform }}
+          name: cllg-desktop-${{ matrix.eb_platform }}
           path: |
             dist/*.exe
             dist/*.dmg

@@ -1,6 +1,6 @@
 appId: com.cllg.desktop
 productName: CLLG Desktop
-copyright: Copyright © 2024
+copyright: Built by Inria — ALMAnaCH Team, under Apache License 2.0
 afterPack: afterPack.js
 
 directories:

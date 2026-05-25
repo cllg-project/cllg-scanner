@@ -41,7 +41,7 @@ RULES:
 Output ONLY the transcription.`
 
 // Faithful port of patch_output() from cllg_pipeline.py — EM dash kept as-is.
-function normalizeHyphenAndElision(text: string): string {
+export function normalizeHyphenAndElision(text: string): string {
   text = text.replace(/[`´‘’ʼʹ]/g, "'")
   text = text.replace(/[‐‑‒–−﹘﹣－]/g, '-')
   text = text.replace(/(?<=\w)-\s+(?=[^\W\d_])/g, '')
@@ -51,7 +51,7 @@ function normalizeHyphenAndElision(text: string): string {
 const LEFT_ANGLES  = /[‹〈《⟨＜❨❬❰⧼]/g
 const RIGHT_ANGLES = /[›〉》⟩＞❩❭❱⧽]/g
 
-function normalizeAngleBrackets(text: string): string {
+export function normalizeAngleBrackets(text: string): string {
   const tags: string[] = []
   text = text.replace(/<\/?[^>]+?>/g, (m) => { tags.push(m); return `@@TAG${tags.length - 1}@@` })
   text = text.replace(LEFT_ANGLES, '\u27e8').replace(RIGHT_ANGLES, '\u27e9')
@@ -59,7 +59,7 @@ function normalizeAngleBrackets(text: string): string {
   return text
 }
 
-function patchOutput(text: string): string {
+export function patchOutput(text: string): string {
   return normalizeAngleBrackets(normalizeHyphenAndElision(text)).trim()
 }
 

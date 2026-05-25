@@ -3,6 +3,7 @@ import { readFile, writeFile, appendFile } from 'fs/promises'
 import { mkdirSync, existsSync } from 'fs'
 import { join, isAbsolute } from 'path'
 import type { Page, LMConfig, OCRProgressEvent, Project } from '@shared/types'
+import { normalizeOcrText } from './normalizeOcr'
 
 async function persistPageStatus(projectDir: string, pageN: number, status: 'ocr_done' | 'error'): Promise<void> {
   const projectFile = join(projectDir, 'project.cllg.json')
@@ -180,7 +181,7 @@ export function registerOCRHandlers(): void {
             data.stats?.total_output_tokens
             ?? data.usage?.completion_tokens
             ?? raw.split(/\s+/).length
-          const text = patchOutput(raw)
+          const text = normalizeOcrText(patchOutput(raw))
           const pageMarkdown = `<pb n="${page.n}"/>\n${text}\n\n`
 
           // Write per-page cache before appending to combined output

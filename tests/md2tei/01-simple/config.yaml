@@ -1,0 +1,11 @@
+metadata:
+  title: Simple Test
+  author: Anonymous
+structure:
+  name: book
+  format: Roman
+  missing_first: false
+  child:
+    name: chapter
+    format: '\d+'
+    missing_first: false

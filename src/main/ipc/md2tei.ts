@@ -169,7 +169,7 @@ function buildBody(
   function flushP(): void {
     const content = pParts.join('').trim()
     pParts = []
-    if (!content) { inHead = false; return }
+    if (!content) { return }
     out.push(inHead ? `<head>${content}</head>` : `<p>${content}</p>`)
     inHead = false
   }
@@ -272,7 +272,9 @@ function mergeContinuations(doc: Document): void {
         if (!firstNode || firstNode.nodeType !== TEXT) continue
         if (!firstNode.nodeValue?.startsWith(MARKER)) continue
 
-        firstNode.nodeValue = firstNode.nodeValue.slice(MARKER.length)
+        // Extract content without mutating the text node (nodeValue setter is unreliable in @xmldom/xmldom)
+        const contText = (firstNode.nodeValue ?? '').slice(MARKER.length)
+        child.removeChild(firstNode)
 
         // Find preceding <pb>
         let pbElem: Element | null = null
@@ -291,20 +293,16 @@ function mergeContinuations(doc: Document): void {
         }
         if (!prevP) continue
 
-        // Append space to prevP
+        // Append trailing space to prevP's last text node so the <pb> reads as a word boundary
         const last = prevP.lastChild
         if (last && last.nodeType === TEXT) {
-          last.nodeValue = (last.nodeValue ?? '').trimEnd() + ' '
-        } else {
-          prevP.appendChild(doc.createTextNode(' '))
+          prevP.replaceChild(doc.createTextNode((last.nodeValue ?? '').trimEnd() + ' '), last)
         }
 
-        // Move <pb> into prevP, carrying continuation text as its tail
+        // Move <pb> into prevP then append continuation text (no leading space — <pb> is the separator)
         parent.removeChild(pbElem)
-        const contText = firstNode.nodeValue ?? ''
-        firstNode.nodeValue = ''
         prevP.appendChild(pbElem)
-        prevP.appendChild(doc.createTextNode(' ' + contText.trim()))
+        if (contText.trim()) prevP.appendChild(doc.createTextNode(contText.trim()))
 
         // Move remaining children of continuation <p> into prevP
         const toMove = childNodes(child)
@@ -344,11 +342,22 @@ function replaceHyphenation(doc: Document): void {
       }
       if (!hasFollowing) { i++; continue }
 
-      node.nodeValue = m[1]
+      // Replace text node via replaceChild (nodeValue setter is unreliable in @xmldom/xmldom)
+      p.replaceChild(doc.createTextNode(m[1]), node)
       const lb = doc.createElementNS(NS, 'lb')
       lb.setAttribute('break', 'no')
-      const next = p.childNodes[i + 1] ?? null
-      p.insertBefore(lb, next)
+      p.insertBefore(lb, p.childNodes[i + 1] ?? null)
+
+      // If the element after lb is a <pb>, mark it break="no" and strip its leading space
+      const afterLb = p.childNodes[i + 2]
+      if (afterLb?.nodeType === ELEM && (afterLb as Element).localName === 'pb') {
+        ;(afterLb as Element).setAttribute('break', 'no')
+        const afterPb = p.childNodes[i + 3]
+        if (afterPb?.nodeType === TEXT) {
+          const v = afterPb.nodeValue ?? ''
+          if (v.startsWith(' ')) p.replaceChild(doc.createTextNode(v.slice(1)), afterPb)
+        }
+      }
       i += 2
     }
   }
@@ -460,16 +469,31 @@ function addCiteStructure(doc: Document, config: Record<string, unknown>): void 
 // ── Simple pretty-printer ─────────────────────────────────────────────────────
 
 function prettyPrint(xml: string, space = '  '): string {
-  // Normalise: one token per line
   const tokens = xml.match(/(<[^>]+>)|([^<]+)/g) ?? []
   const lines: string[] = []
   let depth = 0
+  let inline = false  // true while inside <p> or <head>
+
+  function tagName(t: string): string {
+    return t.replace(/^<\/?/, '').split(/[\s/>]/)[0].toLowerCase()
+  }
 
   for (const tok of tokens) {
     const t = tok.trim()
     if (!t) continue
+
     if (t.startsWith('<?') || t.startsWith('<!')) {
       lines.push(t)
+    } else if (inline) {
+      // Inside <p>/<head>: keep everything on the same line; preserve raw whitespace
+      if (t.startsWith('</') && (tagName(t) === 'p' || tagName(t) === 'head')) {
+        depth--
+        inline = false
+        lines.push(space.repeat(depth) + t)
+      } else {
+        if (lines.length) lines[lines.length - 1] += tok
+        else lines.push(tok)
+      }
     } else if (t.startsWith('</')) {
       depth = Math.max(0, depth - 1)
       lines.push(space.repeat(depth) + t)
@@ -478,8 +502,8 @@ function prettyPrint(xml: string, space = '  '): string {
     } else if (t.startsWith('<')) {
       lines.push(space.repeat(depth) + t)
       depth++
+      if (tagName(t) === 'p' || tagName(t) === 'head') inline = true
     } else {
-      // text content — append to previous line
       if (lines.length) lines[lines.length - 1] += t
       else lines.push(t)
     }

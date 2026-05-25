@@ -66,9 +66,10 @@ function annotateContent(text: string, levels: FlatLevel[]): string {
 }
 
 type TagInfo =
-  | { kind: 'ref';   start: number; end: number; inner: string; level: string }
-  | { kind: 'note';  start: number; end: number; inner: string }
-  | { kind: 'self';  start: number; end: number; tag: string }   // <tab/>, <lb/>, etc.
+  | { kind: 'ref';    start: number; end: number; inner: string; level: string }
+  | { kind: 'note';   start: number; end: number; inner: string }
+  | { kind: 'self';   start: number; end: number; tag: string }   // <tab/>, <lb/>, etc.
+  | { kind: 'hyphen'; start: number; end: number; word: string }  // word-
 
 function detectCursorTag(text: string, pos: number): TagInfo | null {
   // Paired tags: <ref ...>...</ref>  |  <note>...</note>
@@ -88,6 +89,13 @@ function detectCursorTag(text: string, pos: number): TagInfo | null {
   while ((m = self.exec(text)) !== null) {
     if (pos >= m.index && pos <= m.index + m[0].length) {
       return { kind: 'self', start: m.index, end: m.index + m[0].length, tag: m[0] }
+    }
+  }
+  // Hyphenated word: word- (followed by whitespace, will become <lb break="no"/>)
+  const hyphenRe = /(\p{L}+)-[ \t]+/gmu
+  while ((m = hyphenRe.exec(text)) !== null) {
+    if (pos >= m.index && pos <= m.index + m[0].length) {
+      return { kind: 'hyphen', start: m.index, end: m.index + m[0].length, word: m[1] }
     }
   }
   return null
@@ -158,6 +166,7 @@ export default function Review(): React.JSX.Element {
   const [cursorTag, setCursorTag] = useState<TagInfo | null>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const highlightRef = useRef<HTMLDivElement>(null)
+  const scrollContainerRef = useRef<HTMLDivElement>(null)
   const [scanInfo, setScanInfo] = useState<ScanInfo | null>(null)
 
   const levelList = flattenHierarchy(project?.hierarchy ?? [])
@@ -195,13 +204,20 @@ export default function Review(): React.JSX.Element {
       .catch(() => setImageUrl(null))
   }, [currentPage, project])
 
-  const syncScroll = (): void => {
-    if (!textareaRef.current || !highlightRef.current) return
-    highlightRef.current.scrollTop = textareaRef.current.scrollTop
-  }
+  // Grow the textarea to fit its content so the outer container does the scrolling.
+  // This eliminates scrollbar-width mismatches between the textarea and the highlight layer.
+  const autoGrow = useCallback((): void => {
+    const ta = textareaRef.current
+    const sc = scrollContainerRef.current
+    if (!ta || !sc) return
+    ta.style.height = 'auto'
+    ta.style.height = `${Math.max(ta.scrollHeight, sc.clientHeight)}px`
+  }, [])
 
   const currentState = currentPage ? pages.get(currentPage.n) : undefined
   const content = currentState?.content ?? ''
+
+  useEffect(() => { autoGrow() }, [content])
 
   // Push a new value onto the current page's undo stack
   const setContent = (value: string): void => {
@@ -320,6 +336,12 @@ export default function Review(): React.JSX.Element {
     setContent(annotateContent(content, levelList))
     setScanInfo(null)
   }, [content, levelList]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const replaceAllHyphens = useCallback((): void => {
+    setContent(content.replace(/(\p{L}+)-[ \t]+/gmu, '$1<lb break="no"/>'))
+  }, [content]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const hyphenCount = (content.match(/\p{L}+-[ \t]/gmu) ?? []).length
 
   // Replace the tag at [start, end) with arbitrary text, then refocus
   const replaceTag = (start: number, end: number, replacement: string): void => {
@@ -502,6 +524,18 @@ export default function Review(): React.JSX.Element {
           >
             &lt;lb/&gt;
           </button>
+          <button
+            className="btn btn-quiet !py-0.5 !px-2 !text-[11px] gap-1"
+            onClick={replaceAllHyphens}
+            disabled={hyphenCount === 0}
+            title="Replace all word- patterns with <lb break='no'/>"
+            style={hyphenCount > 0 ? { borderColor: '#15803d', color: '#15803d' } : {}}
+          >
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M4 12h16M12 4l8 8-8 8" />
+            </svg>
+            Fix hyphens{hyphenCount > 0 ? ` (${hyphenCount})` : ''}
+          </button>
 
           <div className="w-px h-5 mx-1" style={{ background: 'var(--line-2)' }} />
 
@@ -573,14 +607,16 @@ export default function Review(): React.JSX.Element {
         {cursorTag !== null && (
           <div
             className="px-8 h-9 flex items-center gap-2 border-b shrink-0 text-[11.5px] overflow-x-auto"
-            style={{ borderColor: 'var(--line)', background: '#fdf4ff', flexShrink: 0 }}
+            style={{ borderColor: 'var(--line)', background: cursorTag.kind === 'hyphen' ? '#f0fdf4' : '#fdf4ff', flexShrink: 0 }}
           >
             {/* Current tag label */}
-            <span className="font-mono shrink-0" style={{ color: '#7b2d8b' }}>
+            <span className="font-mono shrink-0" style={{ color: cursorTag.kind === 'hyphen' ? '#15803d' : '#7b2d8b' }}>
               {cursorTag.kind === 'ref'
                 ? (cursorTag.level ? `<ref level="${cursorTag.level}">` : '<ref>')
                 : cursorTag.kind === 'note'
                 ? '<note>'
+                : cursorTag.kind === 'hyphen'
+                ? `${cursorTag.word}-`
                 : cursorTag.tag}
             </span>
 
@@ -661,15 +697,38 @@ export default function Review(): React.JSX.Element {
               </button>
             )}
 
-            {/* Delete */}
-            <button
-              className="btn btn-quiet !py-0 !px-2 !text-[11px] shrink-0"
-              style={{ color: '#c0392b' }}
-              onClick={() => replaceTag(cursorTag.start, cursorTag.end, '')}
-              title="Delete tag and its content"
-            >
-              delete
-            </button>
+            {/* Hyphen fix actions */}
+            {cursorTag.kind === 'hyphen' && (
+              <>
+                <button
+                  className="btn btn-quiet !py-0 !px-2 !text-[11px] shrink-0 font-mono"
+                  style={{ borderColor: '#15803d', color: '#15803d' }}
+                  onClick={() => replaceTag(cursorTag.start, cursorTag.end, `${cursorTag.word}<lb break="no"/>`)}
+                  title="Replace with <lb break='no'/>"
+                >
+                  &lt;lb break="no"/&gt;
+                </button>
+                <button
+                  className="btn btn-quiet !py-0 !px-2 !text-[11px] shrink-0"
+                  onClick={() => replaceTag(cursorTag.start, cursorTag.end, cursorTag.word)}
+                  title="Join words without break marker"
+                >
+                  join only
+                </button>
+              </>
+            )}
+
+            {/* Delete — not shown for hyphen (it's plain text, not a tag) */}
+            {cursorTag.kind !== 'hyphen' && (
+              <button
+                className="btn btn-quiet !py-0 !px-2 !text-[11px] shrink-0"
+                style={{ color: '#c0392b' }}
+                onClick={() => replaceTag(cursorTag.start, cursorTag.end, '')}
+                title="Delete tag and its content"
+              >
+                delete
+              </button>
+            )}
           </div>
         )}
 
@@ -746,31 +805,34 @@ export default function Review(): React.JSX.Element {
 
           {/* Right — editor */}
           <div className="overflow-hidden flex flex-col">
+            {/* Outer scroll container — this is the only scrollable element */}
             <div
-              className="flex-1 relative overflow-hidden"
+              ref={scrollContainerRef}
+              className="flex-1 overflow-y-auto"
               style={{ background: currentState?.loaded ? 'white' : 'var(--paper-2)' }}
             >
-              {/* Highlight layer — transparent text, only mark backgrounds show */}
-              <div
-                ref={highlightRef}
-                aria-hidden="true"
-                className="absolute inset-0 p-4 overflow-y-auto pointer-events-none font-mono text-[12.5px] leading-relaxed whitespace-pre-wrap break-words"
-                style={{ color: 'transparent', background: 'transparent', zIndex: 1 }}
-                dangerouslySetInnerHTML={{ __html: highlightMarkdown(content, levelMap) }}
-              />
-              {/* Editable textarea — transparent so highlight layer shows through */}
-              <textarea
-                ref={textareaRef}
-                className="absolute inset-0 w-full h-full p-4 font-mono text-[12.5px] leading-relaxed resize-none outline-none caret-[var(--ink)]"
-                style={{ color: 'var(--ink)', zIndex: 2, background: 'transparent' }}
-                value={content}
-                onChange={(e) => { setContent(e.target.value); updateCursorTag() }}
-                onClick={updateCursorTag}
-                onKeyUp={updateCursorTag}
-                onScroll={syncScroll}
-                spellCheck={false}
-                placeholder={currentState?.loaded ? '' : 'Loading…'}
-              />
+              <div className="relative">
+                {/* Highlight layer — no scroll, always same size as the textarea */}
+                <div
+                  ref={highlightRef}
+                  aria-hidden="true"
+                  className="absolute inset-0 p-4 overflow-hidden pointer-events-none font-mono text-[12.5px] leading-relaxed whitespace-pre-wrap break-words"
+                  style={{ color: 'transparent', background: 'transparent' }}
+                  dangerouslySetInnerHTML={{ __html: highlightMarkdown(content, levelMap) }}
+                />
+                {/* Editable textarea — auto-grows; outer div handles scrolling */}
+                <textarea
+                  ref={textareaRef}
+                  className="relative w-full p-4 font-mono text-[12.5px] leading-relaxed resize-none outline-none caret-[var(--ink)]"
+                  style={{ color: 'var(--ink)', background: 'transparent', overflow: 'hidden', display: 'block' }}
+                  value={content}
+                  onChange={(e) => { setContent(e.target.value); updateCursorTag() }}
+                  onClick={updateCursorTag}
+                  onKeyUp={updateCursorTag}
+                  spellCheck={false}
+                  placeholder={currentState?.loaded ? '' : 'Loading…'}
+                />
+              </div>
             </div>
 
             {/* Page mini-strip */}

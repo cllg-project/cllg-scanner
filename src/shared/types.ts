@@ -54,6 +54,7 @@ export interface Project {
   pages: Page[]
   metadata: ProjectMetadata
   hierarchy: HierarchyLevel[]
+  bibliography: BibEntry[]
   lmConfig: LMConfig
   createdAt: string
   updatedAt: string
@@ -76,12 +77,42 @@ export interface OCRProgressEvent {
   fromCache?: boolean
 }
 
+export interface BibPerson {
+  persName: string
+  viafId?: string
+  worldcatId?: string
+}
+
+export interface BibScope {
+  unit: string   // 'page' | 'volume' | etc.
+  value: string
+}
+
+export interface BibEntry {
+  id: string           // internal UUID for React keys
+  n: string
+  authors: BibPerson[]
+  editors: BibPerson[]
+  title: string
+  titleLevel: string   // 'm' | 's' | 'a' | 'j' | ''
+  publisher?: string
+  pubPlace?: string
+  date?: string
+  dateReprint?: string
+  scopes: BibScope[]
+}
+
 export interface TEIParams {
   projectDir: string
-  outputPath: string
   markdownPath: string
   yamlConfigPath: string
   yamlContent: string
+  bibliography: BibEntry[]
+}
+
+export interface TEISaveParams {
+  xml: string
+  outputPath: string
 }
 
 export interface LMTestResult {

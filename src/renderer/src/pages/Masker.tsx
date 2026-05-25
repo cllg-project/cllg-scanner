@@ -298,11 +298,12 @@ export default function Masker(): React.JSX.Element {
             Copy to all pages
           </button>
 
-          {project?.pages.some((p) => p.masks.length > 0) && (
-            <span className="text-[11px] px-2 py-1 rounded" style={{ background: 'var(--paper-2)', color: 'var(--mute)' }}>
-              {project.pages.filter((p) => p.masks.length > 0).length} pages masked · applied automatically at OCR
-            </span>
-          )}
+          <span className="text-[11px] px-2 py-1 rounded" style={{ background: 'var(--paper-2)', color: 'var(--mute)' }}>
+            Draw rectangles to cover <span style={{ color: 'var(--ink)' }}>apparatus criticus</span> and marginalia — masked areas are whited out before OCR
+            {project?.pages.some((p) => p.masks.length > 0) && (
+              <> · {project.pages.filter((p) => p.masks.length > 0).length} pages masked</>
+            )}
+          </span>
 
           <div className="tool-sep" />
 

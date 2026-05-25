@@ -1,7 +1,7 @@
-import React, { useState, useEffect, useRef } from 'react'
+import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { stringify } from 'yaml'
 import { useNavigate } from 'react-router-dom'
-import type { HierarchyLevel, ProjectMetadata } from '@shared/types'
+import type { HierarchyLevel, ProjectMetadata, BibEntry, BibPerson, BibScope } from '@shared/types'
 import Sidebar from '../components/Sidebar'
 import { useProject } from '../App'
 
@@ -179,6 +179,252 @@ function LevelCard({
   )
 }
 
+// ── Bibliography helpers ───────────────────────────────────────────────────────
+
+interface BibPersonDraft { persName: string; viafId: string; worldcatId: string }
+interface BibDraft {
+  id: string; n: string
+  authors: BibPersonDraft[]; editors: BibPersonDraft[]
+  title: string; titleLevel: string
+  publisher: string; pubPlace: string; date: string; dateReprint: string
+  scopes: { unit: string; value: string }[]
+}
+
+const uid = (): string => Math.random().toString(36).slice(2, 10)
+const newPerson = (): BibPersonDraft => ({ persName: '', viafId: '', worldcatId: '' })
+const freshDraft = (): BibDraft => ({
+  id: uid(), n: '',
+  authors: [newPerson()], editors: [],
+  title: '', titleLevel: 'm',
+  publisher: '', pubPlace: '', date: '', dateReprint: '',
+  scopes: [{ unit: 'page', value: '' }],
+})
+const entryToDraft = (e: BibEntry): BibDraft => ({
+  id: e.id, n: e.n,
+  authors: e.authors.length ? e.authors.map(a => ({ persName: a.persName, viafId: a.viafId ?? '', worldcatId: a.worldcatId ?? '' })) : [newPerson()],
+  editors: e.editors.map(a => ({ persName: a.persName, viafId: a.viafId ?? '', worldcatId: a.worldcatId ?? '' })),
+  title: e.title, titleLevel: e.titleLevel || 'm',
+  publisher: e.publisher ?? '', pubPlace: e.pubPlace ?? '',
+  date: e.date ?? '', dateReprint: e.dateReprint ?? '',
+  scopes: e.scopes.length ? e.scopes : [{ unit: 'page', value: '' }],
+})
+const draftToEntry = (d: BibDraft): BibEntry => {
+  const trimPerson = (a: BibPersonDraft): BibPerson => ({
+    persName: a.persName,
+    ...(a.viafId && { viafId: a.viafId }),
+    ...(a.worldcatId && { worldcatId: a.worldcatId }),
+  })
+  const trimScope = (s: { unit: string; value: string }): BibScope => ({ unit: s.unit, value: s.value })
+  return {
+    id: d.id, n: d.n,
+    authors: d.authors.filter(a => a.persName).map(trimPerson),
+    editors: d.editors.filter(a => a.persName).map(trimPerson),
+    title: d.title, titleLevel: d.titleLevel,
+    publisher: d.publisher || undefined,
+    pubPlace: d.pubPlace || undefined,
+    date: d.date || undefined,
+    dateReprint: d.dateReprint || undefined,
+    scopes: d.scopes.filter(s => s.value).map(trimScope),
+  }
+}
+
+const INP = 'border rounded px-2 py-1 text-[12px] outline-none w-full'
+const inpStyle = { borderColor: 'var(--line)', background: 'var(--paper)', color: 'var(--ink)' }
+const LABEL = 'text-[10px] font-mono tracking-[.14em] uppercase mb-0.5 block'
+const labelStyle = { color: 'var(--mute)' }
+
+const SCOPE_UNITS = ['page', 'volume', 'column', 'lines', 'part', 'section', 'fascicle']
+
+function PersonList({ persons, list, onChange }: {
+  persons: BibPersonDraft[]
+  list: 'authors' | 'editors'
+  onChange: (updated: BibPersonDraft[]) => void
+}): React.JSX.Element {
+  const setPerson = (i: number, k: keyof BibPersonDraft, v: string): void => {
+    onChange(persons.map((p, j) => j === i ? { ...p, [k]: v } : p))
+  }
+  return (
+    <div className="space-y-1">
+      {persons.map((p, i) => (
+        <div key={i} className="flex gap-1.5 items-end">
+          <div className="flex-1">
+            {i === 0 && <span style={labelStyle} className={LABEL}>Name</span>}
+            <input className={INP} style={inpStyle} value={p.persName}
+              placeholder="Personal name"
+              onChange={e => setPerson(i, 'persName', e.target.value)} />
+          </div>
+          <div className="w-24">
+            {i === 0 && <span style={labelStyle} className={LABEL}>VIAF ID</span>}
+            <input className={INP} style={inpStyle} value={p.viafId}
+              placeholder="e.g. 7524651"
+              onChange={e => setPerson(i, 'viafId', e.target.value)} />
+          </div>
+          <div className="w-28">
+            {i === 0 && <span style={labelStyle} className={LABEL}>WorldCat ID</span>}
+            <input className={INP} style={inpStyle} value={p.worldcatId}
+              placeholder="OCLC / WC"
+              onChange={e => setPerson(i, 'worldcatId', e.target.value)} />
+          </div>
+          <button className="tool-btn shrink-0" style={{ marginBottom: 2 }}
+            onClick={() => onChange(persons.filter((_, j) => j !== i))}
+            title="Remove">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6 6 18M6 6l12 12" /></svg>
+          </button>
+        </div>
+      ))}
+      <button className="btn btn-quiet !py-0.5 !px-2 !text-[11px] mt-0.5"
+        onClick={() => onChange([...persons, newPerson()])}>
+        + {list === 'authors' ? 'Author' : 'Editor'}
+      </button>
+    </div>
+  )
+}
+
+function BibForm({ draft, onChange, onSave, onCancel }: {
+  draft: BibDraft
+  onChange: (d: BibDraft) => void
+  onSave: () => void
+  onCancel: () => void
+}): React.JSX.Element {
+  const set = <K extends keyof BibDraft>(k: K, v: BibDraft[K]): void => onChange({ ...draft, [k]: v })
+
+  return (
+    <div className="border rounded-lg p-5 space-y-4" style={{ borderColor: 'var(--line)', background: 'var(--paper)' }}>
+      <div className="flex gap-4">
+        <div className="w-48">
+          <span style={labelStyle} className={LABEL}>Identifier <span className="font-mono normal-case tracking-normal">n=</span></span>
+          <input className={INP} style={inpStyle} value={draft.n}
+            placeholder='e.g. 1381 001'
+            onChange={e => set('n', e.target.value)} />
+        </div>
+      </div>
+
+      <div>
+        <span style={labelStyle} className={`${LABEL} mb-1`}>Authors</span>
+        <PersonList persons={draft.authors} list="authors"
+          onChange={updated => set('authors', updated)} />
+      </div>
+
+      <div>
+        <span style={labelStyle} className={`${LABEL} mb-1`}>Editors</span>
+        <PersonList persons={draft.editors} list="editors"
+          onChange={updated => set('editors', updated)} />
+      </div>
+
+      <div className="flex gap-3 items-end">
+        <div className="flex-1">
+          <span style={labelStyle} className={LABEL}>Title</span>
+          <input className={INP} style={inpStyle} value={draft.title}
+            placeholder="Work title"
+            onChange={e => set('title', e.target.value)} />
+        </div>
+        <div className="w-32">
+          <span style={labelStyle} className={LABEL}>Level</span>
+          <select className={INP} style={inpStyle} value={draft.titleLevel}
+            onChange={e => set('titleLevel', e.target.value)}>
+            <option value="m">m — monograph</option>
+            <option value="s">s — series</option>
+            <option value="a">a — article</option>
+            <option value="j">j — journal</option>
+            <option value="">— none</option>
+          </select>
+        </div>
+      </div>
+
+      <div>
+        <span style={labelStyle} className={`${LABEL} mb-1.5`}>Imprint</span>
+        <div className="grid grid-cols-2 gap-2">
+          <div>
+            <span style={labelStyle} className={LABEL}>Publisher</span>
+            <input className={INP} style={inpStyle} value={draft.publisher}
+              placeholder="Publisher name"
+              onChange={e => set('publisher', e.target.value)} />
+          </div>
+          <div>
+            <span style={labelStyle} className={LABEL}>Place of publication</span>
+            <input className={INP} style={inpStyle} value={draft.pubPlace}
+              placeholder="City"
+              onChange={e => set('pubPlace', e.target.value)} />
+          </div>
+          <div>
+            <span style={labelStyle} className={LABEL}>Date</span>
+            <input className={INP} style={inpStyle} value={draft.date}
+              placeholder="e.g. 1846"
+              onChange={e => set('date', e.target.value)} />
+          </div>
+          <div>
+            <span style={labelStyle} className={LABEL}>Reprint date</span>
+            <input className={INP} style={inpStyle} value={draft.dateReprint}
+              placeholder="e.g. 1974"
+              onChange={e => set('dateReprint', e.target.value)} />
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <span style={labelStyle} className={`${LABEL} mb-1`}>Bibliographic scope</span>
+        <div className="space-y-1">
+          {draft.scopes.map((s, i) => (
+            <div key={i} className="flex gap-1.5 items-center">
+              <select className="border rounded px-2 py-1 text-[12px] outline-none w-28 shrink-0"
+                style={inpStyle} value={s.unit}
+                onChange={e => onChange({ ...draft, scopes: draft.scopes.map((x, j) => j === i ? { ...x, unit: e.target.value } : x) })}>
+                {SCOPE_UNITS.map(u => <option key={u} value={u}>{u}</option>)}
+              </select>
+              <input className={INP} style={inpStyle} value={s.value}
+                placeholder="e.g. 3–12 or MPG 2"
+                onChange={e => onChange({ ...draft, scopes: draft.scopes.map((x, j) => j === i ? { ...x, value: e.target.value } : x) })} />
+              <button className="tool-btn shrink-0"
+                onClick={() => onChange({ ...draft, scopes: draft.scopes.filter((_, j) => j !== i) })}
+                title="Remove">
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6 6 18M6 6l12 12" /></svg>
+              </button>
+            </div>
+          ))}
+          <button className="btn btn-quiet !py-0.5 !px-2 !text-[11px] mt-0.5"
+            onClick={() => onChange({ ...draft, scopes: [...draft.scopes, { unit: 'page', value: '' }] })}>
+            + Scope
+          </button>
+        </div>
+      </div>
+
+      <div className="flex justify-end gap-2 pt-1 border-t" style={{ borderColor: 'var(--line)' }}>
+        <button className="btn btn-ghost !text-[12px]" onClick={onCancel}>Discard</button>
+        <button className="btn btn-primary !text-[12px]" onClick={onSave}>Done</button>
+      </div>
+    </div>
+  )
+}
+
+function BibCard({ entry, onEdit, onDelete }: { entry: BibEntry; onEdit: () => void; onDelete: () => void }): React.JSX.Element {
+  const author = entry.authors[0]?.persName ?? entry.editors[0]?.persName ?? ''
+  return (
+    <div className="flex items-start gap-3 px-4 py-3 rounded-lg border" style={{ borderColor: 'var(--line)', background: 'var(--paper)' }}>
+      <div className="flex-1 min-w-0">
+        {entry.n && <span className="font-mono text-[10px] mr-2" style={{ color: 'var(--mute)' }}>{entry.n}</span>}
+        {author && <span className="text-[12px] font-medium mr-1" style={{ color: 'var(--ink)' }}>{author}</span>}
+        {entry.title && <span className="text-[12px] italic" style={{ color: 'var(--mute)' }}>{entry.title}</span>}
+        {entry.date && <span className="text-[11px] ml-2" style={{ color: 'var(--mute)' }}>{entry.date}</span>}
+      </div>
+      <div className="flex gap-1 shrink-0">
+        <button className="tool-btn" onClick={onEdit} title="Edit">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+            <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+          </svg>
+        </button>
+        <button className="tool-btn" onClick={onDelete} title="Delete" style={{ color: '#c0392b' }}>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13" />
+          </svg>
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// ── YAML export ───────────────────────────────────────────────────────────────
+
 export function hierarchyToYAML(hierarchy: HierarchyLevel[], metadata: ProjectMetadata): string {
   function levelToObj(l: HierarchyLevel): Record<string, unknown> {
     const obj: Record<string, unknown> = {
@@ -208,6 +454,8 @@ export default function Config(): React.JSX.Element {
     project?.metadata ?? { title: '', author: '', edition: '', language: '' }
   )
   const [hierarchy, setHierarchy] = useState<HierarchyLevel[]>(project?.hierarchy ?? [])
+  const [bibliography, setBibliography] = useState<BibEntry[]>(project?.bibliography ?? [])
+  const [bibDraft, setBibDraft] = useState<BibDraft | null>(null)
   const skipSave = useRef(true)
 
   useEffect(() => {
@@ -215,13 +463,39 @@ export default function Config(): React.JSX.Element {
     skipSave.current = true
     setMetadata(project.metadata)
     setHierarchy(project.hierarchy)
+    setBibliography(project.bibliography ?? [])
   }, [project?.id])
 
   useEffect(() => {
     if (skipSave.current) { skipSave.current = false; return }
     if (!project) return
-    saveProject({ ...project, metadata, hierarchy })
-  }, [hierarchy, metadata]) // eslint-disable-line react-hooks/exhaustive-deps
+    saveProject({ ...project, metadata, hierarchy, bibliography })
+  }, [hierarchy, metadata, bibliography]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const upsertBibDraft = useCallback((draft: BibDraft): void => {
+    setBibDraft(draft)
+    setBibliography(prev => {
+      const entry = draftToEntry(draft)
+      const idx = prev.findIndex(e => e.id === entry.id)
+      return idx >= 0 ? prev.map((e, i) => i === idx ? entry : e) : [...prev, entry]
+    })
+  }, [])
+
+  const cancelBibDraft = useCallback((draft: BibDraft): void => {
+    setBibDraft(null)
+    setBibliography(prev => {
+      // remove the entry only if it was just created (no meaningful content yet)
+      const entry = draftToEntry(draft)
+      if (!entry.title && !entry.authors.some(a => a.persName)) {
+        return prev.filter(e => e.id !== draft.id)
+      }
+      return prev
+    })
+  }, [])
+
+  const deleteBibEntry = useCallback((id: string): void => {
+    setBibliography(prev => prev.filter(e => e.id !== id))
+  }, [])
 
   const compiledYAML = hierarchyToYAML(hierarchy, metadata)
 
@@ -345,6 +619,64 @@ export default function Config(): React.JSX.Element {
                   }}
                 />
               ))}
+            </section>
+
+            {/* Bibliography */}
+            <section>
+              <div className="flex items-baseline justify-between mb-4">
+                <div className="flex items-baseline gap-3">
+                  <h3 className="font-serif text-[20px]">Bibliography</h3>
+                  <span className="font-mono text-[10px] tracking-wider uppercase" style={{ color: 'var(--mute)' }}>
+                    TEI sourceDesc
+                  </span>
+                </div>
+                {!bibDraft && (
+                  <button className="btn btn-quiet !py-1 !px-2 !text-[11px] gap-1" onClick={() => upsertBibDraft(freshDraft())}>
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path d="M12 5v14M5 12h14" />
+                    </svg>
+                    Add entry
+                  </button>
+                )}
+              </div>
+
+              <div className="space-y-2">
+                {bibliography.map(entry => (
+                  bibDraft?.id === entry.id ? (
+                    <BibForm key={entry.id}
+                      draft={bibDraft}
+                      onChange={upsertBibDraft}
+                      onSave={() => setBibDraft(null)}
+                      onCancel={() => cancelBibDraft(bibDraft)}
+                    />
+                  ) : (
+                    <BibCard key={entry.id} entry={entry}
+                      onEdit={() => upsertBibDraft(entryToDraft(entry))}
+                      onDelete={() => deleteBibEntry(entry.id)} />
+                  )
+                ))}
+
+                {bibDraft && !bibliography.some(e => e.id === bibDraft.id) ? (
+                  <BibForm
+                    draft={bibDraft}
+                    onChange={upsertBibDraft}
+                    onSave={() => setBibDraft(null)}
+                    onCancel={() => cancelBibDraft(bibDraft)}
+                  />
+                ) : bibliography.length === 0 ? (
+                  <div
+                    className="panel p-5 flex flex-col items-center gap-2 text-center"
+                    style={{ borderStyle: 'dashed' }}
+                  >
+                    <div className="text-[12.5px]" style={{ color: 'var(--mute)' }}>
+                      No entries. Entries are placed in <span className="font-mono">&lt;sourceDesc&gt;&lt;listBibl&gt;</span> in the TEI header.
+                    </div>
+                    <button className="btn btn-quiet !py-1 !px-3 !text-[11.5px] mt-1" onClick={() => upsertBibDraft(freshDraft())}>
+                      Add first entry
+                    </button>
+                  </div>
+                ) : null}
+              </div>
             </section>
           </div>
 

@@ -5,6 +5,7 @@
 
 import { DOMParser, XMLSerializer } from '@xmldom/xmldom'
 import { parse as parseYaml } from 'yaml'
+import type { BibEntry } from '@shared/types'
 
 const NS = 'http://www.tei-c.org/ns/1.0'
 const ELEM = 1
@@ -14,6 +15,16 @@ const TEXT = 3
 
 function esc(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+}
+
+function escAttr(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+}
+
+// Normalise whitespace inside self-closing `/ >` → `/>` so xmldom's strict SAX parser
+// doesn't reject tags that the OCR model emitted with a stray space before or after `/`.
+function normSelfClose(tag: string): string {
+  return tag.replace(/\/\s+>/g, '/>')
 }
 
 function parseAttrStr(attrsStr: string, name: string): string | null {
@@ -123,7 +134,7 @@ function tokenizeLine(s: string): LineToken[] {
   while ((m = re.exec(s)) !== null) {
     if (m.index > last) tokens.push({ kind: 'text', value: s.slice(last, m.index) })
     const tag = m[0]
-    if (tag.startsWith('<lb'))   tokens.push({ kind: 'lb', raw: tag })
+    if (tag.startsWith('<lb'))   tokens.push({ kind: 'lb', raw: normSelfClose(tag) })
     else if (tag.startsWith('<tab')) { /* structural indent — drop */ }
     else if (tag.startsWith('<ref')) {
       const am = /^<ref([^>]*)>(.*?)<\/ref>$/s.exec(tag)
@@ -181,7 +192,7 @@ function buildBody(
       if (ldef.level >= targetLevel) break
       if (stack.includes(ldef.level)) continue
       if (!ldef.missingFirst) continue
-      out.push(`<div type="${ldef.name}" n="${startValue(ldef.format)}">`)
+      out.push(`<div type="${escAttr(ldef.name)}" n="${escAttr(startValue(ldef.format))}">`)
       stack.push(ldef.level)
     }
   }
@@ -190,7 +201,7 @@ function buildBody(
     const s = rawLine.trim()
     if (!s) continue
 
-    if (s.startsWith('<pb')) { flushP(); out.push(s); continue }
+    if (s.startsWith('<pb')) { flushP(); out.push(normSelfClose(s)); continue }
 
     const isHeading = s.startsWith('#')
     const stripped  = isHeading ? s.replace(/^#+\s*/, '') : s
@@ -222,7 +233,7 @@ function buildBody(
           if (!lvl) {
             pParts.push(`<note>${esc(val)}</note>`)
           } else if (ms.has(lvl)) {
-            const ms_xml = `<milestone unit="${lm[lvl] ?? `level${lvl}`}" n="${val}"/>`
+            const ms_xml = `<milestone unit="${escAttr(lm[lvl] ?? `level${lvl}`)}" n="${escAttr(val)}"/>`
             if (pParts.length > 0) {
               pParts.push(ms_xml)
             } else {
@@ -233,7 +244,7 @@ function buildBody(
             flushP()
             while (stack.length && stack[stack.length - 1] >= lvl) { out.push('</div>'); stack.pop() }
             autoOpenAncestors(lvl)
-            out.push(`<div type="${lm[lvl] ?? `level${lvl}`}" n="${val}">`)
+            out.push(`<div type="${escAttr(lm[lvl] ?? `level${lvl}`)}" n="${escAttr(val)}">`)
             stack.push(lvl)
           }
           break
@@ -550,15 +561,55 @@ export function scanRefs(markdownText: string): RefScanResult[] {
     .sort((a, b) => b.count - a.count)
 }
 
+// ── Bibliography / sourceDesc builder ────────────────────────────────────────
+
+function buildPerson(tag: string, p: { persName: string; viafId?: string; worldcatId?: string }): string {
+  const ref = p.viafId ? ` ref="https://viaf.org/viaf/${escAttr(p.viafId)}/"` : ''
+  const idno = p.worldcatId ? `<idno type="worldcat">${esc(p.worldcatId)}</idno>` : ''
+  return `<${tag}><persName${ref}>${esc(p.persName)}</persName>${idno}</${tag}>`
+}
+
+function buildBiblEntry(e: BibEntry): string {
+  const parts: string[] = []
+
+  for (const a of e.authors)  parts.push(buildPerson('author', a))
+  for (const ed of e.editors) parts.push(buildPerson('editor', ed))
+
+  if (e.title) {
+    const lv = e.titleLevel ? ` level="${escAttr(e.titleLevel)}"` : ''
+    parts.push(`<title${lv}>${esc(e.title)}</title>`)
+  }
+
+  const imp: string[] = []
+  if (e.publisher)   imp.push(`<publisher>${esc(e.publisher)}</publisher>`)
+  if (e.pubPlace)    imp.push(`<pubPlace>${esc(e.pubPlace)}</pubPlace>`)
+  if (e.date)        imp.push(`<date>${esc(e.date)}</date>`)
+  if (e.dateReprint) imp.push(`<date type="reprint">${esc(e.dateReprint)}</date>`)
+  if (imp.length)    parts.push(`<imprint>${imp.join('')}</imprint>`)
+
+  for (const s of e.scopes) {
+    if (s.value) parts.push(`<biblScope unit="${escAttr(s.unit)}">${esc(s.value)}</biblScope>`)
+  }
+
+  const n = e.n ? ` n="${escAttr(e.n)}"` : ''
+  return `<biblStruct${n}><monogr>${parts.join('')}</monogr></biblStruct>`
+}
+
+function buildSourceDesc(bibliography: BibEntry[]): string {
+  if (!bibliography.length) return `<sourceDesc><p>Born-digital OCR</p></sourceDesc>`
+  return `<sourceDesc><listBibl>${bibliography.map(buildBiblEntry).join('')}</listBibl></sourceDesc>`
+}
+
 // ── Main entry ────────────────────────────────────────────────────────────────
 
 export interface Md2TeiParams {
   markdownText: string
   yamlConfigText: string
+  bibliography?: BibEntry[]
   log: (line: string) => void
 }
 
-export function runMd2Tei({ markdownText, yamlConfigText, log }: Md2TeiParams): string {
+export function runMd2Tei({ markdownText, yamlConfigText, bibliography = [], log }: Md2TeiParams): string {
   log('[md2tei] Parsing config')
   const config = parseYaml(yamlConfigText) as Record<string, unknown>
 
@@ -578,7 +629,7 @@ export function runMd2Tei({ markdownText, yamlConfigText, log }: Md2TeiParams): 
     <fileDesc>
       <titleStmt><title>OCR Document</title></titleStmt>
       <publicationStmt><p>Generated by CLLG Desktop</p></publicationStmt>
-      <sourceDesc><p>Born-digital OCR</p></sourceDesc>
+      ${buildSourceDesc(bibliography)}
     </fileDesc>
   </teiHeader>
   <text>

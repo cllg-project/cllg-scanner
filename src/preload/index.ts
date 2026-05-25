@@ -4,7 +4,8 @@ import type {
   LMConfig,
   LMTestResult,
   OCRProgressEvent,
-  TEIParams
+  TEIParams,
+  TEISaveParams
 } from '@shared/types'
 
 const api = {
@@ -75,8 +76,11 @@ const api = {
     ipcRenderer.invoke('ocr:stop'),
 
   // ── TEI ──────────────────────────────────────────────────────────────
-  generateTEI: (params: TEIParams): Promise<void> =>
+  generateTEI: (params: TEIParams): Promise<string> =>
     ipcRenderer.invoke('tei:generate', params),
+
+  saveTEI: (params: TEISaveParams): Promise<void> =>
+    ipcRenderer.invoke('tei:save', params),
 
   scanRefs: (projectDir: string): Promise<{ format: string; sample: string[]; count: number }[]> =>
     ipcRenderer.invoke('md:scanRefs', projectDir),

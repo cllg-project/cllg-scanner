@@ -3,12 +3,46 @@ import Sidebar from '../components/Sidebar'
 import { useProject } from '../App'
 import { hierarchyToYAML } from './Config'
 
+// ── Types ─────────────────────────────────────────────────────────────────────
+
+type Tab = 'md' | 'tei'
+
+// ── Sub-components ────────────────────────────────────────────────────────────
+
+function XmlHighlight({ xml }: { xml: string }): React.JSX.Element {
+  const nodes: React.ReactNode[] = []
+  let key = 0
+  const tagRe = /(<[^>]+>)|([^<]+)/g
+  let m: RegExpExecArray | null
+  while ((m = tagRe.exec(xml)) !== null) {
+    const [, tag, text] = m
+    if (tag) {
+      const valueRe = /("[^"]*"|'[^']*')/g
+      let last = 0; let vm: RegExpExecArray | null
+      while ((vm = valueRe.exec(tag)) !== null) {
+        if (vm.index > last) nodes.push(<span key={key++} style={{ color: '#569cd6' }}>{tag.slice(last, vm.index)}</span>)
+        nodes.push(<span key={key++} style={{ color: '#ce9178' }}>{vm[0]}</span>)
+        last = vm.index + vm[0].length
+      }
+      if (last < tag.length) nodes.push(<span key={key++} style={{ color: '#569cd6' }}>{tag.slice(last)}</span>)
+    } else if (text) {
+      nodes.push(<span key={key++}>{text}</span>)
+    }
+  }
+  return <>{nodes}</>
+}
+
+// ── Main component ────────────────────────────────────────────────────────────
+
 export default function Export(): React.JSX.Element {
-  const { project, saveProject } = useProject()
+  const { project } = useProject()
   const [log, setLog] = useState<string[]>([])
   const [generating, setGenerating] = useState(false)
+  const [saving, setSaving] = useState(false)
   const [lastOutputPath, setLastOutputPath] = useState<string | null>(null)
   const [ocrPreview, setOcrPreview] = useState<string>('')
+  const [teiXml, setTeiXml] = useState<string | null>(null)
+  const [activeTab, setActiveTab] = useState<Tab>('md')
   const logRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -28,32 +62,62 @@ export default function Export(): React.JSX.Element {
     if (!project) return
     setGenerating(true)
     setLog([])
+    setTeiXml(null)
 
     const compiledYAML = hierarchyToYAML(project.hierarchy, project.metadata)
     const markdownPath = `${project.projectDir}/ocr_output.md`
-    const outputPath = await window.api.selectSaveFile(`${project.name}.xml`, 'xml')
-    if (!outputPath) { setGenerating(false); return }
-
     const yamlPath = `${project.projectDir}/structure.yaml`
     try {
-      await window.api.generateTEI({
+      const xml = await window.api.generateTEI({
         projectDir: project.projectDir,
         markdownPath,
-        outputPath,
         yamlConfigPath: yamlPath,
-        yamlContent: compiledYAML
+        yamlContent: compiledYAML,
+        bibliography: project.bibliography ?? [],
       })
-      setLastOutputPath(outputPath)
+      setTeiXml(xml)
+      setActiveTab('tei')
     } catch (err) {
       setLog((l) => [...l, `[error] ${err}`])
     } finally {
       setGenerating(false)
     }
-  }, [project, saveProject])
+  }, [project])
+
+  const saveXml = useCallback(async () => {
+    if (!project || !teiXml) return
+    setSaving(true)
+    try {
+      const outputPath = await window.api.selectSaveFile(`${project.name}.xml`, 'xml')
+      if (!outputPath) return
+      await window.api.saveTEI({ xml: teiXml, outputPath })
+      setLastOutputPath(outputPath)
+    } catch (err) {
+      setLog((l) => [...l, `[error] ${err}`])
+    } finally {
+      setSaving(false)
+    }
+  }, [project, teiXml])
 
   if (!project) return <div className="p-8">No project open.</div>
 
   const hasHierarchy = project.hierarchy.length > 0
+
+  const tabBtn = (tab: Tab, label: string, enabled = true): React.JSX.Element => (
+    <button
+      onClick={() => enabled && setActiveTab(tab)}
+      className="px-3 py-2 text-[12.5px] font-medium border-b-2"
+      style={{
+        borderColor: activeTab === tab ? 'var(--oxblood)' : 'transparent',
+        color: activeTab === tab ? 'var(--ink)' : 'var(--mute)',
+        background: 'none',
+        cursor: enabled ? 'pointer' : 'default',
+        opacity: enabled ? 1 : 0.4,
+      }}
+    >{label}</button>
+  )
+
+  const bibliography = project.bibliography ?? []
 
   return (
     <div className="flex h-full">
@@ -77,21 +141,34 @@ export default function Export(): React.JSX.Element {
           </div>
         </div>
 
-        {/* OCR output preview */}
-        <div className="flex-1 flex flex-col overflow-hidden">
-          <div className="px-10 pt-5 pb-0 border-b flex items-end gap-1 shrink-0" style={{ borderColor: 'var(--line)' }}>
-            <span className="px-3 py-2 text-[12.5px] font-medium border-b-2" style={{ borderColor: 'var(--oxblood)', color: 'var(--ink)' }}>
-              ocr_output.md
-            </span>
-            <div className="ml-auto pb-1 text-[11.5px] font-mono" style={{ color: 'var(--mute)' }}>
-              {(ocrPreview.match(/<pb n="/g) ?? []).length} pages done
-            </div>
+        {/* Tab bar */}
+        <div className="px-10 pt-5 pb-0 border-b flex items-end gap-1 shrink-0" style={{ borderColor: 'var(--line)' }}>
+          {tabBtn('md', 'ocr_output.md')}
+          {tabBtn('tei', 'output.xml', !!teiXml)}
+          <div className="ml-auto pb-1 text-[11.5px] font-mono" style={{ color: 'var(--mute)' }}>
+            {activeTab === 'md' && `${(ocrPreview.match(/<pb n="/g) ?? []).length} pages done`}
+            {activeTab === 'tei' && teiXml && `${teiXml.split('\n').length} lines`}
           </div>
-
-          <div className="flex-1 overflow-y-auto px-10 py-6">
-            <div className="code text-[12px] leading-relaxed whitespace-pre-wrap" style={{ color: ocrPreview ? 'var(--ink)' : 'var(--mute)' }}>
-              {ocrPreview || '(OCR output will appear here after running OCR)'}
+          {bibliography.length > 0 && (
+            <div className="pb-1 ml-2 text-[11px] font-mono" style={{ color: 'var(--mute)' }}>
+              {bibliography.length} bib entr{bibliography.length === 1 ? 'y' : 'ies'}
             </div>
+          )}
+        </div>
+
+        {/* Content area */}
+        <div className="flex-1 flex flex-col overflow-hidden">
+          <div className="flex-1 overflow-y-auto px-10 py-6">
+            {activeTab === 'md' && (
+              <div className="code text-[12px] leading-relaxed whitespace-pre-wrap" style={{ color: ocrPreview ? 'var(--ink)' : 'var(--mute)' }}>
+                {ocrPreview || '(OCR output will appear here after running OCR)'}
+              </div>
+            )}
+            {activeTab === 'tei' && (
+              <pre className="code text-[12px] leading-relaxed" style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
+                {teiXml ? <XmlHighlight xml={teiXml} /> : null}
+              </pre>
+            )}
           </div>
 
           {log.length > 0 && (
@@ -110,22 +187,22 @@ export default function Export(): React.JSX.Element {
 
         {/* Bottom bar */}
         <div className="border-t px-6 h-14 flex items-center gap-4 shrink-0" style={{ borderColor: 'var(--line)', background: 'var(--paper-3)' }}>
-          <button
-            className="btn btn-primary"
-            onClick={generate}
-            disabled={generating || !hasHierarchy}
-          >
+          <button className="btn btn-primary" onClick={generate} disabled={generating || !hasHierarchy}>
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M4 4h12l4 4v12H4z" /><path d="M4 14h16" />
+              <path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z" /><polyline points="13 2 13 9 20 9" />
             </svg>
-            {generating ? 'Generating…' : 'Generate TEI XML'}
+            {generating ? 'Generating…' : 'Generate'}
+          </button>
+
+          <button className="btn btn-ghost" onClick={saveXml} disabled={saving || !teiXml}>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+              <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" /><polyline points="17 21 17 13 7 13 7 21" /><polyline points="7 3 7 8 15 8" />
+            </svg>
+            {saving ? 'Saving…' : 'Save as…'}
           </button>
 
           {lastOutputPath && (
-            <button
-              className="btn btn-ghost"
-              onClick={() => window.api.openInFinder(lastOutputPath!)}
-            >
+            <button className="btn btn-ghost" onClick={() => window.api.openInFinder(lastOutputPath!)}>
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
                 <path d="M12 3v12" /><path d="m7 10 5 5 5-5" /><path d="M5 21h14" />
               </svg>

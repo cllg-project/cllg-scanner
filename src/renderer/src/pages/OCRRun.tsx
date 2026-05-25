@@ -34,6 +34,7 @@ interface PageRow {
   elapsedMs?: number
   errorMessage?: string
   fromCache?: boolean
+  forceReprocess?: boolean
 }
 
 export default function OCRRun(): React.JSX.Element {
@@ -138,14 +139,28 @@ export default function OCRRun(): React.JSX.Element {
     })
   }, [])
 
+  const toggleForceReprocess = useCallback((n: number) => {
+    setRows((prev) =>
+      prev.map((r) => r.page.n === n ? { ...r, forceReprocess: !r.forceReprocess } : r)
+    )
+  }, [])
+
   const startOCR = useCallback(async () => {
     if (!project) return
     setRunning(true)
     const cfg = { ...lmConfig }
-    await saveProject({ ...project, lmConfig: cfg })
 
-    let pagesForOCR = project.pages.filter((p) => !excluded.has(p.n))
+    // Reset status for force-reprocessed pages before saving
+    const forcedNs = new Set(rows.filter((r) => r.forceReprocess).map((r) => r.page.n))
+    const pagesWithReset = project.pages.map((p) =>
+      forcedNs.has(p.n) ? { ...p, status: 'pending' as const } : p
+    )
+    const projectToSave = { ...project, pages: pagesWithReset, lmConfig: cfg }
+    await saveProject(projectToSave)
+
+    let pagesForOCR = pagesWithReset.filter((p) => !excluded.has(p.n))
     addLog(`[info] Starting OCR · ${pagesForOCR.filter((p) => p.status !== 'skipped').length} pages`)
+    if (forcedNs.size > 0) addLog(`[info] Force-reprocessing ${forcedNs.size} page(s): ${[...forcedNs].join(', ')}`)
 
     // Apply masks on the fly for any page that has mask rectangles defined
     const toMask = pagesForOCR.filter((p) => p.masks.length > 0)
@@ -164,7 +179,7 @@ export default function OCRRun(): React.JSX.Element {
       )
     }
 
-    await window.api.runOCR(project.projectDir, pagesForOCR, cfg)
+    await window.api.runOCR(project.projectDir, pagesForOCR, cfg, pagesWithReset)
 
     // Reload from disk so page statuses written by main process are reflected in context
     const reloaded = await window.api.reloadProject(project.projectDir)
@@ -200,6 +215,9 @@ export default function OCRRun(): React.JSX.Element {
     return rem > 0 ? `~${m} min ${rem} s` : `~${m} min`
   }
 
+  const examplePageNs = project?.pages.filter((p) => p.isExample && p.status === 'ocr_done') ?? []
+  const hasInMemoryLearning = examplePageNs.length > 0
+
   if (!project) return <div className="p-8">No project open.</div>
 
   return (
@@ -218,6 +236,13 @@ export default function OCRRun(): React.JSX.Element {
               Pages are sent one at a time to LM Studio. Output is appended to{' '}
               <span className="font-mono" style={{ color: 'var(--ink)' }}>ocr_output.md</span>.
             </div>
+            {hasInMemoryLearning && (
+              <div className="mt-2 inline-flex items-center gap-1.5 px-2.5 py-1 rounded text-[11.5px] font-medium"
+                style={{ background: '#fdf3d0', border: '1px solid #e8c84a', color: '#7a6010' }}>
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4L12 17l-6.2 4.3 2.4-7.4L2 9.4h7.6z"/></svg>
+                In-Memory Learning ON · {examplePageNs.length} example page{examplePageNs.length > 1 ? 's' : ''} · context will be auto-grown
+              </div>
+            )}
           </div>
           <div className="flex items-center gap-2">
             {running ? (
@@ -360,7 +385,7 @@ export default function OCRRun(): React.JSX.Element {
           <div className="panel overflow-hidden">
             <div
               className="grid gap-3 px-4 py-2.5 border-b text-[10.5px] uppercase tracking-wider font-semibold"
-              style={{ gridTemplateColumns: '32px 80px 40px 1fr 120px 90px 80px', background: 'var(--paper-3)', borderColor: 'var(--line)', color: 'var(--mute)' }}
+              style={{ gridTemplateColumns: '32px 80px 40px 1fr 120px 90px 80px 60px', background: 'var(--paper-3)', borderColor: 'var(--line)', color: 'var(--mute)' }}
             >
               <div />
               <div>Page</div><div />
@@ -368,18 +393,21 @@ export default function OCRRun(): React.JSX.Element {
               <div>Badge</div>
               <div>Elapsed</div>
               <div className="text-right">Tokens</div>
+              <div />
             </div>
 
             <div className="divide-y max-h-72 overflow-y-auto" style={{ borderColor: 'var(--line)' }}>
               {rows.map((r) => {
                 const isExcluded = excluded.has(r.page.n)
+                const isExamplePage = r.page.isExample
+                const canReprocess = !running && (r.status === 'done' || r.status === 'error')
                 return (
                   <div
                     key={r.page.n}
                     className="grid gap-3 px-4 py-2.5 items-center text-[12.5px]"
                     style={{
-                      gridTemplateColumns: '32px 80px 40px 1fr 120px 90px 80px',
-                      background: r.status === 'running' ? '#fbf5e7' : r.status === 'error' ? '#f7ece5' : undefined,
+                      gridTemplateColumns: '32px 80px 40px 1fr 120px 90px 80px 60px',
+                      background: r.forceReprocess ? '#f0eaf8' : r.status === 'running' ? '#fbf5e7' : r.status === 'error' ? '#f7ece5' : undefined,
                       opacity: r.status === 'skipped' || isExcluded ? 0.4 : 1
                     }}
                   >
@@ -392,7 +420,12 @@ export default function OCRRun(): React.JSX.Element {
                         className="cursor-pointer"
                       />
                     </div>
-                    <div className="font-mono tabular-nums" style={{ color: r.status === 'running' ? 'var(--ink)' : 'var(--mute)' }}>
+                    <div className="font-mono tabular-nums flex items-center gap-1" style={{ color: r.status === 'running' ? 'var(--ink)' : 'var(--mute)' }}>
+                      {isExamplePage && (
+                        <svg width="11" height="11" viewBox="0 0 24 24" fill="#c89328" title="Example page">
+                          <path d="M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4L12 17l-6.2 4.3 2.4-7.4L2 9.4h7.6z"/>
+                        </svg>
+                      )}
                       p. {r.page.n}
                     </div>
                     <div>
@@ -408,7 +441,7 @@ export default function OCRRun(): React.JSX.Element {
                     <div>
                       <span className={`badge ${r.status === 'done' ? 'badge-ocr' : r.status === 'error' ? 'badge-error' : r.status === 'skipped' ? 'badge-skipped' : r.status === 'running' ? 'badge-pending' : 'badge-pending'}`}>
                         {r.status === 'done' && <span className="dot dot-ok" />}
-                        {r.status}
+                        {r.forceReprocess ? '↺ queued' : r.status}
                       </span>
                     </div>
                     <div className="font-mono tabular-nums text-[11px]" style={{ color: 'var(--mute)' }}>
@@ -418,6 +451,18 @@ export default function OCRRun(): React.JSX.Element {
                     </div>
                     <div className="font-mono tabular-nums text-right text-[11px]" style={{ color: 'var(--mute)' }}>
                       {r.tokens ?? '—'}
+                    </div>
+                    <div className="flex justify-end">
+                      {canReprocess && (
+                        <button
+                          className="tool-btn text-[11px]"
+                          title="Force reprocess this page"
+                          onClick={() => toggleForceReprocess(r.page.n)}
+                          style={{ color: r.forceReprocess ? 'var(--oxblood)' : 'var(--mute)' }}
+                        >
+                          ↺
+                        </button>
+                      )}
                     </div>
                   </div>
                 )

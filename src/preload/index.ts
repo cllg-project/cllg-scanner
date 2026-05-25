@@ -35,6 +35,9 @@ const api = {
   selectImageDir: (): Promise<string | null> =>
     ipcRenderer.invoke('dialog:selectImageDir'),
 
+  selectImages: (): Promise<string[]> =>
+    ipcRenderer.invoke('dialog:selectImages'),
+
   listImagesInDir: (dirPath: string): Promise<{ name: string; path: string }[]> =>
     ipcRenderer.invoke('dir:listImages', dirPath),
 
@@ -69,8 +72,8 @@ const api = {
   testLMStudio: (endpoint: string, apiKey?: string): Promise<LMTestResult> =>
     ipcRenderer.invoke('ocr:test', endpoint, apiKey),
 
-  runOCR: (projectDir: string, pages: Project['pages'], lmConfig: LMConfig): Promise<void> =>
-    ipcRenderer.invoke('ocr:run', projectDir, pages, lmConfig),
+  runOCR: (projectDir: string, pages: Project['pages'], lmConfig: LMConfig, allPages?: Project['pages']): Promise<void> =>
+    ipcRenderer.invoke('ocr:run', projectDir, pages, lmConfig, allPages),
 
   stopOCR: (): Promise<void> =>
     ipcRenderer.invoke('ocr:stop'),

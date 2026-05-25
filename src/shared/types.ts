@@ -16,6 +16,7 @@ export interface Page {
   status: PageStatus
   markdown?: string
   errorMessage?: string
+  isExample?: boolean        // marks this page as a few-shot OCR example (max 3)
 }
 
 export interface LMConfig {

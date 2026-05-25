@@ -3,6 +3,8 @@ import { useNavigate } from 'react-router-dom'
 import type { Page, HierarchyLevel } from '@shared/types'
 import Sidebar from '../components/Sidebar'
 import { useProject } from '../App'
+import { convertBetaKey, finalSigmaFix } from '../utils/betaCode'
+import BetaCodeHelper from '../components/BetaCodeHelper'
 
 interface FlatLevel { depth: number; name: string; pattern: string; color?: string }
 
@@ -168,6 +170,9 @@ export default function Review(): React.JSX.Element {
   const highlightRef = useRef<HTMLDivElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const [scanInfo, setScanInfo] = useState<ScanInfo | null>(null)
+  const [betaMode, setBetaMode] = useState(false)
+  const betaPendingRef = useRef<Set<string>>(new Set())
+  const sigmaTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const levelList = flattenHierarchy(project?.hierarchy ?? [])
   const levelMap = new Map(levelList.map((l) => [l.depth, l]))
@@ -391,6 +396,12 @@ export default function Review(): React.JSX.Element {
         redo()
         return
       }
+      if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+        e.preventDefault()
+        setBetaMode((m) => !m)
+        betaPendingRef.current.clear()
+        return
+      }
 
       if (!inTextarea) return
 
@@ -416,6 +427,60 @@ export default function Review(): React.JSX.Element {
 
   const canUndo = (currentState?.historyIdx ?? 0) > 0
   const canRedo = (currentState?.historyIdx ?? 0) < (currentState?.history.length ?? 1) - 1
+
+  // Schedule a final-sigma pass 1 second after the user stops typing in beta mode.
+  // Uses the functional setPages form so it reads the latest content, not a stale closure.
+  const scheduleSigmaFix = useCallback(() => {
+    if (sigmaTimerRef.current) clearTimeout(sigmaTimerRef.current)
+    sigmaTimerRef.current = setTimeout(() => {
+      if (!currentPage) return
+      setPages((prev) => {
+        const s = prev.get(currentPage.n)
+        if (!s) return prev
+        const fixed = finalSigmaFix(s.content)
+        if (fixed === s.content) return prev
+        const next = new Map(prev)
+        const trimmed = s.history.slice(0, s.historyIdx + 1)
+        trimmed.push(fixed)
+        next.set(currentPage.n, { ...s, content: fixed, dirty: fixed !== s.original, history: trimmed, historyIdx: trimmed.length - 1 })
+        return next
+      })
+    }, 1000)
+  }, [currentPage])
+
+  // Clear any pending sigma timer when beta mode is toggled or the page changes.
+  useEffect(() => {
+    return () => { if (sigmaTimerRef.current) clearTimeout(sigmaTimerRef.current) }
+  }, [betaMode, currentPage])
+
+  const handleBetaKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>): void => {
+    if (!betaMode) return
+    // Let through Ctrl/Meta combos (so Ctrl+S, Ctrl+K etc. still work)
+    if (e.ctrlKey || e.metaKey || e.altKey) return
+
+    const result = convertBetaKey(e.key, betaPendingRef.current)
+    if (result.isPending) {
+      e.preventDefault()
+      return
+    }
+    if (result.char !== null) {
+      e.preventDefault()
+      const ta = textareaRef.current
+      if (!ta) return
+      const start = ta.selectionStart
+      const end = ta.selectionEnd
+      const raw = ta.value.slice(0, start) + result.char + ta.value.slice(end)
+      setContent(raw)
+      scheduleSigmaFix()
+      requestAnimationFrame(() => {
+        if (textareaRef.current) {
+          const newPos = start + result.char!.length
+          textareaRef.current.selectionStart = newPos
+          textareaRef.current.selectionEnd = newPos
+        }
+      })
+    }
+  }, [betaMode, scheduleSigmaFix]) // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!project) return <div className="p-8">No project open.</div>
   if (activePages.length === 0) {
@@ -582,6 +647,23 @@ export default function Review(): React.JSX.Element {
           </button>
 
           <div className="ml-auto flex items-center gap-3">
+            {betaMode && (
+              <span
+                className="px-2 py-0.5 rounded text-[11.5px] font-mono font-semibold"
+                style={{ background: '#f0eaf8', border: '1px solid #9c6ab0', color: '#6a1b9a' }}
+                title="Beta Code mode active — Ctrl/Cmd+K to toggle"
+              >
+                β
+              </span>
+            )}
+            <button
+              className={`tool-btn text-[12px] font-mono ${betaMode ? 'active' : ''}`}
+              onClick={() => { setBetaMode((m) => !m); betaPendingRef.current.clear() }}
+              title={`${betaMode ? 'Disable' : 'Enable'} beta code keyboard (Ctrl+K)`}
+              style={betaMode ? { color: '#6a1b9a', borderColor: '#9c6ab0' } : {}}
+            >
+              β
+            </button>
             {currentState?.dirty && (
               <span className="text-[11.5px] font-mono" style={{ color: 'var(--amber, #c89328)' }}>
                 unsaved
@@ -826,14 +908,26 @@ export default function Review(): React.JSX.Element {
                   className="relative w-full p-4 font-mono text-[12.5px] leading-relaxed resize-none outline-none caret-[var(--ink)]"
                   style={{ color: 'var(--ink)', background: 'transparent', overflow: 'hidden', display: 'block' }}
                   value={content}
-                  onChange={(e) => { setContent(e.target.value); updateCursorTag() }}
+                  onChange={(e) => {
+                    setContent(e.target.value)
+                    if (betaMode) scheduleSigmaFix()
+                    updateCursorTag()
+                  }}
                   onClick={updateCursorTag}
                   onKeyUp={updateCursorTag}
+                  onKeyDown={handleBetaKeyDown}
                   spellCheck={false}
                   placeholder={currentState?.loaded ? '' : 'Loading…'}
                 />
               </div>
             </div>
+
+            {/* Beta Code helper map */}
+            {betaMode && (
+              <div className="shrink-0 px-4 pb-2" style={{ background: 'white' }}>
+                <BetaCodeHelper />
+              </div>
+            )}
 
             {/* Page mini-strip */}
             <div

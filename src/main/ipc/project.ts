@@ -122,6 +122,15 @@ export function registerProjectHandlers(): void {
     return result.canceled ? null : result.filePaths[0]
   })
 
+  ipcMain.handle('dialog:selectImages', async () => {
+    const result = await dialog.showOpenDialog({
+      title: 'Select Image Files',
+      filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'tif', 'tiff', 'bmp', 'webp'] }],
+      properties: ['openFile', 'multiSelections']
+    })
+    return result.canceled ? [] : result.filePaths
+  })
+
   ipcMain.handle('dialog:saveFile', async (_event, defaultName: string, ext: string) => {
     const result = await dialog.showSaveDialog({
       defaultPath: defaultName,

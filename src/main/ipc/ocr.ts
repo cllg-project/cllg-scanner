@@ -5,6 +5,8 @@ import { join, isAbsolute } from 'path'
 import type { Page, LMConfig, OCRProgressEvent, Project } from '@shared/types'
 import { normalizeOcrText } from './normalizeOcr'
 
+const IMAGE_TOKEN_OVERHEAD = 1500  // estimated tokens per vision-model image input
+
 async function persistPageStatus(projectDir: string, pageN: number, status: 'ocr_done' | 'error'): Promise<void> {
   const projectFile = join(projectDir, 'project.cllg.json')
   try {
@@ -91,7 +93,7 @@ export function registerOCRHandlers(): void {
 
   ipcMain.handle(
     'ocr:run',
-    async (event, projectDir: string, pages: Page[], lmConfig: LMConfig): Promise<void> => {
+    async (event, projectDir: string, pages: Page[], lmConfig: LMConfig, allPages?: Page[]): Promise<void> => {
       abortOCR = false
       const win = BrowserWindow.fromWebContents(event.sender)
       const mdPath = join(projectDir, 'ocr_output.md')
@@ -103,6 +105,33 @@ export function registerOCRHandlers(): void {
 
       const cacheDir = join(projectDir, 'pages')
       mkdirSync(cacheDir, { recursive: true })
+
+      // Build few-shot example prefix from pages marked isExample with ocr_done status
+      const sourcePagesForExamples = allPages ?? pages
+      const examplePages = sourcePagesForExamples.filter(
+        (p) => p.isExample && p.status === 'ocr_done'
+      )
+
+      type InputItem = { type: 'image'; data_url: string } | { type: 'text'; content: string }
+      let exampleInput: InputItem[] = []
+      let exampleTokens = 0
+
+      if (examplePages.length > 0) {
+        const resolveP = (p: string): string => isAbsolute(p) ? p : join(projectDir, p)
+        for (const ep of examplePages) {
+          const epImgPath = ep.maskedImagePath ? resolveP(ep.maskedImagePath) : resolveP(ep.imagePath)
+          const epCachePath = join(cacheDir, `page_${String(ep.n).padStart(4, '0')}.md`)
+          if (!existsSync(epImgPath) || !existsSync(epCachePath)) continue
+          const epImageData = await readFile(epImgPath)
+          const epBase64 = epImageData.toString('base64')
+          const epMarkdown = await readFile(epCachePath, 'utf-8')
+          exampleInput.push({ type: 'image', data_url: `data:image/png;base64,${epBase64}` })
+          exampleInput.push({ type: 'text', content: epMarkdown.trim() })
+          exampleTokens += Math.ceil(epMarkdown.length / 4) + IMAGE_TOKEN_OVERHEAD
+        }
+      }
+
+      const effectiveContextLength = lmConfig.contextLength + exampleTokens
 
       for (const page of pages) {
         if (abortOCR) break
@@ -153,10 +182,11 @@ export function registerOCRHandlers(): void {
           const body = {
             model: lmConfig.model,
             input: [
+              ...exampleInput,
               { type: 'image', data_url: dataUrl },
               { type: 'text', content: prompt }
             ],
-            context_length: lmConfig.contextLength,
+            context_length: effectiveContextLength,
             temperature: lmConfig.temperature
           }
 

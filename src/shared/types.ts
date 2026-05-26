@@ -71,11 +71,12 @@ export interface OCRPageParams {
 
 export interface OCRProgressEvent {
   pageNum: number
-  status: 'started' | 'done' | 'error' | 'skipped'
+  status: 'started' | 'done' | 'error' | 'skipped' | 'model-reload'
   tokens?: number
   elapsedMs?: number
   errorMessage?: string
   fromCache?: boolean
+  logMessage?: string  // used by model-reload status for UI log lines
 }
 
 export interface BibPerson {
@@ -121,4 +122,10 @@ export interface LMTestResult {
   latencyMs: number
   models?: string[]
   error?: string
+}
+
+export interface KrakenConfig {
+  segModelPath: string
+  recModelPath: string
+  builtinModels: boolean
 }

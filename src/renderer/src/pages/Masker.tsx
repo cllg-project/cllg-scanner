@@ -269,7 +269,8 @@ export default function Masker(): React.JSX.Element {
       for (const p of project.pages) {
         if (cancelled) break
         if (filmstripImages.has(p.n)) continue
-        const url = await window.api.loadImageAsDataUrl(p.imagePath)
+        const abs = await window.api.joinPaths(project.projectDir, p.imagePath)
+        const url = await window.api.loadImageAsDataUrl(abs)
         if (cancelled) break
         setFilmstripImages((prev) => {
           const next = new Map(prev)
@@ -302,15 +303,17 @@ export default function Masker(): React.JSX.Element {
   useEffect(() => {
     if (!page?.imagePath) return
     setKonvaImg(null)
-    window.api.loadImageAsDataUrl(page.imagePath).then((dataUrl) => {
-      const img = new window.Image()
-      img.onload = () => {
-        setKonvaImg(img)
-        const fitZoom = Math.min(600 / img.naturalWidth, 800 / img.naturalHeight)
-        setZoom(Math.min(fitZoom, 1))
-      }
-      img.src = dataUrl
-    })
+    window.api.joinPaths(project!.projectDir, page.imagePath)
+      .then((abs) => window.api.loadImageAsDataUrl(abs))
+      .then((dataUrl) => {
+        const img = new window.Image()
+        img.onload = () => {
+          setKonvaImg(img)
+          const fitZoom = Math.min(600 / img.naturalWidth, 800 / img.naturalHeight)
+          setZoom(Math.min(fitZoom, 1))
+        }
+        img.src = dataUrl
+      })
   }, [page?.imagePath])
 
   // Sync transformer to selected rect

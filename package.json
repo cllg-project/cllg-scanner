@@ -19,6 +19,7 @@
     "@xmldom/xmldom": "^0.9.10",
     "djvujs-dist": "^0.5.4",
     "konva": "^9.3.6",
+    "kraken-js": "github:cllg-project/kraken-js",
     "pdfjs-dist": "^4.4.168",
     "pngjs": "^7.0.0",
     "react": "^18.3.1",

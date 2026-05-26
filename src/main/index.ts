@@ -5,6 +5,7 @@ import { registerProjectHandlers } from './ipc/project'
 import { registerPDFHandlers } from './ipc/pdf'
 import { registerOCRHandlers } from './ipc/ocr'
 import { registerTEIHandlers } from './ipc/tei'
+import { registerKrakenHandlers } from './ipc/krakenOcr'
 
 function createWindow(): void {
   const win = new BrowserWindow({
@@ -42,6 +43,7 @@ app.whenReady().then(() => {
   registerPDFHandlers()
   registerOCRHandlers()
   registerTEIHandlers()
+  registerKrakenHandlers()
 
   createWindow()
 

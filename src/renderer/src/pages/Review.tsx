@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import type { Page, HierarchyLevel } from '@shared/types'
+import type { Page, HierarchyLevel, KrakenConfig } from '@shared/types'
 import Sidebar from '../components/Sidebar'
 import { useProject } from '../App'
 import { convertBetaKey, finalSigmaFix } from '../utils/betaCode'
 import BetaCodeHelper from '../components/BetaCodeHelper'
+import { renderMaskedPage } from '../utils/renderMaskedPage'
 
 interface FlatLevel { depth: number; name: string; pattern: string; color?: string }
 
@@ -170,9 +171,24 @@ export default function Review(): React.JSX.Element {
   const highlightRef = useRef<HTMLDivElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const [scanInfo, setScanInfo] = useState<ScanInfo | null>(null)
+  const [fontSize, setFontSize] = useState(() => {
+    const saved = localStorage.getItem('review:fontSize')
+    return saved ? parseInt(saved, 10) : 13
+  })
   const [betaMode, setBetaMode] = useState(false)
   const betaPendingRef = useRef<Set<string>>(new Set())
   const sigmaTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // Re-OCR panel
+  const [reOcrOpen, setReOcrOpen] = useState(false)
+  const [reOcrEngine, setReOcrEngine] = useState<'lm' | 'kraken'>('kraken')
+  const [reOcrRunning, setReOcrRunning] = useState(false)
+  const [reOcrError, setReOcrError] = useState<string | null>(null)
+  const [krakenPaths, setKrakenPaths] = useState<KrakenConfig>({
+    segModelPath: '',
+    recModelPath: '',
+    builtinModels: true,
+  })
 
   const levelList = flattenHierarchy(project?.hierarchy ?? [])
   const levelMap = new Map(levelList.map((l) => [l.depth, l]))
@@ -287,6 +303,16 @@ export default function Review(): React.JSX.Element {
       return next
     })
   }, [currentPage])
+
+  const resetCache = useCallback(async () => {
+    if (!project || !currentPage) return
+    await window.api.deletePageCache(project.projectDir, currentPage.n)
+    setPages((prev) => {
+      const next = new Map(prev)
+      next.delete(currentPage.n)
+      return next
+    })
+  }, [project, currentPage])
 
   const saveCurrent = useCallback(async () => {
     if (!project || !currentPage || !currentState?.dirty) return
@@ -482,6 +508,43 @@ export default function Review(): React.JSX.Element {
     }
   }, [betaMode, scheduleSigmaFix]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Fetch bundled Kraken model paths from main process once
+  useEffect(() => {
+    window.api.getKrakenBuiltinPaths().then((paths) =>
+      setKrakenPaths({ segModelPath: paths.segModelPath, recModelPath: paths.recModelPath, builtinModels: true })
+    )
+  }, [])
+
+  const runReOcr = useCallback(async () => {
+    if (!project || !currentPage) return
+    setReOcrRunning(true)
+    setReOcrError(null)
+    try {
+      // Re-render masks if any are defined, otherwise use the stored masked or plain image
+      let imgPath: string
+      if (currentPage.masks.length > 0) {
+        imgPath = await window.api.joinPaths(project.projectDir, await renderMaskedPage(project.projectDir, currentPage))
+      } else {
+        imgPath = await window.api.joinPaths(
+          project.projectDir,
+          currentPage.maskedImagePath ?? currentPage.imagePath
+        )
+      }
+      let result: { text: string }
+      if (reOcrEngine === 'kraken') {
+        result = await window.api.rerunPageKraken(imgPath, krakenPaths)
+      } else {
+        result = await window.api.rerunPageLM(imgPath, project.lmConfig)
+      }
+      setContent(result.text)
+      setReOcrOpen(false)
+    } catch (err: unknown) {
+      setReOcrError(String(err))
+    } finally {
+      setReOcrRunning(false)
+    }
+  }, [project, currentPage, reOcrEngine, krakenPaths]) // eslint-disable-line react-hooks/exhaustive-deps
+
   if (!project) return <div className="p-8">No project open.</div>
   if (activePages.length === 0) {
     return (
@@ -645,8 +708,43 @@ export default function Review(): React.JSX.Element {
           >
             Restore
           </button>
+          <button
+            className="btn btn-quiet !py-0.5 !px-2 !text-[11px]"
+            onClick={resetCache}
+            title="Delete the cached transcription for this page and reset its status to pending"
+          >
+            Reset cache
+          </button>
+          <button
+            className={`btn btn-quiet !py-0.5 !px-2 !text-[11px] gap-1 ${reOcrOpen ? 'border-[#0369a1] text-[#0369a1]' : ''}`}
+            onClick={() => { setReOcrOpen((v) => !v); setReOcrError(null) }}
+            title="Re-run OCR on this page (LM Studio or Kraken)"
+          >
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8" />
+              <path d="M21 3v5h-5" />
+              <path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16" />
+              <path d="M3 21v-5h5" />
+            </svg>
+            Re-OCR
+          </button>
 
           <div className="ml-auto flex items-center gap-3">
+            {/* Font size controls */}
+            <div className="flex items-center gap-0.5">
+              <button
+                className="tool-btn !w-5 !h-5 !text-[11px]"
+                onClick={() => setFontSize((s) => { const v = Math.max(10, s - 1); localStorage.setItem('review:fontSize', String(v)); return v })}
+                title="Decrease font size"
+              >−</button>
+              <span className="text-[10.5px] font-mono tabular-nums w-7 text-center" style={{ color: 'var(--mute)' }}>{fontSize}px</span>
+              <button
+                className="tool-btn !w-5 !h-5 !text-[11px]"
+                onClick={() => setFontSize((s) => { const v = Math.min(32, s + 1); localStorage.setItem('review:fontSize', String(v)); return v })}
+                title="Increase font size"
+              >+</button>
+            </div>
+            <div className="w-px h-4" style={{ background: 'var(--line-2)' }} />
             {betaMode && (
               <span
                 className="px-2 py-0.5 rounded text-[11.5px] font-mono font-semibold"
@@ -814,6 +912,77 @@ export default function Review(): React.JSX.Element {
           </div>
         )}
 
+        {/* Re-OCR panel */}
+        {reOcrOpen && (
+          <div
+            className="px-8 py-3 border-b shrink-0 flex items-center gap-4 flex-wrap text-[11.5px]"
+            style={{ borderColor: 'var(--line)', background: '#f0f9ff' }}
+          >
+            {/* Engine toggle */}
+            <div className="flex items-center gap-1 shrink-0">
+              {(['kraken', 'lm'] as const).map((eng) => (
+                <button
+                  key={eng}
+                  className="btn btn-quiet !py-0.5 !px-2.5 !text-[11px] shrink-0"
+                  style={reOcrEngine === eng ? { background: '#0369a1', color: '#fff', borderColor: '#0369a1' } : {}}
+                  onClick={() => { setReOcrEngine(eng); setReOcrError(null) }}
+                >
+                  {eng === 'kraken' ? 'Kraken (ONNX)' : 'LM Studio (Vision)'}
+                </button>
+              ))}
+            </div>
+
+            {/* Engine description */}
+            {reOcrEngine === 'kraken' ? (
+              <span className="shrink-0 font-mono text-[11px]" style={{ color: 'var(--mute)' }}>
+                Built-in Ancient Greek models (seg + rec)
+              </span>
+            ) : (
+              <span className="shrink-0 font-mono text-[11px]" style={{ color: 'var(--mute)' }}>
+                {project.lmConfig.endpoint} · <span style={{ color: 'var(--ink)' }}>{project.lmConfig.model || '(no model set)'}</span>
+              </span>
+            )}
+
+            {reOcrError && (
+              <span className="shrink-0 text-[11px]" style={{ color: '#b04a3a' }}>{reOcrError}</span>
+            )}
+
+            <div className="flex items-center gap-2 ml-auto shrink-0">
+              <button
+                className="btn btn-primary !py-1 !px-3 !text-[11.5px] gap-1.5"
+                onClick={runReOcr}
+                disabled={reOcrRunning}
+              >
+                {reOcrRunning ? (
+                  <>
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="animate-spin">
+                      <path d="M21 12a9 9 0 1 1-6.3-8.6" />
+                    </svg>
+                    Running…
+                  </>
+                ) : (
+                  <>
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <polygon points="5 3 19 12 5 21 5 3" />
+                    </svg>
+                    Run
+                  </>
+                )}
+              </button>
+              <button
+                className="tool-btn !w-5 !h-5 shrink-0"
+                onClick={() => { setReOcrOpen(false); setReOcrError(null) }}
+                disabled={reOcrRunning}
+                title="Dismiss"
+              >
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M18 6 6 18M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Scan results panel */}
         {scanInfo !== null && (
           <div
@@ -898,15 +1067,15 @@ export default function Review(): React.JSX.Element {
                 <div
                   ref={highlightRef}
                   aria-hidden="true"
-                  className="absolute inset-0 p-4 overflow-hidden pointer-events-none font-mono text-[12.5px] leading-relaxed whitespace-pre-wrap break-words"
-                  style={{ color: 'transparent', background: 'transparent' }}
+                  className="absolute inset-0 p-4 overflow-hidden pointer-events-none font-mono leading-relaxed whitespace-pre-wrap break-words"
+                  style={{ color: 'transparent', background: 'transparent', fontSize }}
                   dangerouslySetInnerHTML={{ __html: highlightMarkdown(content, levelMap) }}
                 />
                 {/* Editable textarea — auto-grows; outer div handles scrolling */}
                 <textarea
                   ref={textareaRef}
-                  className="relative w-full p-4 font-mono text-[12.5px] leading-relaxed resize-none outline-none caret-[var(--ink)]"
-                  style={{ color: 'var(--ink)', background: 'transparent', overflow: 'hidden', display: 'block' }}
+                  className="relative w-full p-4 font-mono leading-relaxed resize-none outline-none caret-[var(--ink)]"
+                  style={{ color: 'var(--ink)', background: 'transparent', overflow: 'hidden', display: 'block', fontSize }}
                   value={content}
                   onChange={(e) => {
                     setContent(e.target.value)

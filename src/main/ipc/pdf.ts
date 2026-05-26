@@ -1,7 +1,7 @@
 import { ipcMain, shell, dialog } from 'electron'
-import { writeFile, readFile, readdir, copyFile } from 'fs/promises'
-import { mkdirSync } from 'fs'
-import { join, extname, basename, isAbsolute } from 'path'
+import { writeFile, readFile, readdir, copyFile, unlink } from 'fs/promises'
+import { mkdirSync, existsSync } from 'fs'
+import { join, extname, basename, isAbsolute, relative } from 'path'
 import type { Project } from '@shared/types'
 
 const IMAGE_EXTS = new Set(['.jpg', '.jpeg', '.png', '.tif', '.tiff', '.bmp', '.webp'])
@@ -14,9 +14,8 @@ export function registerPDFHandlers(): void {
       const pagesDir = join(projectDir, 'pages')
       mkdirSync(pagesDir, { recursive: true })
       const fileName = `page_${String(pageNum).padStart(4, '0')}.png`
-      const filePath = join(pagesDir, fileName)
-      await writeFile(filePath, Buffer.from(data))
-      return filePath
+      await writeFile(join(pagesDir, fileName), Buffer.from(data))
+      return `pages/${fileName}`
     }
   )
 
@@ -27,16 +26,22 @@ export function registerPDFHandlers(): void {
       const pagesDir = join(projectDir, 'pages')
       mkdirSync(pagesDir, { recursive: true })
       const fileName = `page_${String(pageNum).padStart(4, '0')}_masked.png`
-      const filePath = join(pagesDir, fileName)
-      await writeFile(filePath, Buffer.from(data))
-      return filePath
+      await writeFile(join(pagesDir, fileName), Buffer.from(data))
+      return `pages/${fileName}`
     }
   )
 
-  // Join path segments; if the last segment is already absolute, return it unchanged
+  // Join path segments. Relative paths are joined with the base as usual.
+  // Absolute paths are returned as-is if they exist; otherwise the path is
+  // recomputed relative to the base to handle cross-OS project moves.
   ipcMain.handle('path:join', (_event, ...parts: string[]) => {
     const last = parts[parts.length - 1]
-    return isAbsolute(last) ? last : join(...parts)
+    if (!isAbsolute(last)) return join(...parts)
+    if (existsSync(last)) return last
+    // Absolute path doesn't exist on this OS — resolve relative to base
+    const base = parts[0]
+    if (last.startsWith(base)) return last  // same machine, different issue
+    return join(base, 'pages', basename(last))
   })
 
   // Load an image file and return as base64 data URL
@@ -87,17 +92,23 @@ export function registerPDFHandlers(): void {
     return images
   })
 
-  // Copy an external image into the project pages dir (for image-folder import)
+  // Copy an external image into the project pages dir (for image-folder import).
+  // If the image is already inside projectDir, reference it in place instead of copying.
   ipcMain.handle(
     'page:copyImage',
     async (_event, srcPath: string, projectDir: string, pageNum: number) => {
+      const rel = relative(projectDir, srcPath)
+      // relative() returns a path without leading '..' when srcPath is inside projectDir
+      if (!rel.startsWith('..') && !isAbsolute(rel)) {
+        return rel.replace(/\\/g, '/')
+      }
+      // External image — copy into pages/
       const pagesDir = join(projectDir, 'pages')
       mkdirSync(pagesDir, { recursive: true })
       const ext = extname(srcPath).toLowerCase() || '.png'
       const fileName = `page_${String(pageNum).padStart(4, '0')}${ext}`
-      const destPath = join(pagesDir, fileName)
-      await copyFile(srcPath, destPath)
-      return destPath
+      await copyFile(srcPath, join(pagesDir, fileName))
+      return `pages/${fileName}`
     }
   )
 
@@ -121,6 +132,21 @@ export function registerPDFHandlers(): void {
       try { parts.push(await readFile(join(projectDir, 'pages', f), 'utf-8')) } catch { /* skip */ }
     }
     await writeFile(join(projectDir, 'ocr_output.md'), parts.join(''), 'utf-8')
+  })
+
+  // Delete the per-page markdown cache and reset its status to 'pending' in project.cllg.json
+  ipcMain.handle('page:deleteCache', async (_event, projectDir: string, pageN: number) => {
+    const cachePath = join(projectDir, 'pages', `page_${String(pageN).padStart(4, '0')}.md`)
+    try { await unlink(cachePath) } catch { /* already gone */ }
+    // Update project file
+    const projectFile = join(projectDir, 'project.cllg.json')
+    try {
+      const raw = await readFile(projectFile, 'utf-8')
+      const project: Project = JSON.parse(raw)
+      const page = project.pages.find((p) => p.n === pageN)
+      if (page) page.status = 'pending'
+      await writeFile(projectFile, JSON.stringify(project, null, 2), 'utf-8')
+    } catch { /* non-fatal */ }
   })
 
   ipcMain.handle('ocr:loadOutput', async (_event, projectDir: string) => {

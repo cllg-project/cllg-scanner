@@ -11,6 +11,16 @@ files:
   - node_modules/**/*
   - '!**/.git/**'
 
+asarUnpack:
+  - node_modules/onnxruntime-node/**
+  - node_modules/kraken-js/**
+
+extraResources:
+  - from: resources/models/
+    to: models/
+    filter:
+      - '**/*.js_mlmodel'
+
 win:
   target:
     - target: portable

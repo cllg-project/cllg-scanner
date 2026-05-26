@@ -1,9 +1,46 @@
 import { ipcMain, dialog, app } from 'electron'
 import { readFile, writeFile, readdir } from 'fs/promises'
 import { existsSync, mkdirSync } from 'fs'
-import { join, dirname } from 'path'
+import { join, dirname, isAbsolute, basename, sep } from 'path'
 import { randomUUID } from 'crypto'
 import type { Project } from '@shared/types'
+
+// Detect absolute paths from either OS regardless of which OS is running now.
+// isAbsolute() only recognises the *current* OS's absolute-path syntax.
+function isAnyAbsolute(p: string): boolean {
+  return isAbsolute(p) || /^[A-Za-z]:[/\\]/.test(p)
+}
+
+/**
+ * Normalise page paths to be relative to projectDir.
+ * Handles existing projects where paths were stored as absolute, and
+ * cross-OS moves where an absolute path from another OS doesn't exist here.
+ */
+function repairProjectPaths(project: Project): Project {
+  const dir = project.projectDir
+  // Ensure the prefix check is safe regardless of whether dir ends with a separator
+  const prefix = dir.endsWith(sep) || dir.endsWith('/') ? dir : dir + sep
+  const repair = (p: string | undefined): string | undefined => {
+    if (!p || !isAnyAbsolute(p)) return p
+    // Absolute path within this machine's projectDir → make relative
+    if (p.startsWith(prefix) || p === dir) {
+      return p.slice(prefix.length).replace(/\\/g, '/')
+    }
+    // Cross-OS or different location — preserve the pages/<filename> structure
+    // by scanning for a 'pages/' segment rather than blindly using basename.
+    const pagesMatch = p.match(/[/\\]pages[/\\](.+)$/)
+    if (pagesMatch) return `pages/${pagesMatch[1].replace(/\\/g, '/')}`
+    return `pages/${basename(p.replace(/\\/g, '/'))}`
+  }
+  return {
+    ...project,
+    pages: project.pages.map((page) => ({
+      ...page,
+      imagePath: repair(page.imagePath) ?? page.imagePath,
+      maskedImagePath: repair(page.maskedImagePath),
+    })),
+  }
+}
 
 const RECENT_FILE = join(app.getPath('userData'), 'recent-projects.json')
 
@@ -62,7 +99,9 @@ export function registerProjectHandlers(): void {
     if (result.canceled || !result.filePaths[0]) return null
     const filePath = result.filePaths[0]
     const data = await readFile(filePath, 'utf-8')
-    const project: Project = JSON.parse(data)
+    const raw: Project = JSON.parse(data)
+    // Update projectDir to the actual file location so that moved projects work
+    const project: Project = repairProjectPaths({ ...raw, projectDir: dirname(filePath) })
     await addToRecent(filePath)
     return project
   })
@@ -97,7 +136,7 @@ export function registerProjectHandlers(): void {
       if (!existsSync(p)) continue
       try {
         const data = await readFile(p, 'utf-8')
-        projects.push(JSON.parse(data))
+        projects.push(repairProjectPaths(JSON.parse(data)))
       } catch {
         // skip corrupt files
       }
@@ -141,6 +180,7 @@ export function registerProjectHandlers(): void {
 
   ipcMain.handle('project:loadFromDir', async (_event, projectDir: string) => {
     const data = await readFile(join(projectDir, 'project.cllg.json'), 'utf-8')
-    return JSON.parse(data) as Project
+    const raw = JSON.parse(data) as Project
+    return repairProjectPaths({ ...raw, projectDir })
   })
 }

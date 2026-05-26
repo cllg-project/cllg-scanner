@@ -5,7 +5,8 @@ import type {
   LMTestResult,
   OCRProgressEvent,
   TEIParams,
-  TEISaveParams
+  TEISaveParams,
+  KrakenConfig
 } from '@shared/types'
 
 const api = {
@@ -78,6 +79,15 @@ const api = {
   stopOCR: (): Promise<void> =>
     ipcRenderer.invoke('ocr:stop'),
 
+  rerunPageLM: (imagePath: string, lmConfig: LMConfig): Promise<{ text: string }> =>
+    ipcRenderer.invoke('ocr:rerun-page', imagePath, lmConfig),
+
+  getKrakenBuiltinPaths: (): Promise<{ segModelPath: string; recModelPath: string }> =>
+    ipcRenderer.invoke('kraken:getBuiltinPaths'),
+
+  rerunPageKraken: (imagePath: string, krakenConfig: KrakenConfig): Promise<{ text: string }> =>
+    ipcRenderer.invoke('kraken:rerun-page', imagePath, krakenConfig.segModelPath, krakenConfig.recModelPath),
+
   // ── TEI ──────────────────────────────────────────────────────────────
   generateTEI: (params: TEIParams): Promise<string> =>
     ipcRenderer.invoke('tei:generate', params),
@@ -111,6 +121,9 @@ const api = {
 
   saveMarkdown: (projectDir: string, pageN: number, content: string): Promise<void> =>
     ipcRenderer.invoke('page:saveMarkdown', projectDir, pageN, content),
+
+  deletePageCache: (projectDir: string, pageN: number): Promise<void> =>
+    ipcRenderer.invoke('page:deleteCache', projectDir, pageN),
 
   // ── Events (push from main → renderer) ───────────────────────────────
   onOCRProgress: (cb: (e: OCRProgressEvent) => void): (() => void) => {

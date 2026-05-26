@@ -3,29 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import type { LMConfig, OCRProgressEvent, Page } from '@shared/types'
 import Sidebar from '../components/Sidebar'
 import { useProject } from '../App'
-
-async function renderMaskedPage(projectDir: string, page: Page): Promise<string> {
-  const imgPath = await window.api.joinPaths(projectDir, page.imagePath)
-  const dataUrl = await window.api.loadImageAsDataUrl(imgPath)
-  const img = await new Promise<HTMLImageElement>((res, rej) => {
-    const el = new window.Image()
-    el.onload = () => res(el)
-    el.onerror = rej
-    el.src = dataUrl
-  })
-  const canvas = document.createElement('canvas')
-  canvas.width = img.naturalWidth
-  canvas.height = img.naturalHeight
-  const ctx = canvas.getContext('2d')!
-  ctx.drawImage(img, 0, 0)
-  for (const mask of page.masks) {
-    ctx.fillStyle = mask.fill
-    ctx.fillRect(mask.x, mask.y, mask.width, mask.height)
-  }
-  const blob: Blob = await new Promise((res) => canvas.toBlob(res as BlobCallback, 'image/png'))
-  const buf = await blob.arrayBuffer()
-  return window.api.saveMaskedImage(projectDir, page.n, buf)
-}
+import { renderMaskedPage } from '../utils/renderMaskedPage'
 
 interface PageRow {
   page: Page
@@ -54,7 +32,9 @@ export default function OCRRun(): React.JSX.Element {
   const [availableModels, setAvailableModels] = useState<string[]>([])
   const [running, setRunning] = useState(false)
   const [rows, setRows] = useState<PageRow[]>([])
-  const [excluded, setExcluded] = useState<Set<number>>(new Set())
+  const [excluded, setExcluded] = useState<Set<number>>(
+    () => new Set((project?.pages ?? []).filter((p) => p.status === 'ocr_done').map((p) => p.n))
+  )
   const [log, setLog] = useState<string[]>([])
   const logRef = useRef<HTMLDivElement>(null)
 
@@ -89,7 +69,9 @@ export default function OCRRun(): React.JSX.Element {
         })
       )
       const ts = new Date().toISOString().slice(11, 23)
-      if (e.status === 'done') {
+      if (e.status === 'model-reload') {
+        addLog(`[${ts}] ${e.logMessage ?? 'model reload'}`)
+      } else if (e.status === 'done') {
         addLog(`[${ts}] page[${e.pageNum}] done · tokens=${e.tokens} elapsed=${((e.elapsedMs ?? 0) / 1000).toFixed(1)}s`)
       } else if (e.status === 'error') {
         addLog(`[${ts}] page[${e.pageNum}] ERROR · ${e.errorMessage}`)
@@ -162,11 +144,14 @@ export default function OCRRun(): React.JSX.Element {
     addLog(`[info] Starting OCR · ${pagesForOCR.filter((p) => p.status !== 'skipped').length} pages`)
     if (forcedNs.size > 0) addLog(`[info] Force-reprocessing ${forcedNs.size} page(s): ${[...forcedNs].join(', ')}`)
 
-    // Apply masks on the fly for any page that has mask rectangles defined
-    const toMask = pagesForOCR.filter((p) => p.masks.length > 0)
+    // Apply masks on the fly. Include excluded example pages so few-shot always uses the masked image.
+    const excludedExamplesWithMasks = pagesWithReset.filter(
+      (p) => p.isExample && p.status === 'ocr_done' && p.masks.length > 0 && excluded.has(p.n)
+    )
+    const toMask = [...pagesForOCR.filter((p) => p.masks.length > 0), ...excludedExamplesWithMasks]
+    const maskedPaths = new Map<number, string>()
     if (toMask.length > 0) {
       addLog(`[info] Applying masks to ${toMask.length} pages…`)
-      const maskedPaths = new Map<number, string>()
       for (const p of toMask) {
         try {
           maskedPaths.set(p.n, await renderMaskedPage(project.projectDir, p))
@@ -179,7 +164,11 @@ export default function OCRRun(): React.JSX.Element {
       )
     }
 
-    await window.api.runOCR(project.projectDir, pagesForOCR, cfg, pagesWithReset)
+    // maskedPaths covers both OCR pages and excluded example pages
+    const allPagesWithMasks = pagesWithReset.map((p) =>
+      maskedPaths.has(p.n) ? { ...p, maskedImagePath: maskedPaths.get(p.n) } : p
+    )
+    await window.api.runOCR(project.projectDir, pagesForOCR, cfg, allPagesWithMasks)
 
     // Reload from disk so page statuses written by main process are reflected in context
     const reloaded = await window.api.reloadProject(project.projectDir)
@@ -187,7 +176,7 @@ export default function OCRRun(): React.JSX.Element {
 
     setRunning(false)
     addLog('[info] OCR run complete')
-  }, [project, lmConfig, excluded, saveProject])
+  }, [project, lmConfig, rows, excluded, saveProject])
 
   const stopOCR = useCallback(async () => {
     await window.api.stopOCR()
@@ -237,10 +226,17 @@ export default function OCRRun(): React.JSX.Element {
               <span className="font-mono" style={{ color: 'var(--ink)' }}>ocr_output.md</span>.
             </div>
             {hasInMemoryLearning && (
-              <div className="mt-2 inline-flex items-center gap-1.5 px-2.5 py-1 rounded text-[11.5px] font-medium"
-                style={{ background: '#fdf3d0', border: '1px solid #e8c84a', color: '#7a6010' }}>
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4L12 17l-6.2 4.3 2.4-7.4L2 9.4h7.6z"/></svg>
-                In-Memory Learning ON · {examplePageNs.length} example page{examplePageNs.length > 1 ? 's' : ''} · context will be auto-grown
+              <div className="mt-2 flex flex-col gap-1.5">
+                <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded text-[11.5px] font-medium"
+                  style={{ background: '#fdf3d0', border: '1px solid #e8c84a', color: '#7a6010' }}>
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4L12 17l-6.2 4.3 2.4-7.4L2 9.4h7.6z"/></svg>
+                  In-Memory Learning ON · {examplePageNs.length} example page{examplePageNs.length > 1 ? 's' : ''} · uses /v1/chat/completions
+                </div>
+                <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded text-[11.5px]"
+                  style={{ background: '#e8f0fe', border: '1px solid #a0b8e8', color: '#1a3a7a' }}>
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16h.01"/></svg>
+                  Model will be reloaded with ≥ {lmConfig.contextLength + examplePageNs.length * 1500} token context before OCR starts.
+                </div>
               </div>
             )}
           </div>

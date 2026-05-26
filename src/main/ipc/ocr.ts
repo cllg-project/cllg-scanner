@@ -1,5 +1,5 @@
 import { ipcMain, BrowserWindow } from 'electron'
-import { readFile, writeFile, appendFile } from 'fs/promises'
+import { readFile, writeFile, appendFile, unlink } from 'fs/promises'
 import { mkdirSync, existsSync } from 'fs'
 import { join, isAbsolute } from 'path'
 import type { Page, LMConfig, OCRProgressEvent, Project } from '@shared/types'
@@ -66,6 +66,47 @@ export function patchOutput(text: string): string {
 let abortOCR = false
 
 export function registerOCRHandlers(): void {
+  ipcMain.handle(
+    'ocr:rerun-page',
+    async (_event, imagePath: string, lmConfig: LMConfig): Promise<{ text: string }> => {
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+      if (lmConfig.apiKey) headers['Authorization'] = `Bearer ${lmConfig.apiKey}`
+
+      const imageData = await readFile(imagePath)
+      const base64 = imageData.toString('base64')
+      const dataUrl = `data:image/png;base64,${base64}`
+      const prompt = lmConfig.promptTemplate ?? OCR_PROMPT
+
+      const body = {
+        model: lmConfig.model,
+        input: [
+          { type: 'image', data_url: dataUrl },
+          { type: 'text', content: prompt }
+        ],
+        context_length: lmConfig.contextLength,
+        temperature: lmConfig.temperature
+      }
+
+      const res = await fetch(`${lmConfig.endpoint}/api/v1/chat`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(600_000)
+      })
+
+      if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`)
+
+      const data = await res.json()
+      const raw: string =
+        data.output?.findLast((o: { type: string }) => o.type === 'message')?.content
+        ?? data.choices?.[0]?.message?.content
+        ?? data.content
+        ?? ''
+
+      return { text: normalizeOcrText(patchOutput(raw)) }
+    }
+  )
+
   ipcMain.handle('ocr:stop', async () => {
     abortOCR = true
   })
@@ -106,14 +147,18 @@ export function registerOCRHandlers(): void {
       const cacheDir = join(projectDir, 'pages')
       mkdirSync(cacheDir, { recursive: true })
 
-      // Build few-shot example prefix from pages marked isExample with ocr_done status
+      // Build few-shot messages from pages marked isExample with ocr_done status
       const sourcePagesForExamples = allPages ?? pages
       const examplePages = sourcePagesForExamples.filter(
         (p) => p.isExample && p.status === 'ocr_done'
       )
 
-      type InputItem = { type: 'image'; data_url: string } | { type: 'text'; content: string }
-      let exampleInput: InputItem[] = []
+      type ChatMessage =
+        | { role: 'system'; content: string }
+        | { role: 'user'; content: Array<{ type: 'image_url'; image_url: { url: string } }> }
+        | { role: 'assistant'; content: string }
+
+      let fewShotMessages: ChatMessage[] = []
       let exampleTokens = 0
 
       if (examplePages.length > 0) {
@@ -125,13 +170,48 @@ export function registerOCRHandlers(): void {
           const epImageData = await readFile(epImgPath)
           const epBase64 = epImageData.toString('base64')
           const epMarkdown = await readFile(epCachePath, 'utf-8')
-          exampleInput.push({ type: 'image', data_url: `data:image/png;base64,${epBase64}` })
-          exampleInput.push({ type: 'text', content: epMarkdown.trim() })
+          fewShotMessages.push({
+            role: 'user',
+            content: [{ type: 'image_url', image_url: { url: `data:image/png;base64,${epBase64}` } }]
+          })
+          fewShotMessages.push({ role: 'assistant', content: epMarkdown.trim() })
           exampleTokens += Math.ceil(epMarkdown.length / 4) + IMAGE_TOKEN_OVERHEAD
         }
       }
 
       const effectiveContextLength = lmConfig.contextLength + exampleTokens
+
+      // When few-shot examples are present, reload the model with a larger context window.
+      // The OpenAI-compat endpoint ignores context_length in the request body — the window is
+      // fixed at load time — so we unload and reload with the required context before starting.
+      if (fewShotMessages.length > 0 && exampleTokens > 0) {
+        const sendLog = (msg: string): void => {
+          win?.webContents.send('ocr:progress', {
+            pageNum: 0,
+            status: 'model-reload',
+            logMessage: msg
+          } satisfies OCRProgressEvent)
+        }
+        sendLog(`[model] Reloading "${lmConfig.model}" with context ${effectiveContextLength} tokens…`)
+        try {
+          await fetch(`${lmConfig.endpoint}/api/v1/models/unload`, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({ model: lmConfig.model }),
+            signal: AbortSignal.timeout(60_000)
+          })
+          const loadRes = await fetch(`${lmConfig.endpoint}/api/v1/models/load`, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({ model: lmConfig.model, context_length: effectiveContextLength }),
+            signal: AbortSignal.timeout(120_000)
+          })
+          if (!loadRes.ok) throw new Error(`HTTP ${loadRes.status}`)
+          sendLog(`[model] Reloaded — context ${effectiveContextLength} tokens ready`)
+        } catch (err) {
+          sendLog(`[model] Reload failed (${err}); proceeding with current context`)
+        }
+      }
 
       for (const page of pages) {
         if (abortOCR) break
@@ -143,17 +223,22 @@ export function registerOCRHandlers(): void {
           continue
         }
 
-        // Per-page cache: skip API call if already processed
+        // Per-page cache: skip API call if already processed.
+        // If status is 'pending' the page was force-queued for reprocessing — delete stale cache.
         const cachePath = join(cacheDir, `page_${String(page.n).padStart(4, '0')}.md`)
         if (existsSync(cachePath)) {
-          const cached = await readFile(cachePath, 'utf-8')
-          await appendFile(mdPath, cached, 'utf-8')
-          win?.webContents.send('ocr:progress', {
-            pageNum: page.n,
-            status: 'done',
-            fromCache: true
-          } satisfies OCRProgressEvent)
-          continue
+          if (page.status === 'pending') {
+            try { await unlink(cachePath) } catch { /* ignore */ }
+          } else {
+            const cached = await readFile(cachePath, 'utf-8')
+            await appendFile(mdPath, cached, 'utf-8')
+            win?.webContents.send('ocr:progress', {
+              pageNum: page.n,
+              status: 'done',
+              fromCache: true
+            } satisfies OCRProgressEvent)
+            continue
+          }
         }
 
         const resolve = (p: string): string => isAbsolute(p) ? p : join(projectDir, p)
@@ -179,38 +264,63 @@ export function registerOCRHandlers(): void {
           const base64 = imageData.toString('base64')
           const dataUrl = `data:image/png;base64,${base64}`
 
-          const body = {
-            model: lmConfig.model,
-            input: [
-              ...exampleInput,
-              { type: 'image', data_url: dataUrl },
-              { type: 'text', content: prompt }
-            ],
-            context_length: effectiveContextLength,
-            temperature: lmConfig.temperature
+          let raw = ''
+          let tokens = 0
+
+          if (fewShotMessages.length > 0) {
+            // Few-shot: use OpenAI-compat /v1/chat/completions with user/assistant message roles
+            const messages: ChatMessage[] = [
+              { role: 'system', content: prompt },
+              ...fewShotMessages,
+              { role: 'user', content: [{ type: 'image_url', image_url: { url: dataUrl } }] }
+            ]
+            const body = {
+              model: lmConfig.model,
+              messages,
+              context_length: effectiveContextLength,
+              max_tokens: effectiveContextLength,
+              temperature: lmConfig.temperature
+            }
+            const res = await fetch(`${lmConfig.endpoint}/v1/chat/completions`, {
+              method: 'POST',
+              headers,
+              body: JSON.stringify(body),
+              signal: AbortSignal.timeout(600_000)
+            })
+            if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`)
+            const data = await res.json()
+            raw = data.choices?.[0]?.message?.content ?? ''
+            tokens = data.usage?.completion_tokens ?? raw.split(/\s+/).length
+          } else {
+            // No examples: use native /api/v1/chat
+            const body = {
+              model: lmConfig.model,
+              input: [
+                { type: 'image', data_url: dataUrl },
+                { type: 'text', content: prompt }
+              ],
+              context_length: effectiveContextLength,
+              temperature: lmConfig.temperature
+            }
+            const res = await fetch(`${lmConfig.endpoint}/api/v1/chat`, {
+              method: 'POST',
+              headers,
+              body: JSON.stringify(body),
+              signal: AbortSignal.timeout(600_000)
+            })
+            if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`)
+            const data = await res.json()
+            // LM Studio native: { output: [{ type:"message", content:"..." }], stats: { total_output_tokens } }
+            raw =
+              data.output?.findLast((o: { type: string }) => o.type === 'message')?.content
+              ?? data.choices?.[0]?.message?.content
+              ?? data.content
+              ?? ''
+            tokens =
+              data.stats?.total_output_tokens
+              ?? data.usage?.completion_tokens
+              ?? raw.split(/\s+/).length
           }
-
-          const res = await fetch(`${lmConfig.endpoint}/api/v1/chat`, {
-            method: 'POST',
-            headers,
-            body: JSON.stringify(body),
-            signal: AbortSignal.timeout(600_000)
-          })
-
-          if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`)
-
-          const data = await res.json()
-          // LM Studio native: { output: [{ type:"message", content:"..." }], stats: { total_output_tokens } }
-          // OpenAI-compat:    { choices: [{ message: { content:"..." } }] }
-          const raw: string =
-            data.output?.find((o: { type: string }) => o.type === 'message')?.content
-            ?? data.choices?.[0]?.message?.content
-            ?? data.content
-            ?? ''
-          const tokens: number =
-            data.stats?.total_output_tokens
-            ?? data.usage?.completion_tokens
-            ?? raw.split(/\s+/).length
           const text = normalizeOcrText(patchOutput(raw))
           const pageMarkdown = `<pb n="${page.n}"/>\n${text}\n\n`
 

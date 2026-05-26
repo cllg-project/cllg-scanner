@@ -112,14 +112,6 @@ export default function Home(): React.JSX.Element {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pendingImport?.doc, pendingImport?.imagePaths])
 
-  // Scroll filmstrip to the first selected page when range changes
-  useEffect(() => {
-    if (!pendingImport || !filmstripRef.current) return
-    const first = parseRange(pendingImport.rangeText, pendingImport.totalPages)[0]
-    if (first == null) return
-    const el = filmstripRef.current.querySelector(`[data-page="${first}"]`) as HTMLElement | null
-    el?.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'start' })
-  }, [pendingImport?.rangeText])
 
   const handleResizeStart = useCallback((e: React.MouseEvent) => {
     dragRef.current = { startY: e.clientY, startH: filmstripHeight }
@@ -366,7 +358,19 @@ export default function Home(): React.JSX.Element {
                           className="input font-mono"
                           placeholder={`e.g. 1-5,7,9 (total: ${pendingImport.totalPages})`}
                           value={pendingImport.rangeText}
-                          onChange={(e) => setPendingImport((p) => p && ({ ...p, rangeText: e.target.value }))}
+                          onChange={(e) => {
+                            const val = e.target.value
+                            setPendingImport((p) => {
+                              if (!p) return p
+                              const updated = { ...p, rangeText: val }
+                              const first = parseRange(val, p.totalPages)[0]
+                              if (first != null && filmstripRef.current) {
+                                const el = filmstripRef.current.querySelector(`[data-page="${first}"]`) as HTMLElement | null
+                                el?.scrollIntoView({ block: 'nearest', inline: 'start' })
+                              }
+                              return updated
+                            })
+                          }}
                           style={{ borderColor: valid ? undefined : 'var(--oxblood)' }}
                         />
                       </div>
@@ -383,11 +387,30 @@ export default function Home(): React.JSX.Element {
                       </div>
                     </div>
 
-                    <div className="mt-2 flex gap-2">
+                    <div className="mt-2 flex gap-2 flex-wrap">
                       <button className="btn btn-quiet !py-1 !px-2 !text-[11px]" onClick={() => setPendingImport((p) => p && ({ ...p, rangeText: `1-${p.totalPages}` }))}>All</button>
                       <button className="btn btn-quiet !py-1 !px-2 !text-[11px]" onClick={() => setPendingImport((p) => p && ({ ...p, rangeText: `${Math.max(1, Math.round(p.totalPages * 0.05))}-${Math.round(p.totalPages * 0.95)}` }))}>Skip covers (~5%)</button>
                       <button className="btn btn-quiet !py-1 !px-2 !text-[11px]" onClick={() => setPendingImport((p) => p && ({ ...p, rangeText: `1-${Math.ceil(p.totalPages / 2)}` }))}>First half</button>
                       <button className="btn btn-quiet !py-1 !px-2 !text-[11px]" onClick={() => setPendingImport((p) => p && ({ ...p, rangeText: `${Math.floor(p.totalPages / 2) + 1}-${p.totalPages}` }))}>Second half</button>
+                      <div className="w-px self-stretch" style={{ background: 'var(--line-2)' }} />
+                      <button
+                        className="btn btn-quiet !py-1 !px-2 !text-[11px]"
+                        title="Keep only odd-numbered pages from the current selection"
+                        onClick={() => setPendingImport((p) => {
+                          if (!p) return p
+                          const base = parseRange(p.rangeText || `1-${p.totalPages}`, p.totalPages)
+                          return { ...p, rangeText: compressRange(base.filter((n) => n % 2 === 1)) }
+                        })}
+                      >Odd pages</button>
+                      <button
+                        className="btn btn-quiet !py-1 !px-2 !text-[11px]"
+                        title="Keep only even-numbered pages from the current selection"
+                        onClick={() => setPendingImport((p) => {
+                          if (!p) return p
+                          const base = parseRange(p.rangeText || `1-${p.totalPages}`, p.totalPages)
+                          return { ...p, rangeText: compressRange(base.filter((n) => n % 2 === 0)) }
+                        })}
+                      >Even pages</button>
                     </div>
 
                     {/* ── Thumbnail filmstrip ───────────────────────── */}

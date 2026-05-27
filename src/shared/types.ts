@@ -17,6 +17,8 @@ export interface Page {
   markdown?: string
   errorMessage?: string
   isExample?: boolean        // marks this page as a few-shot OCR example (max 3)
+  tokens?: number            // output tokens from last successful OCR run
+  elapsedMs?: number         // wall-clock time of last successful OCR run
 }
 
 export interface LMConfig {
@@ -26,6 +28,7 @@ export interface LMConfig {
   temperature: number
   apiKey?: string
   promptTemplate?: string  // override default OCR prompt
+  inMemoryLearning?: boolean  // enable few-shot examples; defaults true when examples exist
 }
 
 export interface HierarchyLevel {

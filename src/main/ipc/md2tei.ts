@@ -469,6 +469,22 @@ function addCiteStructure(doc: Document, config: Record<string, unknown>): void 
   let encDesc = header.getElementsByTagNameNS(NS, 'encodingDesc')[0] as Element | undefined
   if (!encDesc) { encDesc = doc.createElementNS(NS, 'encodingDesc'); header.appendChild(encDesc) }
 
+  // Ensure <appInfo> is present (inject programmatically to avoid namespace issues with template parsing)
+  if (!encDesc.getElementsByTagNameNS(NS, 'appInfo')[0]) {
+    const appInfo = doc.createElementNS(NS, 'appInfo')
+    const application = doc.createElementNS(NS, 'application')
+    application.setAttribute('ident', 'cllg-editor')
+    application.setAttribute('version', '1.0')
+    const label = doc.createElementNS(NS, 'label')
+    label.textContent = 'CLLG Editor'
+    const ptr = doc.createElementNS(NS, 'ptr')
+    ptr.setAttribute('target', 'https://github.com/cllg-project/cllg-scanner')
+    application.appendChild(label)
+    application.appendChild(ptr)
+    appInfo.appendChild(application)
+    encDesc.insertBefore(appInfo, encDesc.firstChild)
+  }
+
   const old = encDesc.getElementsByTagNameNS(NS, 'refsDecl')[0] as Element | undefined
   if (old) encDesc.removeChild(old)
 

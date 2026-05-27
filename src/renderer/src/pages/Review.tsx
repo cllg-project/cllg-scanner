@@ -19,13 +19,12 @@ function flattenHierarchy(levels: HierarchyLevel[]): FlatLevel[] {
   return out
 }
 
-// Default palette for levels 1–5 (index 0 = L1). Beyond 5 uses LEVEL_COLOR_DEFAULT.
 const LEVEL_COLORS_DEFAULT = [
-  { fg: '#c0392b' }, // L1 — red
-  { fg: '#1565c0' }, // L2 — blue
-  { fg: '#2e7d32' }, // L3 — green
-  { fg: '#e65100' }, // L4 — orange
-  { fg: '#6a1b9a' }, // L5 — purple
+  { fg: '#c0392b' },
+  { fg: '#1565c0' },
+  { fg: '#2e7d32' },
+  { fg: '#e65100' },
+  { fg: '#6a1b9a' },
 ]
 const LEVEL_FG_DEFAULT = '#37474f'
 
@@ -57,7 +56,6 @@ function matchLevel(token: string, levels: FlatLevel[]): FlatLevel | null {
   return null
 }
 
-// Matches <ref>xxx</ref>, <ref level="">xxx</ref>, <ref level="0">xxx</ref>
 const UNCLASSIFIED_REF = /<ref(?:\s+level="(?:0|)")?>(.*?)<\/ref>/gs
 
 function annotateContent(text: string, levels: FlatLevel[]): string {
@@ -71,11 +69,10 @@ function annotateContent(text: string, levels: FlatLevel[]): string {
 type TagInfo =
   | { kind: 'ref';    start: number; end: number; inner: string; level: string }
   | { kind: 'note';   start: number; end: number; inner: string }
-  | { kind: 'self';   start: number; end: number; tag: string }   // <tab/>, <lb/>, etc.
-  | { kind: 'hyphen'; start: number; end: number; word: string }  // word-
+  | { kind: 'self';   start: number; end: number; tag: string }
+  | { kind: 'hyphen'; start: number; end: number; word: string }
 
 function detectCursorTag(text: string, pos: number): TagInfo | null {
-  // Paired tags: <ref ...>...</ref>  |  <note>...</note>
   const paired = /<(ref|note)([^>]*)>(.*?)<\/(ref|note)>/gs
   let m: RegExpExecArray | null
   while ((m = paired.exec(text)) !== null) {
@@ -87,14 +84,12 @@ function detectCursorTag(text: string, pos: number): TagInfo | null {
       return { kind: 'note', start: m.index, end: m.index + m[0].length, inner: m[3] }
     }
   }
-  // Self-closing tags: <tab/>, <lb/>, <lb break="no"/>
   const self = /<(tab|lb)[^>]*\/>/g
   while ((m = self.exec(text)) !== null) {
     if (pos >= m.index && pos <= m.index + m[0].length) {
       return { kind: 'self', start: m.index, end: m.index + m[0].length, tag: m[0] }
     }
   }
-  // Hyphenated word: word- (followed by whitespace, will become <lb break="no"/>)
   const hyphenRe = /(\p{L}+)-[ \t]+/gmu
   while ((m = hyphenRe.exec(text)) !== null) {
     if (pos >= m.index && pos <= m.index + m[0].length) {
@@ -109,26 +104,19 @@ function highlightMarkdown(text: string, levelMap: Map<number, FlatLevel>): stri
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
-    // <ref level="N"> — use per-level color via inline style
     .replace(/(&lt;ref\s+level="([1-9]\d*)"&gt;)(.*?)(&lt;\/ref&gt;)/g, (_, open, n, inner, close) => {
       const lv = levelMap.get(Number(n))
       const { fg, bg } = lv ? levelColor(lv) : { fg: LEVEL_FG_DEFAULT, bg: '#eceff1' }
       return `<mark style="background:${bg};color:${fg};font-weight:600">${open}${inner}${close}</mark>`
     })
-    // plain <ref>, <ref level="">, <ref level="0"> → unclassified (violet)
     .replace(/(&lt;ref(?:\s+level="(?:0|)")?&gt;)(.*?)(&lt;\/ref&gt;)/g,
       '<mark class="tag-ref-u">$1$2$3</mark>')
-    // note tags
     .replace(/(&lt;note&gt;)(.*?)(&lt;\/note&gt;)/g,
       '<mark class="tag-note">$1$2$3</mark>')
-    // self-closing / standalone tags
     .replace(/(&lt;(?:tab\/|pb[^&]*?)&gt;)/g,
       '<mark class="tag-misc">$1</mark>')
-    // heading lines
     .replace(/^(#{1,3} .+)$/gm, '<mark class="tag-head">$1</mark>')
-    // explicit <lb/> tags
     .replace(/(&lt;lb[^&]*?\/&gt;)/g, '<mark class="tag-lb">$1</mark>')
-    // trailing hyphen on a word → will become <lb break="no"/> in TEI
     .replace(/(\p{L}+-)(?=[\t ]|&lt;|$)/gmu,
       '<mark class="tag-lb">$1</mark>')
 }
@@ -153,6 +141,16 @@ function makePageState(content: string): PageState {
   return { content, dirty: false, loaded: true, original: content, history: [content], historyIdx: 0 }
 }
 
+const STEP_LABELS = ['Import', 'Mask', 'OCR', 'Config', 'Review', 'TEI']
+const CURRENT_STEP = 5
+
+const STATUS_OPTS: { value: PageStatus; label: string; dot: string }[] = [
+  { value: 'ocr_done', label: 'Done', dot: '#5a8c3f' },
+  { value: 'pending',  label: 'Pending', dot: '' },
+  { value: 'error',    label: 'Needs attention', dot: '#b04a3a' },
+  { value: 'skipped',  label: 'Skipped', dot: '' },
+]
+
 export default function Review(): React.JSX.Element {
   const { project, saveProject } = useProject()
   const navigate = useNavigate()
@@ -176,8 +174,16 @@ export default function Review(): React.JSX.Element {
     return saved ? parseInt(saved, 10) : 13
   })
   const [betaMode, setBetaMode] = useState(false)
+  const [betaHelpVisible, setBetaHelpVisible] = useState(() => localStorage.getItem('review:betaHelp') !== 'false')
   const betaPendingRef = useRef<Set<string>>(new Set())
   const sigmaTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // UI state
+  const [statusMenuOpen, setStatusMenuOpen] = useState(false)
+  const [moreMenuOpen, setMoreMenuOpen] = useState(false)
+  const [pageInput, setPageInput] = useState<string | null>(null)
+  const statusMenuRef = useRef<HTMLDivElement>(null)
+  const moreMenuRef = useRef<HTMLDivElement>(null)
 
   // Re-OCR panel
   const [reOcrOpen, setReOcrOpen] = useState(false)
@@ -195,7 +201,6 @@ export default function Review(): React.JSX.Element {
 
   const currentPage = activePages[currentIdx] ?? null
 
-  // Load markdown for a page if not yet cached
   const loadPage = useCallback(
     async (page: Page) => {
       if (!project) return
@@ -206,7 +211,6 @@ export default function Review(): React.JSX.Element {
     [project, pages]
   )
 
-  // Preload current + adjacent pages
   useEffect(() => {
     if (!currentPage) return
     loadPage(currentPage)
@@ -214,7 +218,6 @@ export default function Review(): React.JSX.Element {
     if (activePages[currentIdx + 1]) loadPage(activePages[currentIdx + 1])
   }, [currentIdx, currentPage]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Load image for current page
   useEffect(() => {
     if (!currentPage || !project) return
     setImageUrl(null)
@@ -225,8 +228,6 @@ export default function Review(): React.JSX.Element {
       .catch(() => setImageUrl(null))
   }, [currentPage, project])
 
-  // Grow the textarea to fit its content so the outer container does the scrolling.
-  // This eliminates scrollbar-width mismatches between the textarea and the highlight layer.
   const autoGrow = useCallback((): void => {
     const ta = textareaRef.current
     const sc = scrollContainerRef.current
@@ -240,7 +241,6 @@ export default function Review(): React.JSX.Element {
 
   useEffect(() => { autoGrow() }, [content])
 
-  // Push a new value onto the current page's undo stack
   const setContent = (value: string): void => {
     if (!currentPage) return
     setPages((prev) => {
@@ -353,6 +353,24 @@ export default function Review(): React.JSX.Element {
     setCursorTag(detectCursorTag(ta.value, ta.selectionStart))
   }
 
+  const closePopover = (): void => setCursorTag(null)
+
+  const snapRefToSegment = useCallback((): void => {
+    if (!currentPage || !cursorTag || cursorTag.kind !== 'ref') return
+    const refText = content.slice(cursorTag.start, cursorTag.end)
+    const before = content.slice(0, cursorTag.start)
+    const after = content.slice(cursorTag.end)
+    const tabMatches = [...before.matchAll(/<tab\/>/g)]
+    const lastTab = tabMatches[tabMatches.length - 1]
+    const insertAt = lastTab
+      ? lastTab.index! + '<tab/>'.length
+      : (before.lastIndexOf('\n') + 1)
+    const newBefore = content.slice(0, insertAt)
+    const between = content.slice(insertAt, cursorTag.start)
+    setContent(newBefore + refText + between + after)
+    closePopover()
+  }, [content, currentPage, cursorTag]) // eslint-disable-line react-hooks/exhaustive-deps
+
   const runScan = useCallback((): void => {
     const byLevel = new Map<number, { depth: number; name: string; tokens: string[] }>()
     const unmatched: string[] = []
@@ -390,7 +408,6 @@ export default function Review(): React.JSX.Element {
 
   const hyphenCount = (content.match(/\p{L}+-[ \t]/gmu) ?? []).length
 
-  // Replace the tag at [start, end) with arbitrary text, then refocus
   const replaceTag = (start: number, end: number, replacement: string): void => {
     setContent(content.slice(0, start) + replacement + content.slice(end))
     setTimeout(() => textareaRef.current?.focus(), 0)
@@ -411,17 +428,36 @@ export default function Review(): React.JSX.Element {
     }, 0)
   }
 
-  // Autosave 1.5s after the user stops typing
   useEffect(() => {
     if (!currentState?.dirty) return
     const t = setTimeout(() => saveCurrent(), 1500)
     return () => clearTimeout(t)
   }, [content]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Keyboard shortcuts
+  // Close dropdowns on outside click
+  useEffect(() => {
+    if (!statusMenuOpen && !moreMenuOpen) return
+    const handler = (e: MouseEvent): void => {
+      if (statusMenuOpen && statusMenuRef.current && !statusMenuRef.current.contains(e.target as Node)) {
+        setStatusMenuOpen(false)
+      }
+      if (moreMenuOpen && moreMenuRef.current && !moreMenuRef.current.contains(e.target as Node)) {
+        setMoreMenuOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [statusMenuOpen, moreMenuOpen])
+
   useEffect(() => {
     const handler = (e: KeyboardEvent): void => {
       const inTextarea = document.activeElement === textareaRef.current
+
+      if (e.key === 'Escape') {
+        if (cursorTag) { closePopover(); return }
+        if (statusMenuOpen) { setStatusMenuOpen(false); return }
+        if (moreMenuOpen) { setMoreMenuOpen(false); return }
+      }
 
       if ((e.ctrlKey || e.metaKey) && e.key === 's') {
         e.preventDefault()
@@ -465,13 +501,11 @@ export default function Review(): React.JSX.Element {
     }
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
-  }, [saveCurrent, undo, redo]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [saveCurrent, undo, redo, cursorTag, statusMenuOpen, moreMenuOpen]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const canUndo = (currentState?.historyIdx ?? 0) > 0
   const canRedo = (currentState?.historyIdx ?? 0) < (currentState?.history.length ?? 1) - 1
 
-  // Schedule a final-sigma pass 1 second after the user stops typing in beta mode.
-  // Uses the functional setPages form so it reads the latest content, not a stale closure.
   const scheduleSigmaFix = useCallback(() => {
     if (sigmaTimerRef.current) clearTimeout(sigmaTimerRef.current)
     sigmaTimerRef.current = setTimeout(() => {
@@ -490,21 +524,15 @@ export default function Review(): React.JSX.Element {
     }, 1000)
   }, [currentPage])
 
-  // Clear any pending sigma timer when beta mode is toggled or the page changes.
   useEffect(() => {
     return () => { if (sigmaTimerRef.current) clearTimeout(sigmaTimerRef.current) }
   }, [betaMode, currentPage])
 
   const handleBetaKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>): void => {
     if (!betaMode) return
-    // Let through Ctrl/Meta combos (so Ctrl+S, Ctrl+K etc. still work)
     if (e.ctrlKey || e.metaKey || e.altKey) return
-
     const result = convertBetaKey(e.key, betaPendingRef.current)
-    if (result.isPending) {
-      e.preventDefault()
-      return
-    }
+    if (result.isPending) { e.preventDefault(); return }
     if (result.char !== null) {
       e.preventDefault()
       const ta = textareaRef.current
@@ -524,7 +552,6 @@ export default function Review(): React.JSX.Element {
     }
   }, [betaMode, scheduleSigmaFix]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Fetch bundled Kraken model paths from main process once
   useEffect(() => {
     window.api.getKrakenBuiltinPaths().then((paths) =>
       setKrakenPaths({ segModelPath: paths.segModelPath, recModelPath: paths.recModelPath, builtinModels: true })
@@ -536,7 +563,6 @@ export default function Review(): React.JSX.Element {
     setReOcrRunning(true)
     setReOcrError(null)
     try {
-      // Re-render masks if any are defined, otherwise use the stored masked or plain image
       let imgPath: string
       if (currentPage.masks.length > 0) {
         imgPath = await window.api.joinPaths(project.projectDir, await renderMaskedPage(project.projectDir, currentPage))
@@ -553,7 +579,6 @@ export default function Review(): React.JSX.Element {
         result = await window.api.rerunPageLM(imgPath, project.lmConfig)
       }
       setContent(result.text)
-      // Persist to per-page cache and update page status
       await window.api.saveMarkdown(project.projectDir, currentPage.n, result.text)
       const updatedPages = project.pages.map((p) =>
         p.n === currentPage.n ? { ...p, status: 'ocr_done' as const } : p
@@ -576,473 +601,227 @@ export default function Review(): React.JSX.Element {
           <div className="text-center">
             <div className="font-serif text-[20px] mb-2">No processed pages yet</div>
             <div className="text-[13px] mb-5" style={{ color: 'var(--mute)' }}>Run OCR first to populate the review.</div>
-            <button className="btn btn-primary" onClick={() => navigate('/config')}>← Back to Structure</button>
+            <button className="btn btn-primary" onClick={() => navigate('/ocr')}>← Back to OCR</button>
           </div>
         </main>
       </div>
     )
   }
 
+  const currentStatus = currentPage?.status ?? 'pending'
+  const statusOpt = STATUS_OPTS.find((o) => o.value === currentStatus) ?? STATUS_OPTS[1]
+
   return (
     <div className="flex h-full">
       <Sidebar collapsed />
 
       <main className="flex-1 overflow-hidden flex flex-col" style={{ background: 'var(--paper-2)' }}>
-        {/* Header */}
-        <div className="px-8 pt-6 pb-4 border-b flex items-end justify-between shrink-0" style={{ borderColor: 'var(--line)' }}>
-          <div>
-            <div className="font-mono text-[10px] tracking-[.18em] uppercase" style={{ color: 'var(--mute)' }}>
-              Step 05 of 06
-            </div>
-            <h2 className="font-serif text-[28px] leading-tight mt-1">Review</h2>
-            <div className="text-[12.5px] mt-1" style={{ color: 'var(--mute)' }}>
-              Review and correct OCR output page by page. Changes are saved to{' '}
-              <span className="font-mono" style={{ color: 'var(--ink)' }}>pages/page_NNNN.md</span>.
-            </div>
+
+        {/* ── Global header ── */}
+        <div className="px-6 pt-5 pb-3 border-b shrink-0" style={{ borderColor: 'var(--line)' }}>
+          {/* Step rail */}
+          <div className="flex items-center gap-1.5 mb-3" style={{ fontSize: 10, color: 'var(--mute)' }}>
+            <span className="text-[10px] tracking-[.18em] uppercase mr-1 font-mono" style={{ color: 'var(--mute-2)' }}>Step</span>
+            {STEP_LABELS.map((label, i) => {
+              const n = i + 1
+              const isDone = n < CURRENT_STEP
+              const isCurrent = n === CURRENT_STEP
+              return (
+                <React.Fragment key={n}>
+                  <span
+                    className="inline-flex items-center justify-center rounded-full text-[9px] font-semibold"
+                    style={{
+                      width: 14, height: 14, border: '1px solid',
+                      background: isDone ? 'var(--moss-bg)' : isCurrent ? 'var(--oxblood)' : 'var(--paper-3)',
+                      borderColor: isDone ? '#b8c8a0' : isCurrent ? 'var(--oxblood-2)' : 'var(--line-2)',
+                      color: isDone ? 'var(--moss)' : isCurrent ? '#fbf3e3' : 'var(--mute)'
+                    }}
+                  >
+                    {isDone
+                      ? <svg width="7" height="7" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="4"><path d="m5 12 5 5 9-12" /></svg>
+                      : n}
+                  </span>
+                </React.Fragment>
+              )
+            })}
+            <span className="flex-1 h-px mx-1" style={{ background: 'var(--line-2)' }} />
+            <span className="text-[11px]" style={{ color: 'var(--mute)' }}>
+              {STEP_LABELS.map((l, i) => (
+                <span key={i}>
+                  {i > 0 && ' · '}
+                  <span style={i + 1 === CURRENT_STEP ? { color: 'var(--ink)', fontWeight: 600 } : undefined}>{l}</span>
+                </span>
+              ))}
+            </span>
           </div>
-          <div className="flex items-center gap-2">
-            <button className="btn btn-primary" onClick={() => navigate('/export')}>
-              Next: TEI Export
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="m9 6 6 6-6 6" />
-              </svg>
-            </button>
+          {/* Title + Next */}
+          <div className="flex items-end justify-between gap-6">
+            <div className="min-w-0">
+              <h2 className="font-serif text-[26px] leading-none">Review</h2>
+              <div className="text-[12.5px] mt-1.5" style={{ color: 'var(--mute)' }}>
+                Review and correct OCR output page by page · changes saved to{' '}
+                <span className="font-mono" style={{ color: 'var(--ink)' }}>pages/page_NNNN.md</span>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <button className="btn btn-primary" onClick={() => navigate('/export')}>
+                Next: TEI Export
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m9 6 6 6-6 6" /></svg>
+              </button>
+            </div>
           </div>
         </div>
 
-        {/* Toolbar */}
+        {/* ── Slim page bar ── */}
         <div
-          className="px-8 h-10 flex items-center gap-3 border-b shrink-0"
-          style={{ borderColor: 'var(--line)', background: 'var(--paper-3)' }}
+          className="px-6 py-2 border-b flex items-center gap-3 shrink-0"
+          style={{ borderColor: 'var(--line)', background: 'var(--paper-2)' }}
         >
-          {/* Page navigation */}
-          <button
-            className="tool-btn"
-            disabled={currentIdx === 0}
-            onClick={() => setCurrentIdx((i) => i - 1)}
-            title="Previous page"
-          >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="m15 18-6-6 6-6" />
-            </svg>
-          </button>
-
-          <div className="font-mono text-[12px] tabular-nums" style={{ color: 'var(--ink)' }}>
-            p.{currentPage?.n ?? '–'}{' '}
-            <span style={{ color: 'var(--mute)' }}>/ {activePages.length} pages</span>
+          {/* Page nav */}
+          <div className="flex items-center gap-1">
+            <button
+              className="btn btn-quiet"
+              style={{ width: 28, height: 28, padding: 0, justifyContent: 'center' }}
+              disabled={currentIdx === 0}
+              onClick={() => setCurrentIdx((i) => i - 1)}
+              title="Previous page"
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m15 6-6 6 6 6" /></svg>
+            </button>
+            {pageInput !== null ? (
+              <input
+                type="text"
+                value={pageInput}
+                autoFocus
+                className="font-mono text-[12.5px] px-2 py-1 rounded text-center outline-none"
+                style={{ width: 72, background: 'var(--paper-3)', border: '1px solid var(--oxblood)', fontVariantNumeric: 'tabular-nums' }}
+                onChange={(e) => setPageInput(e.target.value)}
+                onBlur={() => {
+                  const n = parseInt(pageInput, 10)
+                  const idx = activePages.findIndex((p) => p.n === n)
+                  if (idx >= 0) setCurrentIdx(idx)
+                  setPageInput(null)
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    const n = parseInt(pageInput, 10)
+                    const idx = activePages.findIndex((p) => p.n === n)
+                    if (idx >= 0) setCurrentIdx(idx)
+                    setPageInput(null)
+                  }
+                  if (e.key === 'Escape') setPageInput(null)
+                }}
+              />
+            ) : (
+              <button
+                className="font-mono text-[12.5px] px-2 py-1 rounded"
+                style={{ background: 'var(--paper-3)', fontVariantNumeric: 'tabular-nums' }}
+                onClick={() => setPageInput(String(currentPage?.n ?? 1))}
+                title="Click to jump to page"
+              >
+                <span className="font-semibold">p. {currentPage?.n ?? '–'}</span>
+                <span style={{ color: 'var(--mute)' }}> / {activePages.length}</span>
+              </button>
+            )}
+            <button
+              className="btn btn-quiet"
+              style={{ width: 28, height: 28, padding: 0, justifyContent: 'center' }}
+              disabled={currentIdx === activePages.length - 1}
+              onClick={() => setCurrentIdx((i) => i + 1)}
+              title="Next page"
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m9 6 6 6-6 6" /></svg>
+            </button>
           </div>
 
-          <button
-            className="tool-btn"
-            disabled={currentIdx === activePages.length - 1}
-            onClick={() => setCurrentIdx((i) => i + 1)}
-            title="Next page"
-          >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="m9 6 6 6-6 6" />
-            </svg>
-          </button>
+          <div className="w-px h-5" style={{ background: 'var(--line)' }} />
 
-          {/* Page status badge + manual toggle */}
-          {currentPage && (() => {
-            const s = currentPage.status
-            const isDone = s === 'ocr_done'
-            return (
-              <button
-                className="btn btn-quiet !py-0.5 !px-2 !text-[11px] gap-1 shrink-0"
-                title={isDone ? 'Mark page as pending (re-queue for OCR)' : 'Mark page as done (ocr_done)'}
-                onClick={() => setPageStatus(isDone ? 'pending' : 'ocr_done')}
-                style={isDone
-                  ? { color: '#3b5a30', borderColor: '#b8c8a0', background: 'var(--moss-bg)' }
-                  : { color: '#6b5a2b', borderColor: '#c8b87a', background: '#f0e6cf' }}
-              >
-                {isDone
-                  ? <><span className="dot dot-ok" />done</>
-                  : <><span className="dot" style={{ background: 'var(--mute-2)' }} />{s}</>}
-              </button>
-            )
-          })()}
+          {/* Status dropdown */}
+          <div ref={statusMenuRef} className="relative">
+            <button
+              className="btn border text-[12px]"
+              style={{
+                borderColor: currentStatus === 'ocr_done' ? '#b8c8a0' : currentStatus === 'error' ? '#d9a0a0' : 'var(--line-2)',
+                background: currentStatus === 'ocr_done' ? 'var(--moss-bg)' : currentStatus === 'error' ? '#f1d6cf' : 'var(--paper-3)',
+                color: currentStatus === 'ocr_done' ? '#3b5a30' : currentStatus === 'error' ? '#7a2a23' : 'var(--mute)',
+                gap: 6
+              }}
+              onClick={() => setStatusMenuOpen((v) => !v)}
+            >
+              {statusOpt.dot
+                ? <span className="w-1.5 h-1.5 rounded-full" style={{ background: statusOpt.dot }} />
+                : <span className="w-1.5 h-1.5 rounded-full border" style={{ borderColor: 'var(--mute-2)' }} />}
+              {statusOpt.label}
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" style={{ opacity: 0.7 }}><path d="m6 9 6 6 6-6" /></svg>
+            </button>
+            {statusMenuOpen && (
+              <div className="absolute" style={{ top: 'calc(100% + 6px)', left: 0, minWidth: 200, background: 'var(--paper-2)', border: '1px solid var(--line-2)', borderRadius: 7, boxShadow: '0 12px 30px -10px rgba(40,30,20,.25)', padding: 4, fontSize: 12, zIndex: 20 }}>
+                <div className="px-2 py-1 text-[10px] tracking-[.12em] uppercase font-semibold" style={{ color: 'var(--mute)' }}>Page status</div>
+                {STATUS_OPTS.map((opt) => (
+                  <button key={opt.value}
+                    className="w-full text-left flex items-center gap-2.5 px-2 py-1.5 rounded hover:bg-[color:var(--paper-3)]"
+                    style={{ background: currentStatus === opt.value ? 'var(--paper-3)' : undefined }}
+                    onClick={() => { setPageStatus(opt.value); setStatusMenuOpen(false) }}
+                  >
+                    {opt.dot
+                      ? <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: opt.dot }} />
+                      : <span className="w-1.5 h-1.5 rounded-full border shrink-0" style={{ borderColor: 'var(--mute-2)' }} />}
+                    {opt.label}
+                    {currentStatus === opt.value && (
+                      <svg className="ml-auto" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="m5 12 5 5 9-12" /></svg>
+                    )}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
 
           {/* Example toggle */}
           {currentPage && (
             <button
-              className="btn btn-quiet !py-0.5 !px-2 !text-[11px] gap-1 shrink-0"
-              title={currentPage.isExample ? 'Remove from OCR examples' : 'Mark as OCR example (few-shot)'}
-              onClick={toggleExample}
+              className="btn border text-[12px]"
               style={currentPage.isExample
-                ? { color: '#8a6a18', borderColor: '#d9c688', background: 'var(--star-bg, #fbf2dc)' }
-                : {}}
+                ? { borderColor: '#d9c688', background: '#fbf2dc', color: '#8a6a18', gap: 5 }
+                : { borderColor: 'var(--line-2)', background: 'transparent', color: 'var(--mute)', gap: 5 }}
+              onClick={toggleExample}
+              title={currentPage.isExample ? 'Remove from OCR examples' : 'Mark as OCR example (few-shot)'}
             >
-              ★ {currentPage.isExample ? 'example' : 'set example'}
+              <span style={{ color: currentPage.isExample ? '#c89328' : 'var(--mute-2)' }}>★</span>
+              example
             </button>
           )}
 
-          <div className="w-px h-5 mx-1" style={{ background: 'var(--line-2)' }} />
+          {/* Save status */}
+          <div className="text-[11.5px] font-mono" style={{ color: 'var(--mute)' }}>
+            {currentState?.dirty && <span style={{ color: 'var(--amber, #c89328)' }}>unsaved</span>}
+            {saveMsg && <span style={{ color: 'var(--moss, #5a8c3f)' }}>{saveMsg}</span>}
+          </div>
 
-          {/* Tag insertion */}
-          <button
-            className="btn btn-quiet !py-0.5 !px-2 !text-[11px] font-mono"
-            onClick={() => insertTag('<ref level="">', '</ref>')}
-            title="Wrap selection in <ref level=&quot;&quot;> (Ctrl+R)"
-          >
-            &lt;ref&gt;
-          </button>
-          <button
-            className="btn btn-quiet !py-0.5 !px-2 !text-[11px] font-mono"
-            onClick={() => insertTag('<note>', '</note>')}
-            title="Wrap selection in <note> (Ctrl+M)"
-          >
-            &lt;note&gt;
-          </button>
-          <button
-            className="btn btn-quiet !py-0.5 !px-2 !text-[11px] font-mono"
-            onClick={() => insertTag('<tab/>', '')}
-            title="Insert <tab/> (Tab key)"
-          >
-            &lt;tab/&gt;
-          </button>
-          <button
-            className="btn btn-quiet !py-0.5 !px-2 !text-[11px] font-mono"
-            onClick={() => insertTag('<lb/>', '')}
-            title="Insert <lb/> line-break element"
-          >
-            &lt;lb/&gt;
-          </button>
-          <button
-            className="btn btn-quiet !py-0.5 !px-2 !text-[11px] gap-1"
-            onClick={replaceAllHyphens}
-            disabled={hyphenCount === 0}
-            title="Replace all word- patterns with <lb break='no'/>"
-            style={hyphenCount > 0 ? { borderColor: '#15803d', color: '#15803d' } : {}}
-          >
-            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M4 12h16M12 4l8 8-8 8" />
-            </svg>
-            Fix hyphens{hyphenCount > 0 ? ` (${hyphenCount})` : ''}
-          </button>
-
-          <div className="w-px h-5 mx-1" style={{ background: 'var(--line-2)' }} />
-
-          <button
-            className="btn btn-quiet !py-0.5 !px-2 !text-[11px] gap-1"
-            onClick={runScan}
-            title="Scan page for [token] reference patterns and annotate"
-          >
-            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <circle cx="11" cy="11" r="8" /><path d="m21 21-4.35-4.35" />
-            </svg>
-            Scan refs
-          </button>
-
-          <div className="w-px h-5 mx-1" style={{ background: 'var(--line-2)' }} />
-
-          {/* Undo / Redo / Restore */}
-          <button
-            className="tool-btn"
-            disabled={!canUndo}
-            onClick={undo}
-            title="Undo (Ctrl+Z)"
-          >
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M3 7v6h6" /><path d="M3 13a9 9 0 1 0 2.83-6.36" />
-            </svg>
-          </button>
-          <button
-            className="tool-btn"
-            disabled={!canRedo}
-            onClick={redo}
-            title="Redo (Ctrl+Y / Ctrl+Shift+Z)"
-          >
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M21 7v6h-6" /><path d="M21 13A9 9 0 1 1 18.17 6.64" />
-            </svg>
-          </button>
-          <button
-            className="btn btn-quiet !py-0.5 !px-2 !text-[11px]"
-            onClick={restore}
-            title="Restore original OCR output for this page"
-          >
-            Restore
-          </button>
-          <button
-            className="btn btn-quiet !py-0.5 !px-2 !text-[11px]"
-            onClick={resetCache}
-            title="Delete the cached transcription for this page and reset its status to pending"
-          >
-            Reset cache
-          </button>
-          <button
-            className={`btn btn-quiet !py-0.5 !px-2 !text-[11px] gap-1 ${reOcrOpen ? 'border-[#0369a1] text-[#0369a1]' : ''}`}
-            onClick={() => { setReOcrOpen((v) => !v); setReOcrError(null) }}
-            title="Re-run OCR on this page (LM Studio or Kraken)"
-          >
-            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8" />
-              <path d="M21 3v5h-5" />
-              <path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16" />
-              <path d="M3 21v-5h5" />
-            </svg>
-            Re-OCR
-          </button>
-
-          <div className="ml-auto flex items-center gap-3">
-            {/* Font size controls */}
-            <div className="flex items-center gap-0.5">
-              <button
-                className="tool-btn !w-5 !h-5 !text-[11px]"
-                onClick={() => setFontSize((s) => { const v = Math.max(10, s - 1); localStorage.setItem('review:fontSize', String(v)); return v })}
-                title="Decrease font size"
-              >−</button>
-              <span className="text-[10.5px] font-mono tabular-nums w-7 text-center" style={{ color: 'var(--mute)' }}>{fontSize}px</span>
-              <button
-                className="tool-btn !w-5 !h-5 !text-[11px]"
-                onClick={() => setFontSize((s) => { const v = Math.min(32, s + 1); localStorage.setItem('review:fontSize', String(v)); return v })}
-                title="Increase font size"
-              >+</button>
-            </div>
-            <div className="w-px h-4" style={{ background: 'var(--line-2)' }} />
-            {betaMode && (
-              <span
-                className="px-2 py-0.5 rounded text-[11.5px] font-mono font-semibold"
-                style={{ background: '#f0eaf8', border: '1px solid #9c6ab0', color: '#6a1b9a' }}
-                title="Beta Code mode active — Ctrl/Cmd+K to toggle"
-              >
-                β
-              </span>
-            )}
-            <button
-              className={`tool-btn text-[12px] font-mono ${betaMode ? 'active' : ''}`}
-              onClick={() => { setBetaMode((m) => !m); betaPendingRef.current.clear() }}
-              title={`${betaMode ? 'Disable' : 'Enable'} beta code keyboard (Ctrl+K)`}
-              style={betaMode ? { color: '#6a1b9a', borderColor: '#9c6ab0' } : {}}
-            >
-              β
+          {/* Undo / Redo / Save — right side */}
+          <div className="ml-auto flex items-center gap-1">
+            <button className="btn btn-quiet" style={{ width: 28, height: 28, padding: 0, justifyContent: 'center' }} disabled={!canUndo} onClick={undo} title="Undo (⌘Z)">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M9 14 4 9l5-5" /><path d="M4 9h11a5 5 0 0 1 0 10h-3" /></svg>
             </button>
-            {currentState?.dirty && (
-              <span className="text-[11.5px] font-mono" style={{ color: 'var(--amber, #c89328)' }}>
-                unsaved
-              </span>
-            )}
-            {saveMsg && (
-              <span className="text-[11.5px] font-mono" style={{ color: 'var(--moss, #5a8c3f)' }}>
-                {saveMsg}
-              </span>
-            )}
+            <button className="btn btn-quiet" style={{ width: 28, height: 28, padding: 0, justifyContent: 'center' }} disabled={!canRedo} onClick={redo} title="Redo (⌘⇧Z)">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="m15 14 5-5-5-5" /><path d="M20 9H9a5 5 0 0 0 0 10h3" /></svg>
+            </button>
+            <div className="w-px h-4 mx-1" style={{ background: 'var(--line-2)' }} />
             <button
-              className="btn btn-ghost !py-1 !px-3 !text-[11.5px]"
+              className="btn btn-ghost"
+              style={{ padding: '5px 10px', fontSize: 12 }}
               onClick={saveCurrent}
               disabled={saving || !currentState?.dirty}
             >
               {saving ? 'Saving…' : 'Save'}
-              <span className="text-[10px] opacity-60 ml-1">⌘S</span>
+              <span className="font-mono text-[10px] opacity-60 ml-0.5">⌘S</span>
             </button>
           </div>
         </div>
 
-        {/* Tag context bar — shown when cursor is inside any editable tag */}
-        {cursorTag !== null && (
-          <div
-            className="px-8 h-9 flex items-center gap-2 border-b shrink-0 text-[11.5px] overflow-x-auto"
-            style={{ borderColor: 'var(--line)', background: cursorTag.kind === 'hyphen' ? '#f0fdf4' : '#fdf4ff', flexShrink: 0 }}
-          >
-            {/* Current tag label */}
-            <span className="font-mono shrink-0" style={{ color: cursorTag.kind === 'hyphen' ? '#15803d' : '#7b2d8b' }}>
-              {cursorTag.kind === 'ref'
-                ? (cursorTag.level ? `<ref level="${cursorTag.level}">` : '<ref>')
-                : cursorTag.kind === 'note'
-                ? '<note>'
-                : cursorTag.kind === 'hyphen'
-                ? `${cursorTag.word}-`
-                : cursorTag.tag}
-            </span>
-
-            <span className="shrink-0" style={{ color: 'var(--mute)' }}>→</span>
-
-            {/* Ref: level buttons */}
-            {cursorTag.kind === 'ref' && levelList.length === 0 && (
-              <span className="text-[11px] italic shrink-0" style={{ color: 'var(--mute)' }}>
-                no levels defined —{' '}
-                <button
-                  className="underline"
-                  style={{ color: 'var(--mute)' }}
-                  onClick={() => navigate('/export')}
-                >
-                  configure in TEI Export
-                </button>
-              </span>
-            )}
-            {cursorTag.kind === 'ref' && levelList.length > 0 && (
-              <>
-                <span className="text-[10px] shrink-0" style={{ color: 'var(--mute)' }}>
-                  level (from TEI Export):
-                </span>
-                {levelList.map((l) => {
-                  const { fg, bg } = levelColor(l)
-                  const active = String(l.depth) === cursorTag.level
-                  return (
-                    <button
-                      key={l.depth}
-                      className="btn btn-quiet !py-0 !px-2 !text-[11px] font-mono shrink-0"
-                      style={active ? { background: fg, color: '#fff', borderColor: fg } : { borderColor: fg, color: fg }}
-                      onClick={() => replaceTag(cursorTag.start, cursorTag.end, `<ref level="${l.depth}">${cursorTag.inner}</ref>`)}
-                      title={l.name}
-                    >
-                      {l.depth} <span className="opacity-60 ml-0.5 text-[10px]">{l.name}</span>
-                    </button>
-                  )
-                })}
-                <button
-                  className="btn btn-quiet !py-0 !px-2 !text-[11px] shrink-0"
-                  style={!cursorTag.level ? { background: '#7b2d8b', color: '#fff', borderColor: '#7b2d8b' } : {}}
-                  onClick={() => replaceTag(cursorTag.start, cursorTag.end, `<ref>${cursorTag.inner}</ref>`)}
-                  title="Unclassified ref (no level)"
-                >
-                  none
-                </button>
-              </>
-            )}
-
-            {/* Ref ↔ Note conversions */}
-            {cursorTag.kind === 'ref' && (
-              <button
-                className="btn btn-quiet !py-0 !px-2 !text-[11px] shrink-0"
-                onClick={() => replaceTag(cursorTag.start, cursorTag.end, `<note>${cursorTag.inner}</note>`)}
-                title="Convert to <note>"
-              >
-                → &lt;note&gt;
-              </button>
-            )}
-            {cursorTag.kind === 'note' && (
-              <button
-                className="btn btn-quiet !py-0 !px-2 !text-[11px] shrink-0"
-                onClick={() => replaceTag(cursorTag.start, cursorTag.end, `<ref level="">${cursorTag.inner}</ref>`)}
-                title="Convert to <ref>"
-              >
-                → &lt;ref&gt;
-              </button>
-            )}
-
-            {/* Unwrap (keep text) — paired tags only */}
-            {(cursorTag.kind === 'ref' || cursorTag.kind === 'note') && (
-              <button
-                className="btn btn-quiet !py-0 !px-2 !text-[11px] shrink-0"
-                onClick={() => replaceTag(cursorTag.start, cursorTag.end, cursorTag.inner)}
-                title="Remove tags, keep text"
-              >
-                unwrap
-              </button>
-            )}
-
-            {/* Hyphen fix actions */}
-            {cursorTag.kind === 'hyphen' && (
-              <>
-                <button
-                  className="btn btn-quiet !py-0 !px-2 !text-[11px] shrink-0 font-mono"
-                  style={{ borderColor: '#15803d', color: '#15803d' }}
-                  onClick={() => replaceTag(cursorTag.start, cursorTag.end, `${cursorTag.word}<lb break="no"/>`)}
-                  title="Replace with <lb break='no'/>"
-                >
-                  &lt;lb break="no"/&gt;
-                </button>
-                <button
-                  className="btn btn-quiet !py-0 !px-2 !text-[11px] shrink-0"
-                  onClick={() => replaceTag(cursorTag.start, cursorTag.end, cursorTag.word)}
-                  title="Join words without break marker"
-                >
-                  join only
-                </button>
-              </>
-            )}
-
-            {/* Delete — not shown for hyphen (it's plain text, not a tag) */}
-            {cursorTag.kind !== 'hyphen' && (
-              <button
-                className="btn btn-quiet !py-0 !px-2 !text-[11px] shrink-0"
-                style={{ color: '#c0392b' }}
-                onClick={() => replaceTag(cursorTag.start, cursorTag.end, '')}
-                title="Delete tag and its content"
-              >
-                delete
-              </button>
-            )}
-          </div>
-        )}
-
-        {/* Re-OCR panel */}
-        {reOcrOpen && (
-          <div
-            className="px-8 py-3 border-b shrink-0 flex items-center gap-4 flex-wrap text-[11.5px]"
-            style={{ borderColor: 'var(--line)', background: '#f0f9ff' }}
-          >
-            {/* Engine toggle */}
-            <div className="flex items-center gap-1 shrink-0">
-              {(['kraken', 'lm'] as const).map((eng) => (
-                <button
-                  key={eng}
-                  className="btn btn-quiet !py-0.5 !px-2.5 !text-[11px] shrink-0"
-                  style={reOcrEngine === eng ? { background: '#0369a1', color: '#fff', borderColor: '#0369a1' } : {}}
-                  onClick={() => { setReOcrEngine(eng); setReOcrError(null) }}
-                >
-                  {eng === 'kraken' ? 'Kraken (ONNX)' : 'LM Studio (Vision)'}
-                </button>
-              ))}
-            </div>
-
-            {/* Engine description */}
-            {reOcrEngine === 'kraken' ? (
-              <span className="shrink-0 font-mono text-[11px]" style={{ color: 'var(--mute)' }}>
-                Built-in Ancient Greek models (seg + rec)
-              </span>
-            ) : (
-              <span className="shrink-0 font-mono text-[11px]" style={{ color: 'var(--mute)' }}>
-                {project.lmConfig.endpoint} · <span style={{ color: 'var(--ink)' }}>{project.lmConfig.model || '(no model set)'}</span>
-              </span>
-            )}
-
-            {reOcrError && (
-              <span className="shrink-0 text-[11px]" style={{ color: '#b04a3a' }}>{reOcrError}</span>
-            )}
-
-            <div className="flex items-center gap-2 ml-auto shrink-0">
-              <button
-                className="btn btn-primary !py-1 !px-3 !text-[11.5px] gap-1.5"
-                onClick={runReOcr}
-                disabled={reOcrRunning}
-              >
-                {reOcrRunning ? (
-                  <>
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="animate-spin">
-                      <path d="M21 12a9 9 0 1 1-6.3-8.6" />
-                    </svg>
-                    Running…
-                  </>
-                ) : (
-                  <>
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                      <polygon points="5 3 19 12 5 21 5 3" />
-                    </svg>
-                    Run
-                  </>
-                )}
-              </button>
-              <button
-                className="tool-btn !w-5 !h-5 shrink-0"
-                onClick={() => { setReOcrOpen(false); setReOcrError(null) }}
-                disabled={reOcrRunning}
-                title="Dismiss"
-              >
-                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path d="M18 6 6 18M6 6l12 12" />
-                </svg>
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* Scan results panel */}
+        {/* Scan results */}
         {scanInfo !== null && (
           <div
-            className="px-8 py-2.5 border-b shrink-0 flex items-center gap-4 text-[11.5px] flex-wrap"
+            className="px-6 py-2.5 border-b shrink-0 flex items-center gap-4 text-[11.5px] flex-wrap"
             style={{ borderColor: 'var(--line)', background: '#f0f9ff' }}
           >
             <span className="font-mono font-semibold shrink-0" style={{ color: '#0369a1' }}>
@@ -1065,72 +844,261 @@ export default function Review(): React.JSX.Element {
                   </span>
                 )}
                 <button
-                  className="btn btn-quiet !py-0.5 !px-2.5 !text-[11px] shrink-0"
-                  style={{ background: '#0369a1', color: '#fff', borderColor: '#0369a1' }}
+                  className="btn btn-quiet text-[11px] shrink-0"
+                  style={{ background: '#0369a1', color: '#fff', borderColor: '#0369a1', padding: '3px 10px' }}
                   onClick={applyAnnotations}
-                  title="Replace all matched [token] with <ref level=&quot;N&quot;>token</ref>"
                 >
                   Annotate {scanInfo.matched} matched
                 </button>
               </>
             )}
-            <button
-              className="tool-btn !w-5 !h-5 ml-auto shrink-0"
-              onClick={() => setScanInfo(null)}
-              title="Dismiss"
-            >
-              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M18 6 6 18M6 6l12 12" />
-              </svg>
+            <button className="tool-btn ml-auto shrink-0" style={{ width: 20, height: 20 }} onClick={() => setScanInfo(null)}>
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6 6 18M6 6l12 12" /></svg>
             </button>
           </div>
         )}
 
-        {/* Main two-column editor */}
-        <div className="flex-1 grid overflow-hidden" style={{ gridTemplateColumns: '1fr 1fr' }}>
-          {/* Left — image */}
+        {/* Re-OCR panel */}
+        {reOcrOpen && (
           <div
-            className="overflow-auto flex items-start justify-center p-4 border-r"
-            style={{ borderColor: 'var(--line)', background: '#f5f2ec' }}
+            className="px-6 py-3 border-b shrink-0 flex items-center gap-4 flex-wrap text-[11.5px]"
+            style={{ borderColor: 'var(--line)', background: '#f0f9ff' }}
           >
-            {imageUrl ? (
-              <img
-                src={imageUrl}
-                alt={`Page ${currentPage?.n}`}
-                className="max-w-full shadow-md"
-                style={{ border: '1px solid var(--line)' }}
-              />
-            ) : (
-              <div
-                className="flex items-center justify-center w-full h-full text-[13px]"
-                style={{ color: 'var(--mute)' }}
+            <div className="flex items-center gap-1 shrink-0">
+              {(['kraken', 'lm'] as const).map((eng) => (
+                <button
+                  key={eng}
+                  className="btn btn-quiet text-[11px] shrink-0"
+                  style={{ padding: '3px 10px', ...(reOcrEngine === eng ? { background: '#0369a1', color: '#fff', borderColor: '#0369a1' } : {}) }}
+                  onClick={() => { setReOcrEngine(eng); setReOcrError(null) }}
+                >
+                  {eng === 'kraken' ? 'Kraken (ONNX)' : 'LM Studio (Vision)'}
+                </button>
+              ))}
+            </div>
+            <span className="shrink-0 font-mono text-[11px]" style={{ color: 'var(--mute)' }}>
+              {reOcrEngine === 'kraken'
+                ? 'Built-in Ancient Greek models'
+                : `${project.lmConfig.endpoint} · ${project.lmConfig.model || '(no model set)'}`}
+            </span>
+            {reOcrError && <span className="shrink-0 text-[11px]" style={{ color: '#b04a3a' }}>{reOcrError}</span>}
+            <div className="flex items-center gap-2 ml-auto shrink-0">
+              <button
+                className="btn btn-primary text-[11.5px]"
+                style={{ padding: '5px 12px' }}
+                onClick={runReOcr}
+                disabled={reOcrRunning}
               >
-                {currentPage ? 'Loading…' : 'No page selected'}
-              </div>
-            )}
+                {reOcrRunning
+                  ? <><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="animate-spin"><path d="M21 12a9 9 0 1 1-6.3-8.6" /></svg>Running…</>
+                  : <><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polygon points="5 3 19 12 5 21 5 3" /></svg>Run</>}
+              </button>
+              <button className="tool-btn" style={{ width: 20, height: 20 }} onClick={() => { setReOcrOpen(false); setReOcrError(null) }} disabled={reOcrRunning}>
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6 6 18M6 6l12 12" /></svg>
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* ── Editor split ── */}
+        <div className="flex-1 grid overflow-hidden" style={{ gridTemplateColumns: '1fr 1fr' }}>
+
+          {/* Left: image pane */}
+          <div className="flex flex-col overflow-hidden border-r" style={{ borderColor: 'var(--line)' }}>
+            <div className="px-3 py-1.5 border-b shrink-0 flex items-center" style={{ borderColor: 'var(--line)', background: 'var(--paper-2)' }}>
+              <span className="font-mono text-[11px]" style={{ color: 'var(--mute)' }}>SOURCE</span>
+            </div>
+            <div
+              className="flex-1 overflow-auto flex items-start justify-center p-4"
+              style={{ background: '#f5f2ec' }}
+            >
+              {imageUrl ? (
+                <img
+                  src={imageUrl}
+                  alt={`Page ${currentPage?.n}`}
+                  className="max-w-full shadow-md"
+                  style={{ border: '1px solid var(--line)' }}
+                />
+              ) : (
+                <div className="flex items-center justify-center w-full h-full text-[13px]" style={{ color: 'var(--mute)' }}>
+                  {currentPage ? 'Loading…' : 'No page selected'}
+                </div>
+              )}
+            </div>
           </div>
 
-          {/* Right — editor */}
-          <div className="overflow-hidden flex flex-col">
-            {/* Outer scroll container — this is the only scrollable element */}
+          {/* Right: editor pane */}
+          <div className="flex flex-col overflow-hidden">
+
+            {/* Editor local toolbar */}
+            <div className="border-b shrink-0" style={{ borderColor: 'var(--line)', background: 'var(--paper-2)' }}>
+              {/* Row 1: tag annotation pills */}
+              <div className="px-3 py-2 flex items-center gap-1.5">
+                {/* <ref> */}
+                <button
+                  className="inline-flex items-center gap-1.5 border rounded"
+                  style={{ padding: '4px 8px', fontFamily: 'ui-monospace, monospace', fontSize: 11.5, fontWeight: 500, background: '#d8e2c6', borderColor: '#b8c8a0', color: '#3b5a30', lineHeight: 1 }}
+                  onClick={() => insertTag('<ref level="">', '</ref>')}
+                  title="Wrap selection in <ref level=''> (⌘R)"
+                >
+                  &lt;ref&gt;
+                  <span className="inline-flex items-center gap-0.5">
+                    <span style={{ fontFamily: 'ui-monospace', fontSize: 9, padding: '1px 4px', borderRadius: 3, background: 'rgba(0,0,0,.08)', border: '1px solid rgba(0,0,0,.12)', color: 'inherit' }}>⌘</span>
+                    <span style={{ fontFamily: 'ui-monospace', fontSize: 9, padding: '1px 4px', borderRadius: 3, background: 'rgba(0,0,0,.08)', border: '1px solid rgba(0,0,0,.12)', color: 'inherit' }}>R</span>
+                  </span>
+                </button>
+                {/* <note> */}
+                <button
+                  className="inline-flex items-center gap-1.5 border rounded"
+                  style={{ padding: '4px 8px', fontFamily: 'ui-monospace, monospace', fontSize: 11.5, fontWeight: 500, background: '#ece1f1', borderColor: '#c8b8d8', color: '#5a3b7a', lineHeight: 1 }}
+                  onClick={() => insertTag('<note>', '</note>')}
+                  title="Wrap selection in <note> (⌘M)"
+                >
+                  &lt;note&gt;
+                  <span className="inline-flex items-center gap-0.5">
+                    <span style={{ fontFamily: 'ui-monospace', fontSize: 9, padding: '1px 4px', borderRadius: 3, background: 'rgba(0,0,0,.08)', border: '1px solid rgba(0,0,0,.12)', color: 'inherit' }}>⌘</span>
+                    <span style={{ fontFamily: 'ui-monospace', fontSize: 9, padding: '1px 4px', borderRadius: 3, background: 'rgba(0,0,0,.08)', border: '1px solid rgba(0,0,0,.12)', color: 'inherit' }}>M</span>
+                  </span>
+                </button>
+                {/* <tab/> */}
+                <button
+                  className="inline-flex items-center gap-1.5 border rounded"
+                  style={{ padding: '4px 8px', fontFamily: 'ui-monospace, monospace', fontSize: 11.5, fontWeight: 500, background: '#e2ddc7', borderColor: '#d4ca9c', color: '#6b5a2b', lineHeight: 1 }}
+                  onClick={() => insertTag('<tab/>', '')}
+                  title="Insert <tab/> (Tab key)"
+                >
+                  &lt;tab/&gt;
+                  <span style={{ fontFamily: 'ui-monospace', fontSize: 9, padding: '1px 4px', borderRadius: 3, background: 'rgba(0,0,0,.08)', border: '1px solid rgba(0,0,0,.12)', color: 'inherit' }}>Tab</span>
+                </button>
+                {/* <lb/> */}
+                <button
+                  className="inline-flex items-center border rounded"
+                  style={{ padding: '4px 8px', fontFamily: 'ui-monospace, monospace', fontSize: 11.5, fontWeight: 500, background: '#d6e7df', borderColor: '#adcfc1', color: '#2e5a4a', lineHeight: 1 }}
+                  onClick={() => insertTag('<lb/>', '')}
+                  title="Insert <lb/> line break"
+                >
+                  &lt;lb/&gt;
+                </button>
+              </div>
+
+              {/* Row 2: processing + view */}
+              <div className="px-3 py-1.5 flex items-center gap-2 border-t" style={{ borderColor: 'var(--line)', background: '#f3ecdc' }}>
+                <button
+                  className="btn btn-quiet text-[11.5px]"
+                  style={{ padding: '4px 8px', ...(hyphenCount > 0 ? { borderColor: '#15803d', color: '#15803d' } : {}) }}
+                  onClick={replaceAllHyphens}
+                  disabled={hyphenCount === 0}
+                >
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M6 12h12" /><path d="M4 8v8M20 8v8" /></svg>
+                  Fix hyphens{hyphenCount > 0 ? ` (${hyphenCount})` : ''}
+                </button>
+                <button
+                  className="btn btn-quiet text-[11.5px]"
+                  style={{ padding: '4px 8px' }}
+                  onClick={runScan}
+                >
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg>
+                  Scan refs
+                </button>
+
+                <div className="w-px h-4" style={{ background: 'var(--line-2)' }} />
+
+                {/* Font size */}
+                <div className="flex items-center gap-0.5">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" style={{ color: 'var(--mute)', marginRight: 2 }}>
+                    <text x="2" y="16" style={{ fontSize: '14px', fontFamily: 'serif', fill: 'currentColor', stroke: 'none' }}>A</text>
+                    <text x="13" y="19" style={{ fontSize: '9px', fontFamily: 'serif', fill: 'currentColor', stroke: 'none' }}>A</text>
+                  </svg>
+                  <button className="tool-btn" style={{ width: 22, height: 22, fontSize: 11 }}
+                    onClick={() => setFontSize((s) => { const v = Math.max(10, s - 1); localStorage.setItem('review:fontSize', String(v)); return v })}>−</button>
+                  <span className="font-mono text-[12px] tabular-nums text-center font-medium" style={{ width: 28, color: 'var(--ink)' }}>{fontSize}</span>
+                  <button className="tool-btn" style={{ width: 22, height: 22, fontSize: 11 }}
+                    onClick={() => setFontSize((s) => { const v = Math.min(32, s + 1); localStorage.setItem('review:fontSize', String(v)); return v })}>+</button>
+                </div>
+
+                <div className="w-px h-4" style={{ background: 'var(--line-2)' }} />
+
+                {/* Betacode */}
+                <div className="flex items-center gap-1">
+                  <span className="text-[11.5px] font-semibold mr-1" style={{ color: 'var(--mute)' }}>
+                    <span style={{ fontFamily: 'serif', fontStyle: 'italic', fontSize: 15, lineHeight: 1, color: betaMode ? '#6a1b9a' : 'var(--oxblood)', fontWeight: 600 }}>β</span>etacode
+                  </span>
+                  <button
+                    className="btn btn-quiet text-[11px]"
+                    style={{ padding: '3px 7px', ...(betaMode ? { color: '#6a1b9a', borderColor: '#9c6ab0', background: '#f0eaf8' } : {}) }}
+                    onClick={() => { setBetaMode((m) => !m); betaPendingRef.current.clear() }}
+                    title="Toggle betacode keyboard (⌘K)"
+                  >
+                    {betaMode ? 'Enabled' : 'Enable'}
+                    <span className="inline-flex gap-0.5 ml-0.5">
+                      <KbdChip>⌘</KbdChip><KbdChip>K</KbdChip>
+                    </span>
+                  </button>
+                  {betaMode && (
+                    <button
+                      className="btn btn-quiet text-[11px]"
+                      style={{ padding: '3px 7px', ...(betaHelpVisible ? { color: '#6a1b9a', borderColor: '#9c6ab0', background: '#f0eaf8' } : {}) }}
+                      onClick={() => setBetaHelpVisible((v) => { const next = !v; localStorage.setItem('review:betaHelp', String(next)); return next })}
+                    >
+                      Cheatsheet
+                    </button>
+                  )}
+                </div>
+
+                {/* More menu */}
+                <div ref={moreMenuRef} className="relative ml-auto">
+                  <button
+                    className="btn btn-quiet text-[11.5px]"
+                    style={{ padding: '4px 8px' }}
+                    onClick={() => setMoreMenuOpen((v) => !v)}
+                  >
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.6" /><circle cx="12" cy="12" r="1.6" /><circle cx="19" cy="12" r="1.6" /></svg>
+                    More
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m6 9 6 6 6-6" /></svg>
+                  </button>
+                  {moreMenuOpen && (
+                    <div style={{ position: 'absolute', top: 'calc(100% + 6px)', right: 0, minWidth: 240, background: 'var(--paper-2)', border: '1px solid var(--line-2)', borderRadius: 7, boxShadow: '0 12px 30px -10px rgba(40,30,20,.25)', padding: 4, fontSize: 12, zIndex: 20 }}>
+                      <div className="px-2 py-1 text-[10px] tracking-[.12em] uppercase font-semibold" style={{ color: 'var(--mute)' }}>This page</div>
+                      <button className="w-full text-left flex items-center gap-2.5 px-2 py-1.5 rounded hover:bg-[color:var(--paper-3)]"
+                        onClick={() => { restore(); setMoreMenuOpen(false) }}>
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" style={{ color: 'var(--mute)' }}><path d="M3 12a9 9 0 1 0 3-6.7" /><path d="M3 3v6h6" /></svg>
+                        Restore from OCR
+                      </button>
+                      <button className="w-full text-left flex items-center gap-2.5 px-2 py-1.5 rounded hover:bg-[color:var(--paper-3)]"
+                        onClick={() => { resetCache(); setMoreMenuOpen(false) }}>
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" style={{ color: 'var(--mute)' }}><rect x="4" y="6" width="16" height="14" rx="1" /><path d="M9 11h6M9 15h4" /></svg>
+                        Reset cache
+                      </button>
+                      <div style={{ height: 1, background: 'var(--line)', margin: '4px 0' }} />
+                      <div className="px-2 py-1 text-[10px] tracking-[.12em] uppercase font-semibold" style={{ color: 'var(--mute)' }}>Re-run OCR</div>
+                      <button className="w-full text-left flex items-center gap-2.5 px-2 py-1.5 rounded hover:bg-[color:var(--paper-3)]"
+                        onClick={() => { setReOcrOpen((v) => !v); setReOcrError(null); setMoreMenuOpen(false) }}>
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" style={{ color: 'var(--mute)' }}><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></svg>
+                        Re-OCR this page…
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Scrollable editor */}
             <div
               ref={scrollContainerRef}
               className="flex-1 overflow-y-auto"
               style={{ background: currentState?.loaded ? 'white' : 'var(--paper-2)' }}
             >
               <div className="relative">
-                {/* Highlight layer — no scroll, always same size as the textarea */}
                 <div
                   ref={highlightRef}
                   aria-hidden="true"
-                  className="absolute inset-0 p-4 overflow-hidden pointer-events-none font-mono leading-relaxed whitespace-pre-wrap break-words"
+                  className="absolute inset-0 px-4 pt-4 pb-10 overflow-hidden pointer-events-none font-mono leading-relaxed whitespace-pre-wrap break-words"
                   style={{ color: 'transparent', background: 'transparent', fontSize }}
                   dangerouslySetInnerHTML={{ __html: highlightMarkdown(content, levelMap) }}
                 />
-                {/* Editable textarea — auto-grows; outer div handles scrolling */}
                 <textarea
                   ref={textareaRef}
-                  className="relative w-full p-4 font-mono leading-relaxed resize-none outline-none caret-[var(--ink)]"
+                  className="relative w-full px-4 pt-4 pb-10 font-mono leading-relaxed resize-none outline-none caret-[var(--ink)]"
                   style={{ color: 'var(--ink)', background: 'transparent', overflow: 'hidden', display: 'block', fontSize }}
                   value={content}
                   onChange={(e) => {
@@ -1147,57 +1115,176 @@ export default function Review(): React.JSX.Element {
               </div>
             </div>
 
-            {/* Beta Code helper map */}
-            {betaMode && (
+            {betaMode && betaHelpVisible && (
               <div className="shrink-0 px-4 pb-2" style={{ background: 'white' }}>
                 <BetaCodeHelper />
               </div>
             )}
 
-            {/* Page mini-strip */}
-            <div
-              className="shrink-0 border-t overflow-x-auto flex gap-1.5 p-2"
-              style={{ borderColor: 'var(--line)', background: 'var(--paper-3)', minHeight: 56 }}
-            >
-              {activePages.map((p, i) => {
-                const dirty = pages.get(p.n)?.dirty
-                return (
-                  <button
-                    key={p.n}
-                    onClick={() => setCurrentIdx(i)}
-                    className="relative shrink-0 rounded text-[10px] font-mono tabular-nums px-2 py-1 border transition-colors"
-                    style={{
-                      borderColor: i === currentIdx ? 'var(--oxblood)' : 'var(--line-2)',
-                      background: i === currentIdx ? '#f5eae8' : 'var(--paper)',
-                      color: i === currentIdx ? 'var(--oxblood)' : 'var(--mute)',
-                      fontWeight: i === currentIdx ? 600 : undefined
-                    }}
-                  >
-                    {p.isExample && (
-                      <span style={{ color: '#c89328', marginRight: 2, fontSize: 9 }}>★</span>
+            {/* ── Tag dock ── */}
+            {cursorTag && (
+              <div className="border-t shrink-0" style={{ borderColor: 'var(--line)', background: '#f3ecdc' }}>
+                {/* Row 1: universal transforms */}
+                <div className="px-3 py-1.5 flex items-center gap-2.5">
+                  {(cursorTag.kind === 'ref' || cursorTag.kind === 'note') && (
+                    <>
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <span className="text-[10px] uppercase tracking-[.12em] font-semibold shrink-0" style={{ color: 'var(--mute)' }}>Convert</span>
+                        {cursorTag.kind === 'ref' && (
+                          <button
+                            onClick={() => { replaceTag(cursorTag.start, cursorTag.end, `<note>${cursorTag.inner}</note>`); closePopover() }}
+                            style={{ display: 'inline-flex', alignItems: 'center', padding: '2px 6px', borderRadius: 4, fontFamily: 'ui-monospace', fontSize: 10.5, background: '#ece1f1', border: '1px solid #c8b8d8', color: '#5a3b7a', cursor: 'pointer' }}
+                          >&lt;note&gt;</button>
+                        )}
+                        {cursorTag.kind === 'note' && (
+                          <button
+                            onClick={() => { replaceTag(cursorTag.start, cursorTag.end, `<ref level="">${cursorTag.inner}</ref>`); closePopover() }}
+                            style={{ display: 'inline-flex', alignItems: 'center', padding: '2px 6px', borderRadius: 4, fontFamily: 'ui-monospace', fontSize: 10.5, background: '#d8e2c6', border: '1px solid #b8c8a0', color: '#3b5a30', cursor: 'pointer' }}
+                          >&lt;ref&gt;</button>
+                        )}
+                      </div>
+                      <div className="w-px h-3.5 shrink-0" style={{ background: 'var(--line-2)' }} />
+                      <button
+                        className="btn btn-quiet text-[11px]"
+                        style={{ padding: '3px 7px' }}
+                        onClick={() => { replaceTag(cursorTag.start, cursorTag.end, (cursorTag as { inner: string }).inner); closePopover() }}
+                      >
+                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M4 9h16" /><path d="M4 15h16" /><path d="m9 4 3 3 3-3" /><path d="m9 20 3-3 3 3" /></svg>
+                        Unwrap
+                        <KbdChip>U</KbdChip>
+                      </button>
+                      <button
+                        className="btn btn-quiet text-[11px]"
+                        style={{ padding: '3px 7px', color: 'var(--oxblood)' }}
+                        onClick={() => { replaceTag(cursorTag.start, cursorTag.end, ''); closePopover() }}
+                      >
+                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13" /></svg>
+                        Delete
+                        <KbdChip>⌫</KbdChip>
+                      </button>
+                    </>
+                  )}
+                  {cursorTag.kind === 'self' && (
+                    <button
+                      className="btn btn-quiet text-[11px]"
+                      style={{ padding: '3px 7px', color: 'var(--oxblood)' }}
+                      onClick={() => { replaceTag(cursorTag.start, cursorTag.end, ''); closePopover() }}
+                    >
+                      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13" /></svg>
+                      Delete <span className="font-mono" style={{ color: 'var(--oxblood)', opacity: 0.8 }}>{cursorTag.tag}</span>
+                      <KbdChip>⌫</KbdChip>
+                    </button>
+                  )}
+                  <div className="ml-auto flex items-center gap-1.5 shrink-0">
+                    <span className="text-[10.5px]" style={{ color: 'var(--mute)' }}>
+                      <KbdChip>esc</KbdChip>
+                      {' '}to deselect
+                    </span>
+                    <button
+                      className="btn btn-quiet"
+                      style={{ width: 22, height: 22, padding: 0, justifyContent: 'center' }}
+                      onClick={closePopover}
+                    >
+                      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m6 6 12 12M6 18 18 6" /></svg>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Row 2: tag-specific */}
+                {cursorTag.kind === 'ref' && (
+                  <div className="px-3 py-1.5 flex items-center gap-2.5 border-t" style={{ borderColor: 'rgba(0,0,0,.06)', borderStyle: 'dashed' }}>
+                    {levelList.length > 0 && (
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <span className="text-[10px] uppercase tracking-[.12em] font-semibold" style={{ color: 'var(--mute)' }}>Level</span>
+                        <div className="inline-flex gap-0.5">
+                          {levelList.map((l) => {
+                            const { fg, bg } = levelColor(l)
+                            const active = String(l.depth) === cursorTag.level
+                            return (
+                              <button key={l.depth}
+                                style={{ width: 22, height: 22, borderRadius: 4, fontFamily: 'ui-monospace', fontSize: 11, color: active ? fg : 'var(--mute)', background: active ? bg : 'transparent', border: `1px solid ${active ? fg + '60' : 'transparent'}`, fontWeight: active ? 600 : 400 }}
+                                onClick={() => {
+                                  const newTag = `<ref level="${l.depth}">${cursorTag.inner}</ref>`
+                                  replaceTag(cursorTag.start, cursorTag.end, newTag)
+                                  setCursorTag({ kind: 'ref', start: cursorTag.start, end: cursorTag.start + newTag.length, inner: cursorTag.inner, level: String(l.depth) })
+                                }}
+                                title={l.name}
+                              >{l.depth}</button>
+                            )
+                          })}
+                          <button
+                            style={{ width: 22, height: 22, borderRadius: 4, fontFamily: 'ui-monospace', fontSize: 11, color: !cursorTag.level ? 'var(--oxblood)' : 'var(--mute)', background: !cursorTag.level ? '#f5e6fa' : 'transparent', border: '1px solid transparent' }}
+                            onClick={() => {
+                              const newTag = `<ref>${cursorTag.inner}</ref>`
+                              replaceTag(cursorTag.start, cursorTag.end, newTag)
+                              setCursorTag({ kind: 'ref', start: cursorTag.start, end: cursorTag.start + newTag.length, inner: cursorTag.inner, level: '' })
+                            }}
+                            title="No level"
+                          >–</button>
+                        </div>
+                      </div>
                     )}
-                    {p.n}
-                    {dirty && (
-                      <span
-                        className="absolute top-0.5 right-0.5 w-1.5 h-1.5 rounded-full"
-                        style={{ background: 'var(--amber, #c89328)' }}
-                      />
-                    )}
-                  </button>
-                )
-              })}
-            </div>
+                    <div className="w-px h-3.5 shrink-0" style={{ background: 'var(--line-2)' }} />
+                    <button
+                      className="btn btn-quiet text-[11px]"
+                      style={{ padding: '3px 7px' }}
+                      onClick={snapRefToSegment}
+                    >
+                      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M14 6H6" /><path d="m10 2-4 4 4 4" /><path d="M4 14h16v6H4z" /></svg>
+                      Snap to segment
+                      <KbdChip>⇧</KbdChip><KbdChip>←</KbdChip>
+                    </button>
+                  </div>
+                )}
+                {cursorTag.kind === 'hyphen' && (
+                  <div className="px-3 py-1.5 flex items-center gap-2 border-t" style={{ borderColor: 'rgba(0,0,0,.06)', borderStyle: 'dashed' }}>
+                    <button
+                      className="btn btn-quiet text-[11px]"
+                      style={{ padding: '3px 7px', color: '#15803d' }}
+                      onClick={() => { replaceTag(cursorTag.start, cursorTag.end, `${cursorTag.word}<lb break="no"/>`); closePopover() }}
+                    >
+                      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#15803d" strokeWidth="1.8"><path d="M4 12h16" /><path d="m15 5 7 7-7 7" /></svg>
+                      Fix: &lt;lb break="no"/&gt;
+                    </button>
+                    <button
+                      className="btn btn-quiet text-[11px]"
+                      style={{ padding: '3px 7px' }}
+                      onClick={() => { replaceTag(cursorTag.start, cursorTag.end, cursorTag.word); closePopover() }}
+                    >
+                      Join only
+                    </button>
+                    <button
+                      className="btn btn-quiet text-[11px]"
+                      style={{ padding: '3px 7px', color: 'var(--oxblood)' }}
+                      onClick={() => { replaceTag(cursorTag.start, cursorTag.end, ''); closePopover() }}
+                    >
+                      Delete
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+
           </div>
         </div>
       </main>
 
       <style>{`
         mark.tag-ref-u{ background: #f5e6fa; color: #7b2d8b; font-weight: 600; }
-        mark.tag-note { background: #f0e8ff; color: #6d28d9; font-weight: 600; }
-        mark.tag-misc { background: #e5e7eb; color: #4b5563; }
+        mark.tag-note { background: #ece1f1; color: #5a3b7a; font-weight: 600; }
+        mark.tag-misc { background: #e2ddc7; color: #6b5a2b; }
         mark.tag-head { background: transparent; color: #4a6f8a; font-weight: 600; }
-        mark.tag-lb   { background: #dcfce7; color: #15803d; }
+        mark.tag-lb   { background: #d6e7df; color: #2e5a4a; }
+        @keyframes spin { from { transform: rotate(0deg) } to { transform: rotate(360deg) } }
       `}</style>
     </div>
+  )
+}
+
+function KbdChip({ children }: { children: React.ReactNode }): React.JSX.Element {
+  return (
+    <span style={{ fontFamily: 'ui-monospace', fontSize: 9, padding: '1px 4px', borderRadius: 3, background: 'var(--paper-3)', border: '1px solid var(--line-2)', color: 'var(--mute)', minWidth: 14, textAlign: 'center', display: 'inline-block' }}>
+      {children}
+    </span>
   )
 }

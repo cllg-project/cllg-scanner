@@ -26,6 +26,8 @@ type Tool = 'pointer' | 'rect'
 const FILL_WHITE = '#ffffff'
 const FILL_BLACK = '#000000'
 const MAX_EXAMPLES = 3
+const STEP_LABELS = ['Import', 'Mask', 'OCR', 'Config', 'Review', 'TEI']
+const CURRENT_STEP = 2
 
 function StatusBadge({ status }: { status: Page['status'] }): React.JSX.Element {
   const map: Record<Page['status'], string> = {
@@ -702,6 +704,45 @@ export default function Masker(): React.JSX.Element {
 
       {/* Main canvas area */}
       <main className="flex-1 flex flex-col" style={{ background: 'var(--paper-3)' }}>
+        {/* Step rail */}
+        <div className="px-4 pt-3 pb-2 border-b shrink-0 flex items-center gap-1.5" style={{ borderColor: 'var(--line)', background: 'var(--paper-2)', fontSize: 10, color: 'var(--mute)' }}>
+          <span className="text-[10px] tracking-[.18em] uppercase mr-1 font-mono" style={{ color: 'var(--mute-2)' }}>Step</span>
+          {STEP_LABELS.map((label, i) => {
+            const n = i + 1
+            const isDone = n < CURRENT_STEP
+            const isCurrent = n === CURRENT_STEP
+            return (
+              <React.Fragment key={n}>
+                <span
+                  className="inline-flex items-center justify-center rounded-full text-[9px] font-semibold"
+                  style={{
+                    width: 14, height: 14, border: '1px solid',
+                    background: isDone ? 'var(--moss-bg)' : isCurrent ? 'var(--oxblood)' : 'var(--paper-3)',
+                    borderColor: isDone ? '#b8c8a0' : isCurrent ? 'var(--oxblood-2)' : 'var(--line-2)',
+                    color: isDone ? 'var(--moss)' : isCurrent ? '#fbf3e3' : 'var(--mute)'
+                  }}
+                >
+                  {isDone
+                    ? <svg width="7" height="7" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="4"><path d="m5 12 5 5 9-12" /></svg>
+                    : n}
+                </span>
+              </React.Fragment>
+            )
+          })}
+          <span className="flex-1 h-px mx-1" style={{ background: 'var(--line-2)' }} />
+          <span className="text-[11px]" style={{ color: 'var(--mute)' }}>
+            {STEP_LABELS.map((l, i) => (
+              <span key={i}>
+                {i > 0 && ' · '}
+                <span style={i + 1 === CURRENT_STEP ? { color: 'var(--ink)', fontWeight: 600 } : undefined}>{l}</span>
+              </span>
+            ))}
+          </span>
+          <button className="btn btn-primary ml-2" style={{ padding: '3px 10px', fontSize: 11 }} onClick={() => navigate('/ocr')}>
+            Next: OCR
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m9 6 6 6-6 6" /></svg>
+          </button>
+        </div>
         {/* Toolbar */}
         <div className="toolbar">
           <button

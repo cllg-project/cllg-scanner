@@ -7,13 +7,22 @@ import { normalizeOcrText } from './normalizeOcr'
 
 const IMAGE_TOKEN_OVERHEAD = 1500  // estimated tokens per vision-model image input
 
-async function persistPageStatus(projectDir: string, pageN: number, status: 'ocr_done' | 'error'): Promise<void> {
+async function persistPageStatus(
+  projectDir: string,
+  pageN: number,
+  status: 'ocr_done' | 'error',
+  stats?: { tokens?: number; elapsedMs?: number }
+): Promise<void> {
   const projectFile = join(projectDir, 'project.cllg.json')
   try {
     const raw = await readFile(projectFile, 'utf-8')
     const project: Project = JSON.parse(raw)
     const page = project.pages.find((p) => p.n === pageN)
-    if (page) page.status = status
+    if (page) {
+      page.status = status
+      if (stats?.tokens != null) page.tokens = stats.tokens
+      if (stats?.elapsedMs != null) page.elapsedMs = stats.elapsedMs
+    }
     await writeFile(projectFile, JSON.stringify(project, null, 2), 'utf-8')
   } catch { /* non-fatal */ }
 }
@@ -161,7 +170,7 @@ export function registerOCRHandlers(): void {
       let fewShotMessages: ChatMessage[] = []
       let exampleTokens = 0
 
-      if (examplePages.length > 0) {
+      if (examplePages.length > 0 && lmConfig.inMemoryLearning !== false) {
         const resolveP = (p: string): string => isAbsolute(p) ? p : join(projectDir, p)
         for (const ep of examplePages) {
           const epImgPath = ep.maskedImagePath ? resolveP(ep.maskedImagePath) : resolveP(ep.imagePath)
@@ -335,7 +344,7 @@ export function registerOCRHandlers(): void {
           // Write per-page cache before appending to combined output
           await writeFile(cachePath, pageMarkdown, 'utf-8')
           await appendFile(mdPath, pageMarkdown, 'utf-8')
-          await persistPageStatus(projectDir, page.n, 'ocr_done')
+          await persistPageStatus(projectDir, page.n, 'ocr_done', { tokens, elapsedMs: Date.now() - t0 })
 
           win?.webContents.send('ocr:progress', {
             pageNum: page.n,

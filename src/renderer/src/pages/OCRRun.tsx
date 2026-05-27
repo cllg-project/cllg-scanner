@@ -5,6 +5,66 @@ import Sidebar from '../components/Sidebar'
 import { useProject } from '../App'
 import { renderMaskedPage } from '../utils/renderMaskedPage'
 
+function LearnFromExamplesToggle({
+  enabled,
+  count,
+  onChange,
+}: {
+  enabled: boolean
+  count: number
+  onChange: (v: boolean) => void
+}): React.JSX.Element {
+  return (
+    <button
+      onClick={() => onChange(!enabled)}
+      style={{
+        display: 'inline-flex', alignItems: 'center', gap: 6,
+        padding: '4px 10px 4px 6px',
+        borderRadius: 999,
+        border: '1px solid',
+        background: enabled ? '#fbf2dc' : 'var(--paper-3)',
+        borderColor: enabled ? '#d9c688' : 'var(--line-2)',
+        color: enabled ? '#8a6a18' : 'var(--mute)',
+        cursor: 'pointer',
+        fontSize: 12,
+        fontWeight: 500,
+      }}
+    >
+      <span style={{
+        width: 28, height: 16, borderRadius: 999,
+        background: enabled ? '#c89328' : 'var(--line-2)',
+        display: 'inline-flex', alignItems: 'center',
+        padding: 2,
+        flexShrink: 0,
+      }}>
+        <span style={{
+          width: 10, height: 10, borderRadius: '50%', background: '#fff',
+          transform: enabled ? 'translateX(12px)' : 'translateX(0)',
+          transition: 'transform .15s',
+          display: 'block',
+          boxShadow: '0 1px 2px rgba(0,0,0,.2)'
+        }} />
+      </span>
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" style={{ flexShrink: 0 }}>
+        <path d="m12 2 2.6 6.5 7 .6-5.3 4.6 1.7 6.8L12 17l-6 3.5 1.7-6.8L2.4 9.1l7-.6z" />
+      </svg>
+      Learn from examples
+      <span style={{
+        background: enabled ? '#c89328' : 'var(--mute-2)',
+        color: '#fff',
+        borderRadius: 999,
+        fontSize: 10,
+        fontWeight: 700,
+        padding: '0 5px',
+        lineHeight: '16px',
+        minWidth: 18,
+        textAlign: 'center',
+        display: 'inline-block',
+      }}>{count}</span>
+    </button>
+  )
+}
+
 interface PageRow {
   page: Page
   status: 'pending' | 'running' | 'done' | 'error' | 'skipped'
@@ -17,7 +77,7 @@ interface PageRow {
 
 type Filter = 'all' | 'pending' | 'done' | 'errors'
 
-const STEP_LABELS = ['Import', 'Mask', 'OCR', 'Review', 'Stitch', 'TEI']
+const STEP_LABELS = ['Import', 'Mask', 'OCR', 'Config', 'Review', 'TEI']
 const CURRENT_STEP = 3 // 1-based
 
 export default function OCRRun(): React.JSX.Element {
@@ -50,7 +110,9 @@ export default function OCRRun(): React.JSX.Element {
     setRows(
       project.pages.map((p) => ({
         page: p,
-        status: p.status === 'skipped' ? 'skipped' : p.status === 'ocr_done' ? 'done' : 'pending'
+        status: p.status === 'skipped' ? 'skipped' : p.status === 'ocr_done' ? 'done' : 'pending',
+        tokens: p.tokens,
+        elapsedMs: p.elapsedMs,
       }))
     )
   }, [project])
@@ -212,7 +274,6 @@ export default function OCRRun(): React.JSX.Element {
   }
 
   const examplePageNs = project?.pages.filter((p) => p.isExample && p.status === 'ocr_done') ?? []
-  const hasInMemoryLearning = examplePageNs.length > 0
 
   const filteredRows = rows.filter((r) => {
     const matchesFilter =
@@ -288,6 +349,13 @@ export default function OCRRun(): React.JSX.Element {
               </div>
             </div>
             <div className="flex items-center gap-2 shrink-0">
+              {!running && examplePageNs.length > 1 && (
+                <LearnFromExamplesToggle
+                  enabled={lmConfig.inMemoryLearning !== false}
+                  count={examplePageNs.length}
+                  onChange={(v) => setLMConfig((c) => ({ ...c, inMemoryLearning: v }))}
+                />
+              )}
               {running ? (
                 <button className="btn btn-ghost" onClick={stopOCR}>
                   <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -312,23 +380,6 @@ export default function OCRRun(): React.JSX.Element {
             </div>
           </div>
 
-          {/* Status strips */}
-          {hasInMemoryLearning && (
-            <div className="mt-3 flex gap-2 flex-wrap">
-              <div className="flex items-center gap-3 px-3 py-2 rounded-md border text-[12px]"
-                style={{ background: 'var(--star-bg, #fbf2dc)', borderColor: '#d9c688', color: 'var(--star-fg, #8a6a18)' }}>
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="m12 2 2.6 6.5 7 .6-5.3 4.6 1.7 6.8L12 17l-6 3.5 1.7-6.8L2.4 9.1l7-.6z" /></svg>
-                <span><strong>In-memory learning ON</strong> · {examplePageNs.length} example page{examplePageNs.length > 1 ? 's' : ''}</span>
-                <span className="opacity-25 w-px h-3.5 bg-current" />
-                <span className="font-mono text-[11px] opacity-80">POST /v1/chat/completions</span>
-              </div>
-              <div className="flex items-center gap-2 px-3 py-2 rounded-md border text-[12px]"
-                style={{ background: '#e4ebf2', borderColor: '#b9c8d8', color: '#2e4d6b' }}>
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="9" /><path d="M12 8v5M12 16h.01" /></svg>
-                <span>Model will reload with <strong>≥ {lmConfig.contextLength + examplePageNs.length * 1500}</strong>-token context before OCR starts</span>
-              </div>
-            </div>
-          )}
         </div>
 
         {/* ── Scrollable body ── */}
@@ -336,58 +387,54 @@ export default function OCRRun(): React.JSX.Element {
 
           {/* ── LM Studio ── */}
           <section>
-            <div className="flex items-baseline justify-between mb-2">
-              <h3 className="font-serif text-[16px]">LM Studio</h3>
-              {connectionStatus !== 'idle' && (
-                <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-mono border ${connectionStatus === 'ok' ? 'bg-[color:var(--moss-bg)] border-[#b8c8a0] text-[#3b5a30]' : 'bg-[#f1d6cf] border-[#d9a0a0] text-[#7a2a23]'}`}>
-                  <span className={`dot ${connectionStatus === 'ok' ? 'dot-ok' : 'dot-err'}`} />
-                  {connectionStatus === 'ok' ? `connected · ${connectionLatency}ms` : 'error'}
-                </span>
-              )}
-            </div>
-
             <div className="panel">
-              {/* Main row */}
-              <div className="grid gap-3 p-3" style={{ gridTemplateColumns: '1fr 1fr auto' }}>
-                <div>
-                  <div className="label mb-1">Endpoint URL</div>
+              {/* Single inline row */}
+              <div className="flex items-center gap-3 px-3 py-2.5 flex-wrap">
+                <h3 className="font-serif text-[15px] leading-none shrink-0 py-1 pr-3 mr-1 border-r" style={{ borderColor: 'var(--line)' }}>LM&nbsp;Studio</h3>
+
+                <div className="flex items-center gap-2">
+                  <div className="label" style={{ letterSpacing: '.1em' }}>Endpoint</div>
                   <input
                     className="input font-mono text-[12px]"
+                    style={{ paddingTop: 4, paddingBottom: 4, width: 210 }}
                     value={lmConfig.endpoint}
                     onChange={(e) => setLMConfig((c) => ({ ...c, endpoint: e.target.value }))}
                     placeholder="http://localhost:1234"
                   />
                 </div>
-                <div>
-                  <div className="label mb-1 flex items-center justify-between">
-                    <span>Model</span>
-                    <button
-                      className="text-[10px] font-medium flex items-center gap-1 hover:underline underline-offset-2"
-                      style={{ color: 'var(--oxblood)' }}
-                      onClick={fetchModels}
-                    >
-                      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 12a9 9 0 1 0 3-6.7" /><path d="M3 3v6h6" /></svg>
-                      refresh
-                    </button>
+
+                <div className="flex items-center gap-2">
+                  <div className="label" style={{ letterSpacing: '.1em' }}>Model</div>
+                  <div className="relative">
+                    <input
+                      className="input font-mono text-[12px]"
+                      style={{ paddingTop: 4, paddingBottom: 4, width: 170, paddingRight: 28 }}
+                      list="model-list"
+                      value={lmConfig.model}
+                      onChange={(e) => setLMConfig((c) => ({ ...c, model: e.target.value }))}
+                      placeholder={availableModels.length ? 'click ▾ or type' : 'qwen2.5-vl-7b-instruct'}
+                    />
+                    <svg className="absolute right-2 top-1/2 -translate-y-1/2" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ color: 'var(--mute)', pointerEvents: 'none' }}><path d="m6 9 6 6 6-6" /></svg>
+                    <datalist id="model-list">
+                      {availableModels.map((m) => <option key={m} value={m} />)}
+                    </datalist>
                   </div>
-                  <input
-                    className="input font-mono text-[12px]"
-                    list="model-list"
-                    value={lmConfig.model}
-                    onChange={(e) => setLMConfig((c) => ({ ...c, model: e.target.value }))}
-                    placeholder={availableModels.length ? 'click ▾ or type' : 'qwen2.5-vl-7b-instruct'}
-                  />
-                  <datalist id="model-list">
-                    {availableModels.map((m) => <option key={m} value={m} />)}
-                  </datalist>
-                </div>
-                <div>
-                  <div className="label mb-1">Connection</div>
-                  <button className="btn btn-ghost" onClick={testConnection}>
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M5 12h14M12 5l7 7-7 7" /></svg>
-                    Test
+                  <button className="btn btn-quiet" style={{ padding: 5 }} onClick={fetchModels} title="Refresh models">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M3 12a9 9 0 1 0 3-6.7" /><path d="M3 3v6h6" /></svg>
                   </button>
                 </div>
+
+                <button className="btn btn-ghost" style={{ paddingTop: 4, paddingBottom: 4 }} onClick={testConnection}>
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M5 12h14M12 5l7 7-7 7" /></svg>
+                  Test
+                </button>
+
+                {connectionStatus !== 'idle' && (
+                  <span className={`ml-auto inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-mono border ${connectionStatus === 'ok' ? 'bg-[color:var(--moss-bg)] border-[#b8c8a0] text-[#3b5a30]' : 'bg-[#f1d6cf] border-[#d9a0a0] text-[#7a2a23]'}`}>
+                    <span className={`dot ${connectionStatus === 'ok' ? 'dot-ok' : 'dot-err'}`} />
+                    {connectionStatus === 'ok' ? `connected · ${connectionLatency}ms` : 'error'}
+                  </span>
+                )}
               </div>
 
               {/* Advanced disclosure */}
@@ -508,7 +555,8 @@ export default function OCRRun(): React.JSX.Element {
                       <th style={{ padding: '7px 10px', textAlign: 'left', fontSize: 10, letterSpacing: '.12em', textTransform: 'uppercase', color: 'var(--mute)', fontWeight: 600 }}>File</th>
                       <th style={{ width: 110, padding: '7px 10px', textAlign: 'left', fontSize: 10, letterSpacing: '.12em', textTransform: 'uppercase', color: 'var(--mute)', fontWeight: 600 }}>Status</th>
                       <th style={{ width: 90, padding: '7px 10px', textAlign: 'left', fontSize: 10, letterSpacing: '.12em', textTransform: 'uppercase', color: 'var(--mute)', fontWeight: 600 }}>Elapsed</th>
-                      <th style={{ width: 130, padding: '7px 10px', textAlign: 'left', fontSize: 10, letterSpacing: '.12em', textTransform: 'uppercase', color: 'var(--mute)', fontWeight: 600 }}>Tokens · /s</th>
+                      <th style={{ width: 80, padding: '7px 10px', textAlign: 'left', fontSize: 10, letterSpacing: '.12em', textTransform: 'uppercase', color: 'var(--mute)', fontWeight: 600 }}>Tokens</th>
+                      <th style={{ width: 70, padding: '7px 10px', textAlign: 'left', fontSize: 10, letterSpacing: '.12em', textTransform: 'uppercase', color: 'var(--mute)', fontWeight: 600 }}>tok/s</th>
                       <th style={{ width: 60, padding: '7px 10px', textAlign: 'right', fontSize: 10 }} />
                     </tr>
                   </thead>
@@ -574,8 +622,13 @@ export default function OCRRun(): React.JSX.Element {
                           </td>
                           <td style={{ ...tdStyle, fontFamily: 'var(--font-mono, ui-monospace)', fontVariantNumeric: 'tabular-nums', fontSize: 11, color: 'var(--mute)' }}>
                             {r.tokens != null
-                              ? <>{r.status === 'running' ? <strong>{r.tokens}</strong> : r.tokens}{tokensPerSec != null && <span style={{ color: 'var(--mute)' }}> · {tokensPerSec}/s</span>}</>
+                              ? r.status === 'running'
+                                ? <strong style={{ color: 'var(--ink)' }}>{r.tokens}</strong>
+                                : r.tokens
                               : '—'}
+                          </td>
+                          <td style={{ ...tdStyle, fontFamily: 'var(--font-mono, ui-monospace)', fontVariantNumeric: 'tabular-nums', fontSize: 11, color: 'var(--mute)' }}>
+                            {tokensPerSec != null ? `${tokensPerSec}/s` : '—'}
                           </td>
                           <td style={{ ...tdStyle, textAlign: 'right' }}>
                             {canReprocess && (
@@ -594,7 +647,7 @@ export default function OCRRun(): React.JSX.Element {
                     })}
                     {filteredRows.length === 0 && (
                       <tr>
-                        <td colSpan={8} style={{ padding: '20px', textAlign: 'center', color: 'var(--mute)', fontSize: 12.5 }}>
+                        <td colSpan={9} style={{ padding: '20px', textAlign: 'center', color: 'var(--mute)', fontSize: 12.5 }}>
                           No pages match the current filter.
                         </td>
                       </tr>

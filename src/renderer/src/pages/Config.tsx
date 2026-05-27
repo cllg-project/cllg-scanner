@@ -447,6 +447,9 @@ export function hierarchyToYAML(hierarchy: HierarchyLevel[], metadata: ProjectMe
   return stringify(doc)
 }
 
+const STEP_LABELS = ['Import', 'Mask', 'OCR', 'Config', 'Review', 'TEI']
+const CURRENT_STEP = 4
+
 export default function Config(): React.JSX.Element {
   const { project, saveProject } = useProject()
   const navigate = useNavigate()
@@ -514,13 +517,44 @@ export default function Config(): React.JSX.Element {
 
       <main className="flex-1 overflow-hidden flex flex-col" style={{ background: 'var(--paper-2)' }}>
         {/* Header */}
-        <div className="px-10 pt-7 pb-5 border-b shrink-0" style={{ borderColor: 'var(--line)' }}>
-          <div className="font-mono text-[10px] tracking-[.18em] uppercase mb-1" style={{ color: 'var(--mute)' }}>
-            Step 04 of 06
+        <div className="px-6 pt-5 pb-3 border-b shrink-0" style={{ borderColor: 'var(--line)' }}>
+          <div className="flex items-center gap-1.5 mb-3" style={{ fontSize: 10, color: 'var(--mute)' }}>
+            <span className="text-[10px] tracking-[.18em] uppercase mr-1 font-mono" style={{ color: 'var(--mute-2)' }}>Step</span>
+            {STEP_LABELS.map((label, i) => {
+              const n = i + 1
+              const isDone = n < CURRENT_STEP
+              const isCurrent = n === CURRENT_STEP
+              return (
+                <React.Fragment key={n}>
+                  <span
+                    className="inline-flex items-center justify-center rounded-full text-[9px] font-semibold"
+                    style={{
+                      width: 14, height: 14, border: '1px solid',
+                      background: isDone ? 'var(--moss-bg)' : isCurrent ? 'var(--oxblood)' : 'var(--paper-3)',
+                      borderColor: isDone ? '#b8c8a0' : isCurrent ? 'var(--oxblood-2)' : 'var(--line-2)',
+                      color: isDone ? 'var(--moss)' : isCurrent ? '#fbf3e3' : 'var(--mute)'
+                    }}
+                  >
+                    {isDone
+                      ? <svg width="7" height="7" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="4"><path d="m5 12 5 5 9-12" /></svg>
+                      : n}
+                  </span>
+                </React.Fragment>
+              )
+            })}
+            <span className="flex-1 h-px mx-1" style={{ background: 'var(--line-2)' }} />
+            <span className="text-[11px]" style={{ color: 'var(--mute)' }}>
+              {STEP_LABELS.map((l, i) => (
+                <span key={i}>
+                  {i > 0 && ' · '}
+                  <span style={i + 1 === CURRENT_STEP ? { color: 'var(--ink)', fontWeight: 600 } : undefined}>{l}</span>
+                </span>
+              ))}
+            </span>
           </div>
-          <h2 className="font-serif text-[28px] leading-tight">Structure configuration</h2>
-          <div className="text-[12.5px] mt-1" style={{ color: 'var(--mute)' }}>
-            Describe the textual hierarchy and document metadata. This drives both TEI export and reference classification.
+          <h2 className="font-serif text-[26px] leading-none">Structure configuration</h2>
+          <div className="text-[12.5px] mt-1.5" style={{ color: 'var(--mute)' }}>
+            Describe the textual hierarchy and document metadata · drives TEI export and reference classification
           </div>
         </div>
 

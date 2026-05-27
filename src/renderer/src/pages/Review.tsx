@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import type { Page, HierarchyLevel, KrakenConfig } from '@shared/types'
+import type { Page, PageStatus, HierarchyLevel, KrakenConfig } from '@shared/types'
 import Sidebar from '../components/Sidebar'
 import { useProject } from '../App'
 import { convertBetaKey, finalSigmaFix } from '../utils/betaCode'
@@ -154,7 +154,7 @@ function makePageState(content: string): PageState {
 }
 
 export default function Review(): React.JSX.Element {
-  const { project } = useProject()
+  const { project, saveProject } = useProject()
   const navigate = useNavigate()
 
   const activePages: Page[] = (project?.pages ?? []).filter(
@@ -313,6 +313,22 @@ export default function Review(): React.JSX.Element {
       return next
     })
   }, [project, currentPage])
+
+  const setPageStatus = useCallback(async (status: PageStatus) => {
+    if (!project || !currentPage) return
+    const updatedPages = project.pages.map((p) =>
+      p.n === currentPage.n ? { ...p, status } : p
+    )
+    await saveProject({ ...project, pages: updatedPages })
+  }, [project, currentPage, saveProject])
+
+  const toggleExample = useCallback(async () => {
+    if (!project || !currentPage) return
+    const updatedPages = project.pages.map((p) =>
+      p.n === currentPage.n ? { ...p, isExample: !p.isExample } : p
+    )
+    await saveProject({ ...project, pages: updatedPages })
+  }, [project, currentPage, saveProject])
 
   const saveCurrent = useCallback(async () => {
     if (!project || !currentPage || !currentState?.dirty) return
@@ -537,13 +553,19 @@ export default function Review(): React.JSX.Element {
         result = await window.api.rerunPageLM(imgPath, project.lmConfig)
       }
       setContent(result.text)
+      // Persist to per-page cache and update page status
+      await window.api.saveMarkdown(project.projectDir, currentPage.n, result.text)
+      const updatedPages = project.pages.map((p) =>
+        p.n === currentPage.n ? { ...p, status: 'ocr_done' as const } : p
+      )
+      await saveProject({ ...project, pages: updatedPages })
       setReOcrOpen(false)
     } catch (err: unknown) {
       setReOcrError(String(err))
     } finally {
       setReOcrRunning(false)
     }
-  }, [project, currentPage, reOcrEngine, krakenPaths]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [project, currentPage, reOcrEngine, krakenPaths, saveProject]) // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!project) return <div className="p-8">No project open.</div>
   if (activePages.length === 0) {
@@ -620,6 +642,40 @@ export default function Review(): React.JSX.Element {
               <path d="m9 6 6 6-6 6" />
             </svg>
           </button>
+
+          {/* Page status badge + manual toggle */}
+          {currentPage && (() => {
+            const s = currentPage.status
+            const isDone = s === 'ocr_done'
+            return (
+              <button
+                className="btn btn-quiet !py-0.5 !px-2 !text-[11px] gap-1 shrink-0"
+                title={isDone ? 'Mark page as pending (re-queue for OCR)' : 'Mark page as done (ocr_done)'}
+                onClick={() => setPageStatus(isDone ? 'pending' : 'ocr_done')}
+                style={isDone
+                  ? { color: '#3b5a30', borderColor: '#b8c8a0', background: 'var(--moss-bg)' }
+                  : { color: '#6b5a2b', borderColor: '#c8b87a', background: '#f0e6cf' }}
+              >
+                {isDone
+                  ? <><span className="dot dot-ok" />done</>
+                  : <><span className="dot" style={{ background: 'var(--mute-2)' }} />{s}</>}
+              </button>
+            )
+          })()}
+
+          {/* Example toggle */}
+          {currentPage && (
+            <button
+              className="btn btn-quiet !py-0.5 !px-2 !text-[11px] gap-1 shrink-0"
+              title={currentPage.isExample ? 'Remove from OCR examples' : 'Mark as OCR example (few-shot)'}
+              onClick={toggleExample}
+              style={currentPage.isExample
+                ? { color: '#8a6a18', borderColor: '#d9c688', background: 'var(--star-bg, #fbf2dc)' }
+                : {}}
+            >
+              ★ {currentPage.isExample ? 'example' : 'set example'}
+            </button>
+          )}
 
           <div className="w-px h-5 mx-1" style={{ background: 'var(--line-2)' }} />
 
@@ -1117,6 +1173,9 @@ export default function Review(): React.JSX.Element {
                       fontWeight: i === currentIdx ? 600 : undefined
                     }}
                   >
+                    {p.isExample && (
+                      <span style={{ color: '#c89328', marginRight: 2, fontSize: 9 }}>★</span>
+                    )}
                     {p.n}
                     {dirty && (
                       <span

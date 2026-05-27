@@ -15,6 +15,11 @@ interface PageRow {
   forceReprocess?: boolean
 }
 
+type Filter = 'all' | 'pending' | 'done' | 'errors'
+
+const STEP_LABELS = ['Import', 'Mask', 'OCR', 'Review', 'Stitch', 'TEI']
+const CURRENT_STEP = 3 // 1-based
+
 export default function OCRRun(): React.JSX.Element {
   const { project, saveProject } = useProject()
   const navigate = useNavigate()
@@ -36,6 +41,8 @@ export default function OCRRun(): React.JSX.Element {
     () => new Set((project?.pages ?? []).filter((p) => p.status === 'ocr_done').map((p) => p.n))
   )
   const [log, setLog] = useState<string[]>([])
+  const [filter, setFilter] = useState<Filter>('all')
+  const [search, setSearch] = useState('')
   const logRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -48,7 +55,6 @@ export default function OCRRun(): React.JSX.Element {
     )
   }, [project])
 
-  // Subscribe to OCR progress events
   useEffect(() => {
     const unsub = window.api.onOCRProgress((e: OCRProgressEvent) => {
       setRows((prev) =>
@@ -72,7 +78,11 @@ export default function OCRRun(): React.JSX.Element {
       if (e.status === 'model-reload') {
         addLog(`[${ts}] ${e.logMessage ?? 'model reload'}`)
       } else if (e.status === 'done') {
-        addLog(`[${ts}] page[${e.pageNum}] done · tokens=${e.tokens} elapsed=${((e.elapsedMs ?? 0) / 1000).toFixed(1)}s`)
+        if (e.fromCache) {
+          addLog(`[${ts}] page[${e.pageNum}] done · (cache)`)
+        } else {
+          addLog(`[${ts}] page[${e.pageNum}] done · tokens=${e.tokens} elapsed=${((e.elapsedMs ?? 0) / 1000).toFixed(1)}s`)
+        }
       } else if (e.status === 'error') {
         addLog(`[${ts}] page[${e.pageNum}] ERROR · ${e.errorMessage}`)
       } else if (e.status === 'started') {
@@ -97,7 +107,6 @@ export default function OCRRun(): React.JSX.Element {
     } catch { /* silent */ }
   }, [lmConfig.endpoint, lmConfig.apiKey])
 
-  // Auto-populate model list on mount
   useEffect(() => { fetchModels() }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const testConnection = useCallback(async () => {
@@ -132,7 +141,6 @@ export default function OCRRun(): React.JSX.Element {
     setRunning(true)
     const cfg = { ...lmConfig }
 
-    // Reset status for force-reprocessed pages before saving
     const forcedNs = new Set(rows.filter((r) => r.forceReprocess).map((r) => r.page.n))
     const pagesWithReset = project.pages.map((p) =>
       forcedNs.has(p.n) ? { ...p, status: 'pending' as const } : p
@@ -144,7 +152,6 @@ export default function OCRRun(): React.JSX.Element {
     addLog(`[info] Starting OCR · ${pagesForOCR.filter((p) => p.status !== 'skipped').length} pages`)
     if (forcedNs.size > 0) addLog(`[info] Force-reprocessing ${forcedNs.size} page(s): ${[...forcedNs].join(', ')}`)
 
-    // Apply masks on the fly. Include excluded example pages so few-shot always uses the masked image.
     const excludedExamplesWithMasks = pagesWithReset.filter(
       (p) => p.isExample && p.status === 'ocr_done' && p.masks.length > 0 && excluded.has(p.n)
     )
@@ -164,13 +171,11 @@ export default function OCRRun(): React.JSX.Element {
       )
     }
 
-    // maskedPaths covers both OCR pages and excluded example pages
     const allPagesWithMasks = pagesWithReset.map((p) =>
       maskedPaths.has(p.n) ? { ...p, maskedImagePath: maskedPaths.get(p.n) } : p
     )
     await window.api.runOCR(project.projectDir, pagesForOCR, cfg, allPagesWithMasks)
 
-    // Reload from disk so page statuses written by main process are reflected in context
     const reloaded = await window.api.reloadProject(project.projectDir)
     await saveProject(reloaded)
 
@@ -185,10 +190,12 @@ export default function OCRRun(): React.JSX.Element {
   }, [])
 
   const doneCount = rows.filter((r) => r.status === 'done').length
+  const errorCount = rows.filter((r) => r.status === 'error').length
+  const runningCount = rows.filter((r) => r.status === 'running').length
+  const pendingCount = rows.filter((r) => r.status === 'pending').length
   const totalActive = rows.filter((r) => r.status !== 'skipped').length
   const pct = totalActive > 0 ? Math.round((doneCount / totalActive) * 100) : 0
 
-  // ETA: average real-API elapsed only (exclude cache hits)
   const timedRows = rows.filter((r) => r.status === 'done' && !r.fromCache && r.elapsedMs != null)
   const avgMs = timedRows.length > 0
     ? timedRows.reduce((s, r) => s + (r.elapsedMs ?? 0), 0) / timedRows.length
@@ -207,335 +214,475 @@ export default function OCRRun(): React.JSX.Element {
   const examplePageNs = project?.pages.filter((p) => p.isExample && p.status === 'ocr_done') ?? []
   const hasInMemoryLearning = examplePageNs.length > 0
 
+  const filteredRows = rows.filter((r) => {
+    const matchesFilter =
+      filter === 'all' ? true
+      : filter === 'pending' ? (r.status === 'pending' || r.status === 'running')
+      : filter === 'done' ? r.status === 'done'
+      : r.status === 'error'
+    const q = search.trim().toLowerCase()
+    const matchesSearch = !q
+      || String(r.page.n).includes(q)
+      || r.page.imagePath.toLowerCase().includes(q)
+    return matchesFilter && matchesSearch
+  })
+
+  const advSummary = `temp ${lmConfig.temperature} · ctx ${lmConfig.contextLength}${lmConfig.apiKey ? ' · key set' : ' · no key'}`
+
+  const basename = (p: string): string => p.split('/').pop() ?? p
+
   if (!project) return <div className="p-8">No project open.</div>
 
   return (
     <div className="flex h-full">
       <Sidebar collapsed />
 
-      <main className="flex-1 overflow-y-auto" style={{ background: 'var(--paper-2)' }}>
-        {/* Header */}
-        <div className="px-10 pt-8 pb-5 border-b flex items-end justify-between" style={{ borderColor: 'var(--line)' }}>
-          <div>
-            <div className="font-mono text-[10px] tracking-[.18em] uppercase" style={{ color: 'var(--mute)' }}>
-              Step 03 of 06
-            </div>
-            <h2 className="font-serif text-[28px] leading-tight mt-1">OCR run</h2>
-            <div className="text-[12.5px] mt-1" style={{ color: 'var(--mute)' }}>
-              Pages are sent one at a time to LM Studio. Output is appended to{' '}
-              <span className="font-mono" style={{ color: 'var(--ink)' }}>ocr_output.md</span>.
-            </div>
-            {hasInMemoryLearning && (
-              <div className="mt-2 flex flex-col gap-1.5">
-                <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded text-[11.5px] font-medium"
-                  style={{ background: '#fdf3d0', border: '1px solid #e8c84a', color: '#7a6010' }}>
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4L12 17l-6.2 4.3 2.4-7.4L2 9.4h7.6z"/></svg>
-                  In-Memory Learning ON · {examplePageNs.length} example page{examplePageNs.length > 1 ? 's' : ''} · uses /v1/chat/completions
-                </div>
-                <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded text-[11.5px]"
-                  style={{ background: '#e8f0fe', border: '1px solid #a0b8e8', color: '#1a3a7a' }}>
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16h.01"/></svg>
-                  Model will be reloaded with ≥ {lmConfig.contextLength + examplePageNs.length * 1500} token context before OCR starts.
-                </div>
-              </div>
-            )}
-          </div>
-          <div className="flex items-center gap-2">
-            {running ? (
-              <button className="btn btn-ghost" onClick={stopOCR}>
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path d="M6 4h4v16H6zM14 4h4v16h-4z" />
-                </svg>
-                Pause OCR
-              </button>
-            ) : (
-              <>
-                <button className="btn btn-ghost" onClick={startOCR} disabled={running || doneCount === 0}>
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-                    <path d="M3 12a9 9 0 1 0 3-6.7" /><path d="M3 3v6h6" />
-                  </svg>
-                  Resume
-                </button>
-                <button className="btn btn-primary" onClick={startOCR} disabled={running}>
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <polygon points="5 3 19 12 5 21 5 3" />
-                  </svg>
-                  Run OCR
-                </button>
-              </>
-            )}
-          </div>
-        </div>
+      <main className="flex-1 flex flex-col overflow-hidden" style={{ background: 'var(--paper-2)' }}>
 
-        {/* LM Studio config */}
-        <div className="px-10 pt-8 pb-6">
-          <h3 className="font-serif text-[18px] mb-3">LM Studio</h3>
-          <div className="panel p-5 grid grid-cols-12 gap-5">
-            {/* Endpoint */}
-            <div className="col-span-5">
-              <div className="label mb-1.5">Endpoint URL</div>
-              <input
-                className="input font-mono text-[12px]"
-                value={lmConfig.endpoint}
-                onChange={(e) => setLMConfig((c) => ({ ...c, endpoint: e.target.value }))}
-                placeholder="http://localhost:1234"
-              />
-            </div>
-            {/* Model */}
-            <div className="col-span-4">
-              <div className="label mb-1.5 flex items-center gap-2">
-                Model
-                <button
-                  className="text-[10.5px] font-mono px-1.5 py-0.5 rounded border hover:opacity-80"
-                  style={{ color: 'var(--mute)', borderColor: 'var(--line-2)' }}
-                  onClick={fetchModels}
-                  title="Refresh model list from LM Studio"
-                >↻ refresh</button>
-              </div>
-              <input
-                className="input font-mono text-[12px]"
-                list="model-list"
-                value={lmConfig.model}
-                onChange={(e) => setLMConfig((c) => ({ ...c, model: e.target.value }))}
-                placeholder={availableModels.length ? 'click ▾ or type' : 'qwen2.5-vl-7b-instruct'}
-              />
-              <datalist id="model-list">
-                {availableModels.map((m) => <option key={m} value={m} />)}
-              </datalist>
-            </div>
-            {/* Test */}
-            <div className="col-span-3">
-              <div className="label mb-1.5">Connection</div>
-              <div className="flex items-stretch gap-2">
-                <button className="btn btn-ghost !py-2 flex-1 justify-center" onClick={testConnection}>
-                  Test
-                </button>
-                {connectionStatus !== 'idle' && (
-                  <div
-                    className={`flex items-center gap-1.5 px-3 rounded-md border text-[11.5px] font-mono ${connectionStatus === 'ok' ? 'bg-[#e7efdf] border-[#b8c8a0] text-[#3b5a30]' : 'bg-[#f1d6cf] border-[#d9a0a0] text-[#7a2a23]'}`}
-                  >
-                    <span className={`dot ${connectionStatus === 'ok' ? 'dot-ok' : 'dot-err'}`} />
-                    {connectionStatus === 'ok' ? `${connectionLatency}ms` : 'error'}
-                  </div>
-                )}
-              </div>
-            </div>
-            {/* Second row */}
-            <div className="col-span-12 grid grid-cols-12 gap-5 border-t pt-4" style={{ borderColor: 'var(--line)' }}>
-              <div className="col-span-2">
-                <div className="label mb-1.5">Temperature</div>
-                <input
-                  className="input font-mono text-[12px]"
-                  type="number"
-                  step="0.1"
-                  min="0"
-                  max="2"
-                  value={lmConfig.temperature}
-                  onChange={(e) => setLMConfig((c) => ({ ...c, temperature: parseFloat(e.target.value) }))}
-                />
-              </div>
-              <div className="col-span-2">
-                <div className="label mb-1.5">Context length</div>
-                <input
-                  className="input font-mono text-[12px]"
-                  type="number"
-                  value={lmConfig.contextLength}
-                  onChange={(e) => setLMConfig((c) => ({ ...c, contextLength: parseInt(e.target.value) }))}
-                />
-              </div>
-              <div className="col-span-2">
-                <div className="label mb-1.5">API key</div>
-                <input
-                  className="input font-mono text-[12px]"
-                  type="password"
-                  value={lmConfig.apiKey ?? ''}
-                  placeholder="optional"
-                  onChange={(e) => setLMConfig((c) => ({ ...c, apiKey: e.target.value || undefined }))}
-                />
-              </div>
-              <div className="col-span-3 flex items-end gap-2">
-                <button
-                  className="btn btn-quiet !py-1.5 text-[11.5px]"
-                  onClick={() => setExcluded(new Set())}
-                >Select all</button>
-                <button
-                  className="btn btn-quiet !py-1.5 text-[11.5px]"
-                  onClick={() => setExcluded(new Set(project.pages.map((p) => p.n)))}
-                >Deselect all</button>
-              </div>
-            </div>
-          </div>
-        </div>
+        {/* ── Sticky header ── */}
+        <div className="px-8 pt-5 pb-4 border-b shrink-0" style={{ borderColor: 'var(--line)', boxShadow: '0 1px 0 var(--line)' }}>
 
-        {/* Queue */}
-        <div className="px-10 pb-6">
-          <div className="flex items-baseline justify-between mb-3">
-            <h3 className="font-serif text-[18px]">Page queue</h3>
-            <div className="flex items-center gap-4 text-[11.5px] font-mono" style={{ color: 'var(--mute)' }}>
-              <span><span className="dot dot-ok mr-1" />done <span className="font-semibold" style={{ color: 'var(--ink)' }}>{doneCount}</span></span>
-              <span><span className="dot dot-warn mr-1" />running <span className="font-semibold" style={{ color: 'var(--ink)' }}>{rows.filter((r) => r.status === 'running').length}</span></span>
-              <span><span className="dot dot-err mr-1" />error <span className="font-semibold" style={{ color: 'var(--ink)' }}>{rows.filter((r) => r.status === 'error').length}</span></span>
-            </div>
-          </div>
-
-          <div className="panel overflow-hidden">
-            <div
-              className="grid gap-3 px-4 py-2.5 border-b text-[10.5px] uppercase tracking-wider font-semibold"
-              style={{ gridTemplateColumns: '32px 80px 40px 1fr 120px 90px 80px 60px', background: 'var(--paper-3)', borderColor: 'var(--line)', color: 'var(--mute)' }}
-            >
-              <div />
-              <div>Page</div><div />
-              <div>Status</div>
-              <div>Badge</div>
-              <div>Elapsed</div>
-              <div className="text-right">Tokens</div>
-              <div />
-            </div>
-
-            <div className="divide-y max-h-72 overflow-y-auto" style={{ borderColor: 'var(--line)' }}>
-              {rows.map((r) => {
-                const isExcluded = excluded.has(r.page.n)
-                const isExamplePage = r.page.isExample
-                const canReprocess = !running && (r.status === 'done' || r.status === 'error')
-                return (
-                  <div
-                    key={r.page.n}
-                    className="grid gap-3 px-4 py-2.5 items-center text-[12.5px]"
+          {/* Step rail */}
+          <div className="flex items-center gap-1.5 mb-3" style={{ fontFamily: 'var(--font-mono, ui-monospace)', fontSize: 10, letterSpacing: '.04em', color: 'var(--mute)' }}>
+            <span className="text-[10px] tracking-[.18em] uppercase mr-1" style={{ color: 'var(--mute-2)' }}>Step</span>
+            {STEP_LABELS.map((label, i) => {
+              const n = i + 1
+              const isDone = n < CURRENT_STEP
+              const isCurrent = n === CURRENT_STEP
+              return (
+                <React.Fragment key={n}>
+                  <span
+                    className="inline-flex items-center justify-center rounded-full text-[9px] font-semibold"
                     style={{
-                      gridTemplateColumns: '32px 80px 40px 1fr 120px 90px 80px 60px',
-                      background: r.forceReprocess ? '#f0eaf8' : r.status === 'running' ? '#fbf5e7' : r.status === 'error' ? '#f7ece5' : undefined,
-                      opacity: r.status === 'skipped' || isExcluded ? 0.4 : 1
+                      width: 14, height: 14, border: '1px solid',
+                      background: isDone ? 'var(--moss-bg)' : isCurrent ? 'var(--oxblood)' : 'var(--paper-3)',
+                      borderColor: isDone ? '#b8c8a0' : isCurrent ? 'var(--oxblood-2)' : 'var(--line-2)',
+                      color: isDone ? 'var(--moss)' : isCurrent ? '#fbf3e3' : 'var(--mute)'
                     }}
                   >
-                    <div>
-                      <input
-                        type="checkbox"
-                        checked={!isExcluded}
-                        disabled={running || r.status === 'skipped'}
-                        onChange={() => toggleExcluded(r.page.n)}
-                        className="cursor-pointer"
-                      />
-                    </div>
-                    <div className="font-mono tabular-nums flex items-center gap-1" style={{ color: r.status === 'running' ? 'var(--ink)' : 'var(--mute)' }}>
-                      {isExamplePage && (
-                        <svg width="11" height="11" viewBox="0 0 24 24" fill="#c89328" title="Example page">
-                          <path d="M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4L12 17l-6.2 4.3 2.4-7.4L2 9.4h7.6z"/>
-                        </svg>
-                      )}
-                      p. {r.page.n}
-                    </div>
-                    <div>
-                      {r.status === 'done' && <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#5a8c3f" strokeWidth="2.5"><path d="m5 12 5 5 9-12" /></svg>}
-                      {r.status === 'error' && <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#b04a3a" strokeWidth="2"><circle cx="12" cy="12" r="9" /><path d="M12 8v5M12 16h.01" /></svg>}
-                      {r.status === 'running' && <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#c89328" strokeWidth="2" className="animate-spin"><path d="M21 12a9 9 0 1 1-6.3-8.6" /></svg>}
-                      {r.status === 'skipped' && <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="9" /><path d="m6 6 12 12" /></svg>}
-                      {r.status === 'pending' && <div className="w-3 h-3 rounded-full border" style={{ borderColor: 'var(--mute-2)' }} />}
-                    </div>
-                    <div className="font-serif italic" style={{ color: r.status === 'skipped' ? 'var(--mute)' : undefined, textDecoration: r.status === 'skipped' || isExcluded ? 'line-through' : undefined }}>
-                      {r.errorMessage ?? `page ${r.page.n}`}
-                    </div>
-                    <div>
-                      <span className={`badge ${r.status === 'done' ? 'badge-ocr' : r.status === 'error' ? 'badge-error' : r.status === 'skipped' ? 'badge-skipped' : r.status === 'running' ? 'badge-pending' : 'badge-pending'}`}>
-                        {r.status === 'done' && <span className="dot dot-ok" />}
-                        {r.forceReprocess ? '↺ queued' : r.status}
-                      </span>
-                    </div>
-                    <div className="font-mono tabular-nums text-[11px]" style={{ color: 'var(--mute)' }}>
-                      {r.fromCache
-                        ? <span className="badge badge-skipped">cache</span>
-                        : r.elapsedMs != null ? `${(r.elapsedMs / 1000).toFixed(1)} s` : '—'}
-                    </div>
-                    <div className="font-mono tabular-nums text-right text-[11px]" style={{ color: 'var(--mute)' }}>
-                      {r.tokens ?? '—'}
-                    </div>
-                    <div className="flex justify-end">
-                      {canReprocess && (
-                        <button
-                          className="tool-btn text-[11px]"
-                          title="Force reprocess this page"
-                          onClick={() => toggleForceReprocess(r.page.n)}
-                          style={{ color: r.forceReprocess ? 'var(--oxblood)' : 'var(--mute)' }}
-                        >
-                          ↺
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                )
-              })}
+                    {isDone
+                      ? <svg width="7" height="7" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="4"><path d="m5 12 5 5 9-12" /></svg>
+                      : n}
+                  </span>
+                </React.Fragment>
+              )
+            })}
+            <span className="flex-1 h-px mx-1" style={{ background: 'var(--line-2)' }} />
+            <span className="text-[11px]" style={{ color: 'var(--mute)' }}>
+              {STEP_LABELS.map((l, i) => (
+                <span key={i}>
+                  {i > 0 && ' · '}
+                  <span style={i + 1 === CURRENT_STEP ? { color: 'var(--ink)', fontWeight: 600 } : undefined}>{l}</span>
+                </span>
+              ))}
+            </span>
+          </div>
+
+          {/* Title row + run buttons */}
+          <div className="flex items-end justify-between gap-6">
+            <div className="min-w-0">
+              <h2 className="font-serif text-[26px] leading-none">OCR run</h2>
+              <div className="text-[12.5px] mt-1.5" style={{ color: 'var(--mute)' }}>
+                Pages sent one at a time to LM Studio · output appended to{' '}
+                <span className="font-mono" style={{ color: 'var(--ink)' }}>ocr_output.md</span>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              {running ? (
+                <button className="btn btn-ghost" onClick={stopOCR}>
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M6 4h4v16H6zM14 4h4v16h-4z" />
+                  </svg>
+                  Stop
+                </button>
+              ) : (
+                <>
+                  <button className="btn btn-ghost" onClick={startOCR} disabled={running || doneCount === 0}>
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+                      <path d="M3 12a9 9 0 1 0 3-6.7" /><path d="M3 3v6h6" />
+                    </svg>
+                    Resume
+                  </button>
+                  <button className="btn btn-primary" onClick={startOCR} disabled={running}>
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M6 4l14 8-14 8z" /></svg>
+                    Run OCR
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+
+          {/* Status strips */}
+          {hasInMemoryLearning && (
+            <div className="mt-3 flex gap-2 flex-wrap">
+              <div className="flex items-center gap-3 px-3 py-2 rounded-md border text-[12px]"
+                style={{ background: 'var(--star-bg, #fbf2dc)', borderColor: '#d9c688', color: 'var(--star-fg, #8a6a18)' }}>
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="m12 2 2.6 6.5 7 .6-5.3 4.6 1.7 6.8L12 17l-6 3.5 1.7-6.8L2.4 9.1l7-.6z" /></svg>
+                <span><strong>In-memory learning ON</strong> · {examplePageNs.length} example page{examplePageNs.length > 1 ? 's' : ''}</span>
+                <span className="opacity-25 w-px h-3.5 bg-current" />
+                <span className="font-mono text-[11px] opacity-80">POST /v1/chat/completions</span>
+              </div>
+              <div className="flex items-center gap-2 px-3 py-2 rounded-md border text-[12px]"
+                style={{ background: '#e4ebf2', borderColor: '#b9c8d8', color: '#2e4d6b' }}>
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="9" /><path d="M12 8v5M12 16h.01" /></svg>
+                <span>Model will reload with <strong>≥ {lmConfig.contextLength + examplePageNs.length * 1500}</strong>-token context before OCR starts</span>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* ── Scrollable body ── */}
+        <div className="flex-1 overflow-y-auto px-8 pt-5 pb-6 space-y-5">
+
+          {/* ── LM Studio ── */}
+          <section>
+            <div className="flex items-baseline justify-between mb-2">
+              <h3 className="font-serif text-[16px]">LM Studio</h3>
+              {connectionStatus !== 'idle' && (
+                <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-mono border ${connectionStatus === 'ok' ? 'bg-[color:var(--moss-bg)] border-[#b8c8a0] text-[#3b5a30]' : 'bg-[#f1d6cf] border-[#d9a0a0] text-[#7a2a23]'}`}>
+                  <span className={`dot ${connectionStatus === 'ok' ? 'dot-ok' : 'dot-err'}`} />
+                  {connectionStatus === 'ok' ? `connected · ${connectionLatency}ms` : 'error'}
+                </span>
+              )}
             </div>
 
-            {/* Footer progress */}
-            <div className="px-4 py-3 border-t flex items-center gap-4" style={{ borderColor: 'var(--line)', background: 'var(--paper-3)' }}>
-              <div className="flex-1">
-                <div className="flex items-baseline justify-between mb-1">
-                  <span className="text-[11.5px] font-medium">
-                    Overall{' '}
-                    <span className="font-mono" style={{ color: 'var(--mute)' }}>
-                      {doneCount} / {totalActive} pages
-                    </span>
-                  </span>
-                  <div className="flex items-baseline gap-4">
-                    {avgMs != null && (
-                      <span className="font-mono text-[11px] tabular-nums" style={{ color: 'var(--mute)' }}>
-                        avg {(avgMs / 1000).toFixed(0)} s/page
-                      </span>
-                    )}
-                    {etaMs != null && running && (
-                      <span className="font-mono text-[11.5px] tabular-nums font-semibold" style={{ color: 'var(--oxblood)' }}>
-                        {fmtEta(etaMs)} remaining
-                      </span>
-                    )}
-                    <span className="font-mono text-[11.5px] tabular-nums font-semibold" style={{ color: 'var(--oxblood)' }}>
-                      {pct}%
-                    </span>
+            <div className="panel">
+              {/* Main row */}
+              <div className="grid gap-3 p-3" style={{ gridTemplateColumns: '1fr 1fr auto' }}>
+                <div>
+                  <div className="label mb-1">Endpoint URL</div>
+                  <input
+                    className="input font-mono text-[12px]"
+                    value={lmConfig.endpoint}
+                    onChange={(e) => setLMConfig((c) => ({ ...c, endpoint: e.target.value }))}
+                    placeholder="http://localhost:1234"
+                  />
+                </div>
+                <div>
+                  <div className="label mb-1 flex items-center justify-between">
+                    <span>Model</span>
+                    <button
+                      className="text-[10px] font-medium flex items-center gap-1 hover:underline underline-offset-2"
+                      style={{ color: 'var(--oxblood)' }}
+                      onClick={fetchModels}
+                    >
+                      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 12a9 9 0 1 0 3-6.7" /><path d="M3 3v6h6" /></svg>
+                      refresh
+                    </button>
+                  </div>
+                  <input
+                    className="input font-mono text-[12px]"
+                    list="model-list"
+                    value={lmConfig.model}
+                    onChange={(e) => setLMConfig((c) => ({ ...c, model: e.target.value }))}
+                    placeholder={availableModels.length ? 'click ▾ or type' : 'qwen2.5-vl-7b-instruct'}
+                  />
+                  <datalist id="model-list">
+                    {availableModels.map((m) => <option key={m} value={m} />)}
+                  </datalist>
+                </div>
+                <div>
+                  <div className="label mb-1">Connection</div>
+                  <button className="btn btn-ghost" onClick={testConnection}>
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M5 12h14M12 5l7 7-7 7" /></svg>
+                    Test
+                  </button>
+                </div>
+              </div>
+
+              {/* Advanced disclosure */}
+              <details className="border-t" style={{ borderColor: 'var(--line)' }}>
+                <summary className="px-3 py-2 flex items-center justify-between cursor-pointer hover:bg-[color:var(--paper-3)] transition-colors list-none [&::-webkit-details-marker]:hidden">
+                  <div className="flex items-center gap-2 text-[12px]">
+                    <svg className="details-chev transition-transform" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ color: 'var(--mute)' }}><path d="m9 6 6 6-6 6" /></svg>
+                    <span className="font-medium">Advanced parameters</span>
+                    <span className="font-mono text-[11px]" style={{ color: 'var(--mute)' }}>{advSummary}</span>
+                  </div>
+                  <span className="text-[10px] tracking-[.1em] uppercase" style={{ color: 'var(--mute-2)' }}>defaults are fine for most projects</span>
+                </summary>
+                <div className="px-3 pb-3 pt-2 grid gap-3 border-t border-dashed" style={{ borderColor: 'var(--line)', gridTemplateColumns: '120px 160px 1fr' }}>
+                  <div>
+                    <div className="label mb-1">Temperature</div>
+                    <input
+                      className="input font-mono text-[12px]"
+                      type="number"
+                      step="0.1"
+                      min="0"
+                      max="2"
+                      value={lmConfig.temperature}
+                      onChange={(e) => setLMConfig((c) => ({ ...c, temperature: parseFloat(e.target.value) }))}
+                    />
+                  </div>
+                  <div>
+                    <div className="label mb-1">Context length</div>
+                    <input
+                      className="input font-mono text-[12px]"
+                      type="number"
+                      value={lmConfig.contextLength}
+                      onChange={(e) => setLMConfig((c) => ({ ...c, contextLength: parseInt(e.target.value) }))}
+                    />
+                  </div>
+                  <div>
+                    <div className="label mb-1">API Key</div>
+                    <input
+                      className="input font-mono text-[12px]"
+                      type="password"
+                      value={lmConfig.apiKey ?? ''}
+                      placeholder="optional"
+                      onChange={(e) => setLMConfig((c) => ({ ...c, apiKey: e.target.value || undefined }))}
+                    />
                   </div>
                 </div>
-                <div className="progress">
-                  <div className="progress-bar" style={{ width: `${pct}%` }} />
+              </details>
+            </div>
+          </section>
+
+          {/* ── Page queue ── */}
+          <section>
+            <div className="flex items-end justify-between mb-2">
+              <div className="flex items-baseline gap-3">
+                <h3 className="font-serif text-[16px]">Page queue</h3>
+                <div className="flex items-center gap-3 text-[11px] font-mono" style={{ color: 'var(--mute)' }}>
+                  <span><span className="dot dot-ok mr-0.5" />done <span className="font-semibold" style={{ color: 'var(--ink)' }}>{doneCount}</span></span>
+                  {runningCount > 0 && <span><span className="dot dot-warn mr-0.5" />running <span className="font-semibold" style={{ color: 'var(--ink)' }}>{runningCount}</span></span>}
+                  <span><span className="dot mr-0.5" style={{ background: 'var(--mute-2)' }} />pending <span className="font-semibold" style={{ color: 'var(--ink)' }}>{pendingCount}</span></span>
+                  {errorCount > 0 && <span><span className="dot dot-err mr-0.5" />error <span className="font-semibold" style={{ color: 'var(--ink)' }}>{errorCount}</span></span>}
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                {/* Filter tabs */}
+                <div className="flex p-0.5 rounded-md border gap-0.5" style={{ background: 'var(--paper-3)', borderColor: 'var(--line-2)' }}>
+                  {(['all', 'pending', 'done', 'errors'] as Filter[]).map((f) => (
+                    <button
+                      key={f}
+                      className="px-2.5 py-1 rounded text-[11.5px] font-medium capitalize"
+                      style={{
+                        background: filter === f ? 'var(--paper-2)' : 'transparent',
+                        color: filter === f ? 'var(--ink)' : 'var(--mute)',
+                        boxShadow: filter === f ? '0 1px 2px rgba(0,0,0,.05), 0 0 0 1px rgba(0,0,0,.04)' : undefined
+                      }}
+                      onClick={() => setFilter(f)}
+                    >
+                      {f === 'errors' && errorCount > 0
+                        ? <><span>{f}</span> <span style={{ color: 'var(--oxblood)' }}>{errorCount}</span></>
+                        : f}
+                    </button>
+                  ))}
+                </div>
+                {/* Search */}
+                <div className="relative">
+                  <svg className="absolute left-2 top-1/2 -translate-y-1/2" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ color: 'var(--mute)' }}>
+                    <circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" />
+                  </svg>
+                  <input
+                    className="input text-[12px]"
+                    style={{ paddingLeft: 26, paddingRight: 8, paddingTop: 5, paddingBottom: 5, width: 150 }}
+                    placeholder="Find page…"
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                  />
                 </div>
               </div>
             </div>
-          </div>
-        </div>
 
-        {/* Live log */}
-        <div className="px-10 pb-10">
-          <div className="flex items-baseline justify-between mb-3">
-            <h3 className="font-serif text-[18px]">Live log</h3>
-            <button
-              className="text-[11.5px] font-mono"
-              style={{ color: 'var(--oxblood)' }}
-              onClick={() => setLog([])}
-            >
-              clear
+            <div className="panel overflow-hidden">
+              {/* Selection bar */}
+              <div className="px-3 py-1.5 flex items-center gap-2 border-b text-[11.5px]" style={{ borderColor: 'var(--line)', background: 'rgba(236,229,214,.6)' }}>
+                <span style={{ color: 'var(--mute)' }}>Select</span>
+                <button className="btn btn-quiet text-[11.5px]" style={{ padding: '2px 6px' }}
+                  onClick={() => setExcluded(new Set())}>All</button>
+                <button className="btn btn-quiet text-[11.5px]" style={{ padding: '2px 6px' }}
+                  onClick={() => setExcluded(new Set(project.pages.map((p) => p.n)))}>None</button>
+                <button className="btn btn-quiet text-[11.5px]" style={{ padding: '2px 6px' }}
+                  onClick={() => setExcluded(new Set(project.pages.filter((p) => p.status === 'ocr_done').map((p) => p.n)))}>Pending only</button>
+              </div>
+
+              {/* Table */}
+              <div className="overflow-y-auto" style={{ maxHeight: 420 }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                  <thead>
+                    <tr style={{ background: 'var(--paper-3)', borderBottom: '1px solid var(--line)', position: 'sticky', top: 0, zIndex: 1 }}>
+                      <th style={{ width: 36, padding: '7px 10px', textAlign: 'left', fontSize: 10, letterSpacing: '.12em', textTransform: 'uppercase', color: 'var(--mute)', fontWeight: 600 }} />
+                      <th style={{ width: 58, padding: '7px 10px', textAlign: 'left', fontSize: 10, letterSpacing: '.12em', textTransform: 'uppercase', color: 'var(--mute)', fontWeight: 600 }}>Page</th>
+                      <th style={{ width: 28, padding: '7px 10px', textAlign: 'left', fontSize: 10 }} />
+                      <th style={{ padding: '7px 10px', textAlign: 'left', fontSize: 10, letterSpacing: '.12em', textTransform: 'uppercase', color: 'var(--mute)', fontWeight: 600 }}>File</th>
+                      <th style={{ width: 110, padding: '7px 10px', textAlign: 'left', fontSize: 10, letterSpacing: '.12em', textTransform: 'uppercase', color: 'var(--mute)', fontWeight: 600 }}>Status</th>
+                      <th style={{ width: 90, padding: '7px 10px', textAlign: 'left', fontSize: 10, letterSpacing: '.12em', textTransform: 'uppercase', color: 'var(--mute)', fontWeight: 600 }}>Elapsed</th>
+                      <th style={{ width: 130, padding: '7px 10px', textAlign: 'left', fontSize: 10, letterSpacing: '.12em', textTransform: 'uppercase', color: 'var(--mute)', fontWeight: 600 }}>Tokens · /s</th>
+                      <th style={{ width: 60, padding: '7px 10px', textAlign: 'right', fontSize: 10 }} />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredRows.map((r) => {
+                      const isExcluded = excluded.has(r.page.n)
+                      const isExamplePage = r.page.isExample
+                      const canReprocess = !running && (r.status === 'done' || r.status === 'error')
+                      const tokensPerSec = r.tokens && r.elapsedMs && r.elapsedMs > 0
+                        ? Math.round(r.tokens / (r.elapsedMs / 1000))
+                        : null
+                      const rowBg =
+                        r.status === 'running' ? '#fbf5e7'
+                        : r.status === 'error' ? '#f7ece5'
+                        : r.forceReprocess ? '#f0eaf8'
+                        : undefined
+                      const tdStyle = { padding: '6px 10px', borderBottom: '1px solid var(--line)', fontSize: 12.5, verticalAlign: 'middle' as const }
+                      const dimmed = r.status === 'skipped' || isExcluded
+
+                      return (
+                        <tr key={r.page.n} style={{ background: rowBg, opacity: dimmed ? 0.45 : 1 }}>
+                          <td style={tdStyle}>
+                            <input
+                              type="checkbox"
+                              checked={!isExcluded}
+                              disabled={running || r.status === 'skipped'}
+                              onChange={() => toggleExcluded(r.page.n)}
+                              className="cursor-pointer"
+                              style={{ width: 14, height: 14 }}
+                            />
+                          </td>
+                          <td style={{ ...tdStyle, fontFamily: 'var(--font-mono, ui-monospace)', fontVariantNumeric: 'tabular-nums', color: r.status === 'running' ? 'var(--ink)' : 'var(--mute)', fontWeight: r.status === 'running' ? 600 : undefined }}>
+                            {isExamplePage && <span style={{ color: '#c89328', marginRight: 3 }}>★</span>}
+                            p. {r.page.n}
+                          </td>
+                          <td style={tdStyle}>
+                            <span style={{ width: 16, height: 16, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
+                              {r.status === 'done' && <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#5a8c3f" strokeWidth="2.5"><path d="m5 12 5 5 9-12" /></svg>}
+                              {r.status === 'error' && <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#b04a3a" strokeWidth="2"><circle cx="12" cy="12" r="9" /><path d="M12 8v5M12 16h.01" /></svg>}
+                              {r.status === 'running' && <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#c89328" strokeWidth="2.2" className="animate-spin" style={{ animationDuration: '1.6s' }}><path d="M21 12a9 9 0 1 1-6.3-8.6" /></svg>}
+                              {r.status === 'skipped' && <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="9" /><path d="m6 6 12 12" /></svg>}
+                              {r.status === 'pending' && <div style={{ width: 10, height: 10, borderRadius: '50%', border: '1px solid var(--mute-2)' }} />}
+                            </span>
+                          </td>
+                          <td style={{ ...tdStyle, fontStyle: 'italic', textDecoration: dimmed ? 'line-through' : undefined, color: (r.status === 'skipped' || dimmed) ? 'var(--mute)' : undefined }}>
+                            {basename(r.page.imagePath)}
+                            {r.status === 'error' && r.errorMessage && (
+                              <span style={{ fontStyle: 'normal', fontSize: 11, color: 'var(--mute)', marginLeft: 8 }}>— {r.errorMessage}</span>
+                            )}
+                            {r.status === 'running' && (
+                              <span style={{ fontStyle: 'normal', fontSize: 11, color: 'var(--mute)', marginLeft: 8 }}>— running</span>
+                            )}
+                          </td>
+                          <td style={tdStyle}>
+                            <span className={`badge ${r.status === 'done' ? 'badge-ocr' : r.status === 'error' ? 'badge-error' : r.status === 'skipped' ? 'badge-skipped' : r.status === 'running' ? 'badge-pending' : 'badge-pending'}`}>
+                              {r.status === 'done' && <span className="dot dot-ok" />}
+                              {r.status === 'running' && <span className="dot dot-warn" />}
+                              {r.forceReprocess ? '↺ queued' : r.fromCache ? 'cache' : r.status}
+                            </span>
+                          </td>
+                          <td style={{ ...tdStyle, fontFamily: 'var(--font-mono, ui-monospace)', fontVariantNumeric: 'tabular-nums', fontSize: 11, color: 'var(--mute)' }}>
+                            {r.elapsedMs != null ? `${(r.elapsedMs / 1000).toFixed(1)} s` : '—'}
+                          </td>
+                          <td style={{ ...tdStyle, fontFamily: 'var(--font-mono, ui-monospace)', fontVariantNumeric: 'tabular-nums', fontSize: 11, color: 'var(--mute)' }}>
+                            {r.tokens != null
+                              ? <>{r.status === 'running' ? <strong>{r.tokens}</strong> : r.tokens}{tokensPerSec != null && <span style={{ color: 'var(--mute)' }}> · {tokensPerSec}/s</span>}</>
+                              : '—'}
+                          </td>
+                          <td style={{ ...tdStyle, textAlign: 'right' }}>
+                            {canReprocess && (
+                              <button
+                                className="btn btn-quiet"
+                                style={{ padding: '2px 6px', fontSize: 11, color: r.forceReprocess ? 'var(--oxblood)' : 'var(--mute)' }}
+                                title="Force reprocess"
+                                onClick={() => toggleForceReprocess(r.page.n)}
+                              >
+                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M3 12a9 9 0 1 0 3-6.7" /><path d="M3 3v6h6" /></svg>
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      )
+                    })}
+                    {filteredRows.length === 0 && (
+                      <tr>
+                        <td colSpan={8} style={{ padding: '20px', textAlign: 'center', color: 'var(--mute)', fontSize: 12.5 }}>
+                          No pages match the current filter.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Progress footer */}
+              <div className="px-3 py-2.5 border-t flex items-center gap-4" style={{ borderColor: 'var(--line)', background: 'var(--paper-3)' }}>
+                <div className="flex-1">
+                  <div className="flex items-baseline justify-between mb-1">
+                    <span className="text-[11.5px] font-medium">
+                      Overall <span className="font-mono" style={{ color: 'var(--mute)' }}>{doneCount} / {totalActive} pages</span>
+                    </span>
+                    <div className="flex items-baseline gap-3">
+                      {avgMs != null && (
+                        <span className="font-mono text-[11px] tabular-nums" style={{ color: 'var(--mute)' }}>
+                          avg {(avgMs / 1000).toFixed(0)} s/page
+                        </span>
+                      )}
+                      {etaMs != null && running && (
+                        <span className="font-mono text-[11.5px] tabular-nums font-semibold" style={{ color: 'var(--oxblood)' }}>
+                          ETA {fmtEta(etaMs)}
+                        </span>
+                      )}
+                      <span className="font-mono text-[11.5px] tabular-nums font-semibold" style={{ color: 'var(--oxblood)' }}>
+                        {pct}%
+                      </span>
+                    </div>
+                  </div>
+                  <div className="progress">
+                    <div className="progress-bar" style={{ width: `${pct}%` }} />
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          {/* ── Live log (collapsible) ── */}
+          <details className="panel" open>
+            <summary className="px-3 py-2 flex items-center justify-between cursor-pointer list-none [&::-webkit-details-marker]:hidden" style={{ borderRadius: 8 }}>
+              <div className="flex items-center gap-2 text-[12.5px]">
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ color: 'var(--mute)' }}><path d="m9 6 6 6-6 6" /></svg>
+                <h3 className="font-serif text-[15px]">Live log</h3>
+                <span className="font-mono text-[11px]" style={{ color: 'var(--mute)' }}>{log.length} lines</span>
+              </div>
+              <button
+                className="text-[11.5px] font-mono"
+                style={{ color: 'var(--oxblood)' }}
+                onClick={(e) => { e.preventDefault(); setLog([]) }}
+              >
+                clear
+              </button>
+            </summary>
+            <div className="px-3 pb-3">
+              <div ref={logRef} className="terminal overflow-y-auto" style={{ height: 150 }}>
+                {log.map((line, i) => {
+                  const isErr = line.includes('ERROR') || line.includes('error')
+                  const isOk = line.includes('done') || line.includes('Connected')
+                  const isWarn = line.includes('warn') || line.includes('[model]')
+                  return (
+                    <div key={i} className={isErr ? 't-err' : isOk ? 't-ok' : isWarn ? 't-warn' : ''}>
+                      {line}
+                    </div>
+                  )
+                })}
+                {log.length === 0 && <div className="t-mute">Waiting for run…</div>}
+              </div>
+            </div>
+          </details>
+
+          {/* Next step */}
+          <div className="flex justify-end pt-1">
+            <button className="btn btn-primary" onClick={() => navigate('/config')}>
+              Next: Structure
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m9 6 6 6-6 6" /></svg>
             </button>
           </div>
-          <div ref={logRef} className="terminal h-[200px] overflow-y-auto">
-            {log.map((line, i) => {
-              const isErr = line.includes('ERROR') || line.includes('error')
-              const isOk = line.includes('done') || line.includes('Connected')
-              const isWarn = line.includes('warn')
-              return (
-                <div key={i} className={isErr ? 't-err' : isOk ? 't-ok' : isWarn ? 't-warn' : ''}>
-                  {line}
-                </div>
-              )
-            })}
-            {log.length === 0 && <div className="t-mute">Waiting for run…</div>}
-          </div>
-        </div>
 
-        {/* Next step */}
-        <div className="px-10 pb-10 flex justify-end">
-          <button className="btn btn-primary" onClick={() => navigate('/config')}>
-            Next: Structure
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m9 6 6 6-6 6" /></svg>
-          </button>
         </div>
       </main>
 
-      <style>{`@keyframes spin { from { transform: rotate(0deg) } to { transform: rotate(360deg) } }`}</style>
+      <style>{`
+        @keyframes spin { from { transform: rotate(0deg) } to { transform: rotate(360deg) } }
+        details[open] > summary > div > svg:first-child { transform: rotate(90deg); }
+        table tbody tr:hover { background: rgba(0,0,0,.02); }
+      `}</style>
     </div>
   )
 }

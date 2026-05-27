@@ -184,7 +184,14 @@ export function registerOCRHandlers(): void {
       // When few-shot examples are present, reload the model with a larger context window.
       // The OpenAI-compat endpoint ignores context_length in the request body — the window is
       // fixed at load time — so we unload and reload with the required context before starting.
-      if (fewShotMessages.length > 0 && exampleTokens > 0) {
+      // Skip the reload if every page will be served from cache — no API call will be made.
+      const hasUncachedPages = pages.some(
+        (p) => p.status !== 'skipped' && (
+          p.status !== 'ocr_done' ||
+          !existsSync(join(cacheDir, `page_${String(p.n).padStart(4, '0')}.md`))
+        )
+      )
+      if (fewShotMessages.length > 0 && exampleTokens > 0 && hasUncachedPages) {
         const sendLog = (msg: string): void => {
           win?.webContents.send('ocr:progress', {
             pageNum: 0,
@@ -223,13 +230,12 @@ export function registerOCRHandlers(): void {
           continue
         }
 
-        // Per-page cache: skip API call if already processed.
-        // If status is 'pending' the page was force-queued for reprocessing — delete stale cache.
+        // Serve from cache only if the page completed successfully (ocr_done).
+        // For any other status (pending, masked, error) delete any stale cache and reprocess —
+        // the UI shows all of these as "pending" but the raw status differs.
         const cachePath = join(cacheDir, `page_${String(page.n).padStart(4, '0')}.md`)
         if (existsSync(cachePath)) {
-          if (page.status === 'pending') {
-            try { await unlink(cachePath) } catch { /* ignore */ }
-          } else {
+          if (page.status === 'ocr_done') {
             const cached = await readFile(cachePath, 'utf-8')
             await appendFile(mdPath, cached, 'utf-8')
             win?.webContents.send('ocr:progress', {
@@ -238,6 +244,8 @@ export function registerOCRHandlers(): void {
               fromCache: true
             } satisfies OCRProgressEvent)
             continue
+          } else {
+            try { await unlink(cachePath) } catch { /* ignore */ }
           }
         }
 

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import type { Page, PageStatus, HierarchyLevel, KrakenConfig } from '@shared/types'
 import Sidebar from '../components/Sidebar'
 import { useProject } from '../App'
@@ -141,17 +142,17 @@ function makePageState(content: string): PageState {
   return { content, dirty: false, loaded: true, original: content, history: [content], historyIdx: 0 }
 }
 
-const STEP_LABELS = ['Import', 'Mask', 'OCR', 'Config', 'Review', 'TEI']
 const CURRENT_STEP = 5
 
-const STATUS_OPTS: { value: PageStatus; label: string; dot: string }[] = [
-  { value: 'ocr_done', label: 'Done', dot: '#5a8c3f' },
-  { value: 'pending',  label: 'Pending', dot: '' },
-  { value: 'error',    label: 'Needs attention', dot: '#b04a3a' },
-  { value: 'skipped',  label: 'Skipped', dot: '' },
-]
-
 export default function Review(): React.JSX.Element {
+  const { t } = useTranslation()
+  const STEP_LABELS = [t('steps.import'), t('steps.mask'), t('steps.ocr'), t('steps.config'), t('steps.review'), t('steps.tei')]
+  const STATUS_OPTS: { value: PageStatus; label: string; dot: string }[] = [
+    { value: 'ocr_done', label: t('review.statusDone'), dot: '#5a8c3f' },
+    { value: 'pending',  label: t('review.statusPending'), dot: '' },
+    { value: 'error',    label: t('review.statusNeedsAttention'), dot: '#b04a3a' },
+    { value: 'skipped',  label: t('review.statusSkipped'), dot: '' },
+  ]
   const { project, saveProject } = useProject()
   const navigate = useNavigate()
 
@@ -592,16 +593,16 @@ export default function Review(): React.JSX.Element {
     }
   }, [project, currentPage, reOcrEngine, krakenPaths, saveProject]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  if (!project) return <div className="p-8">No project open.</div>
+  if (!project) return <div className="p-8">{t('common.noProjectOpen')}</div>
   if (activePages.length === 0) {
     return (
       <div className="flex h-full">
         <Sidebar collapsed />
         <main className="flex-1 flex items-center justify-center" style={{ background: 'var(--paper-2)' }}>
           <div className="text-center">
-            <div className="font-serif text-[20px] mb-2">No processed pages yet</div>
-            <div className="text-[13px] mb-5" style={{ color: 'var(--mute)' }}>Run OCR first to populate the review.</div>
-            <button className="btn btn-primary" onClick={() => navigate('/ocr')}>← Back to OCR</button>
+            <div className="font-serif text-[20px] mb-2">{t('review.noProcessedPages')}</div>
+            <div className="text-[13px] mb-5" style={{ color: 'var(--mute)' }}>{t('review.noProcessedSubtitle')}</div>
+            <button className="btn btn-primary" onClick={() => navigate('/ocr')}>{t('review.backToOcr')}</button>
           </div>
         </main>
       </div>
@@ -621,7 +622,7 @@ export default function Review(): React.JSX.Element {
         <div className="px-6 pt-5 pb-3 border-b shrink-0" style={{ borderColor: 'var(--line)' }}>
           {/* Step rail */}
           <div className="flex items-center gap-1.5 mb-3" style={{ fontSize: 10, color: 'var(--mute)' }}>
-            <span className="text-[10px] tracking-[.18em] uppercase mr-1 font-mono" style={{ color: 'var(--mute-2)' }}>Step</span>
+            <span className="text-[10px] tracking-[.18em] uppercase mr-1 font-mono" style={{ color: 'var(--mute-2)' }}>{t('common.step')}</span>
             {STEP_LABELS.map((label, i) => {
               const n = i + 1
               const isDone = n < CURRENT_STEP
@@ -657,15 +658,15 @@ export default function Review(): React.JSX.Element {
           {/* Title + Next */}
           <div className="flex items-end justify-between gap-6">
             <div className="min-w-0">
-              <h2 className="font-serif text-[26px] leading-none">Review</h2>
+              <h2 className="font-serif text-[26px] leading-none">{t('review.title')}</h2>
               <div className="text-[12.5px] mt-1.5" style={{ color: 'var(--mute)' }}>
-                Review and correct OCR output page by page · changes saved to{' '}
+                {t('review.subtitle')}{' '}
                 <span className="font-mono" style={{ color: 'var(--ink)' }}>pages/page_NNNN.md</span>
               </div>
             </div>
             <div className="flex items-center gap-2 shrink-0">
               <button className="btn btn-primary" onClick={() => navigate('/export')}>
-                Next: TEI Export
+                {t('review.nextTeiExport')}
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m9 6 6 6-6 6" /></svg>
               </button>
             </div>
@@ -684,7 +685,7 @@ export default function Review(): React.JSX.Element {
               style={{ width: 28, height: 28, padding: 0, justifyContent: 'center' }}
               disabled={currentIdx === 0}
               onClick={() => setCurrentIdx((i) => i - 1)}
-              title="Previous page"
+              title={t('review.previousPage')}
             >
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m15 6-6 6 6 6" /></svg>
             </button>
@@ -717,7 +718,7 @@ export default function Review(): React.JSX.Element {
                 className="font-mono text-[12.5px] px-2 py-1 rounded"
                 style={{ background: 'var(--paper-3)', fontVariantNumeric: 'tabular-nums' }}
                 onClick={() => setPageInput(String(currentPage?.n ?? 1))}
-                title="Click to jump to page"
+                title={t('review.jumpToPage')}
               >
                 <span className="font-semibold">p. {currentPage?.n ?? '–'}</span>
                 <span style={{ color: 'var(--mute)' }}> / {activePages.length}</span>
@@ -728,7 +729,7 @@ export default function Review(): React.JSX.Element {
               style={{ width: 28, height: 28, padding: 0, justifyContent: 'center' }}
               disabled={currentIdx === activePages.length - 1}
               onClick={() => setCurrentIdx((i) => i + 1)}
-              title="Next page"
+              title={t('review.nextPage')}
             >
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m9 6 6 6-6 6" /></svg>
             </button>
@@ -756,7 +757,7 @@ export default function Review(): React.JSX.Element {
             </button>
             {statusMenuOpen && (
               <div className="absolute" style={{ top: 'calc(100% + 6px)', left: 0, minWidth: 200, background: 'var(--paper-2)', border: '1px solid var(--line-2)', borderRadius: 7, boxShadow: '0 12px 30px -10px rgba(40,30,20,.25)', padding: 4, fontSize: 12, zIndex: 20 }}>
-                <div className="px-2 py-1 text-[10px] tracking-[.12em] uppercase font-semibold" style={{ color: 'var(--mute)' }}>Page status</div>
+                <div className="px-2 py-1 text-[10px] tracking-[.12em] uppercase font-semibold" style={{ color: 'var(--mute)' }}>{t('review.pageStatus')}</div>
                 {STATUS_OPTS.map((opt) => (
                   <button key={opt.value}
                     className="w-full text-left flex items-center gap-2.5 px-2 py-1.5 rounded hover:bg-[color:var(--paper-3)]"
@@ -784,25 +785,25 @@ export default function Review(): React.JSX.Element {
                 ? { borderColor: '#d9c688', background: '#fbf2dc', color: '#8a6a18', gap: 5 }
                 : { borderColor: 'var(--line-2)', background: 'transparent', color: 'var(--mute)', gap: 5 }}
               onClick={toggleExample}
-              title={currentPage.isExample ? 'Remove from OCR examples' : 'Mark as OCR example (few-shot)'}
+              title={currentPage.isExample ? t('review.removeFromExamples') : t('review.markAsExample')}
             >
               <span style={{ color: currentPage.isExample ? '#c89328' : 'var(--mute-2)' }}>★</span>
-              example
+              {t('review.exampleToggle')}
             </button>
           )}
 
           {/* Save status */}
           <div className="text-[11.5px] font-mono" style={{ color: 'var(--mute)' }}>
-            {currentState?.dirty && <span style={{ color: 'var(--amber, #c89328)' }}>unsaved</span>}
-            {saveMsg && <span style={{ color: 'var(--moss, #5a8c3f)' }}>{saveMsg}</span>}
+            {currentState?.dirty && <span style={{ color: 'var(--amber, #c89328)' }}>{t('common.unsaved')}</span>}
+            {saveMsg && <span style={{ color: 'var(--moss, #5a8c3f)' }}>{t('common.saved')}</span>}
           </div>
 
           {/* Undo / Redo / Save — right side */}
           <div className="ml-auto flex items-center gap-1">
-            <button className="btn btn-quiet" style={{ width: 28, height: 28, padding: 0, justifyContent: 'center' }} disabled={!canUndo} onClick={undo} title="Undo (⌘Z)">
+            <button className="btn btn-quiet" style={{ width: 28, height: 28, padding: 0, justifyContent: 'center' }} disabled={!canUndo} onClick={undo} title={t('review.undo')}>
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M9 14 4 9l5-5" /><path d="M4 9h11a5 5 0 0 1 0 10h-3" /></svg>
             </button>
-            <button className="btn btn-quiet" style={{ width: 28, height: 28, padding: 0, justifyContent: 'center' }} disabled={!canRedo} onClick={redo} title="Redo (⌘⇧Z)">
+            <button className="btn btn-quiet" style={{ width: 28, height: 28, padding: 0, justifyContent: 'center' }} disabled={!canRedo} onClick={redo} title={t('review.redo')}>
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="m15 14 5-5-5-5" /><path d="M20 9H9a5 5 0 0 0 0 10h3" /></svg>
             </button>
             <div className="w-px h-4 mx-1" style={{ background: 'var(--line-2)' }} />
@@ -812,7 +813,7 @@ export default function Review(): React.JSX.Element {
               onClick={saveCurrent}
               disabled={saving || !currentState?.dirty}
             >
-              {saving ? 'Saving…' : 'Save'}
+              {saving ? t('review.saving') : t('review.save')}
               <span className="font-mono text-[10px] opacity-60 ml-0.5">⌘S</span>
             </button>
           </div>
@@ -825,10 +826,10 @@ export default function Review(): React.JSX.Element {
             style={{ borderColor: 'var(--line)', background: '#f0f9ff' }}
           >
             <span className="font-mono font-semibold shrink-0" style={{ color: '#0369a1' }}>
-              {scanInfo.total} unclassified &lt;ref&gt;{scanInfo.total !== 1 ? 's' : ''} found
+              {scanInfo.total !== 1 ? t('review.unclassifiedRefs', { count: scanInfo.total }) : t('review.unclassifiedRef', { count: scanInfo.total })}
             </span>
             {scanInfo.total === 0 ? (
-              <span style={{ color: 'var(--mute)' }}>No unclassified &lt;ref&gt; tags on this page.</span>
+              <span style={{ color: 'var(--mute)' }}>{t('review.noUnclassified')}</span>
             ) : (
               <>
                 {scanInfo.byLevel.map((l) => (
@@ -839,7 +840,7 @@ export default function Review(): React.JSX.Element {
                 ))}
                 {scanInfo.unmatched.length > 0 && (
                   <span className="font-mono shrink-0" style={{ color: '#7b2d8b' }}>
-                    <span className="font-semibold">unmatched:</span>{' '}
+                    <span className="font-semibold">{t('review.unmatched')}:</span>{' '}
                     {scanInfo.unmatched.slice(0, 5).join(', ')}{scanInfo.unmatched.length > 5 ? ` +${scanInfo.unmatched.length - 5}` : ''}
                   </span>
                 )}
@@ -848,7 +849,7 @@ export default function Review(): React.JSX.Element {
                   style={{ background: '#0369a1', color: '#fff', borderColor: '#0369a1', padding: '3px 10px' }}
                   onClick={applyAnnotations}
                 >
-                  Annotate {scanInfo.matched} matched
+                  {t('review.annotateMatched', { count: scanInfo.matched })}
                 </button>
               </>
             )}
@@ -872,14 +873,14 @@ export default function Review(): React.JSX.Element {
                   style={{ padding: '3px 10px', ...(reOcrEngine === eng ? { background: '#0369a1', color: '#fff', borderColor: '#0369a1' } : {}) }}
                   onClick={() => { setReOcrEngine(eng); setReOcrError(null) }}
                 >
-                  {eng === 'kraken' ? 'Kraken (ONNX)' : 'LM Studio (Vision)'}
+                  {eng === 'kraken' ? t('review.krakenEngine') : t('review.lmEngine')}
                 </button>
               ))}
             </div>
             <span className="shrink-0 font-mono text-[11px]" style={{ color: 'var(--mute)' }}>
               {reOcrEngine === 'kraken'
-                ? 'Built-in Ancient Greek models'
-                : `${project.lmConfig.endpoint} · ${project.lmConfig.model || '(no model set)'}`}
+                ? t('review.krakenBuiltin')
+                : t('review.lmEndpoint', { endpoint: project.lmConfig.endpoint, model: project.lmConfig.model || t('review.lmNoModel') })}
             </span>
             {reOcrError && <span className="shrink-0 text-[11px]" style={{ color: '#b04a3a' }}>{reOcrError}</span>}
             <div className="flex items-center gap-2 ml-auto shrink-0">
@@ -890,8 +891,8 @@ export default function Review(): React.JSX.Element {
                 disabled={reOcrRunning}
               >
                 {reOcrRunning
-                  ? <><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="animate-spin"><path d="M21 12a9 9 0 1 1-6.3-8.6" /></svg>Running…</>
-                  : <><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polygon points="5 3 19 12 5 21 5 3" /></svg>Run</>}
+                  ? <><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="animate-spin"><path d="M21 12a9 9 0 1 1-6.3-8.6" /></svg>{t('review.runningReOcr')}</>
+                  : <><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polygon points="5 3 19 12 5 21 5 3" /></svg>{t('review.runReOcr')}</>}
               </button>
               <button className="tool-btn" style={{ width: 20, height: 20 }} onClick={() => { setReOcrOpen(false); setReOcrError(null) }} disabled={reOcrRunning}>
                 <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6 6 18M6 6l12 12" /></svg>
@@ -906,7 +907,7 @@ export default function Review(): React.JSX.Element {
           {/* Left: image pane */}
           <div className="flex flex-col overflow-hidden border-r" style={{ borderColor: 'var(--line)' }}>
             <div className="px-3 py-1.5 border-b shrink-0 flex items-center" style={{ borderColor: 'var(--line)', background: 'var(--paper-2)' }}>
-              <span className="font-mono text-[11px]" style={{ color: 'var(--mute)' }}>SOURCE</span>
+              <span className="font-mono text-[11px]" style={{ color: 'var(--mute)' }}>{t('review.source')}</span>
             </div>
             <div
               className="flex-1 overflow-auto flex items-start justify-center p-4"
@@ -921,7 +922,7 @@ export default function Review(): React.JSX.Element {
                 />
               ) : (
                 <div className="flex items-center justify-center w-full h-full text-[13px]" style={{ color: 'var(--mute)' }}>
-                  {currentPage ? 'Loading…' : 'No page selected'}
+                  {currentPage ? t('review.loadingPage') : t('review.noPageSelected')}
                 </div>
               )}
             </div>
@@ -932,14 +933,14 @@ export default function Review(): React.JSX.Element {
 
             {/* Editor local toolbar */}
             <div className="border-b shrink-0" style={{ borderColor: 'var(--line)', background: 'var(--paper-2)' }}>
-              {/* Row 1: tag annotation pills */}
+              {/* Row 1: tag annotation pills + More menu */}
               <div className="px-3 py-2 flex items-center gap-1.5">
                 {/* <ref> */}
                 <button
                   className="inline-flex items-center gap-1.5 border rounded"
                   style={{ padding: '4px 8px', fontFamily: 'ui-monospace, monospace', fontSize: 11.5, fontWeight: 500, background: '#d8e2c6', borderColor: '#b8c8a0', color: '#3b5a30', lineHeight: 1 }}
                   onClick={() => insertTag('<ref level="">', '</ref>')}
-                  title="Wrap selection in <ref level=''> (⌘R)"
+                  title={t('review.tagRef')}
                 >
                   &lt;ref&gt;
                   <span className="inline-flex items-center gap-0.5">
@@ -952,7 +953,7 @@ export default function Review(): React.JSX.Element {
                   className="inline-flex items-center gap-1.5 border rounded"
                   style={{ padding: '4px 8px', fontFamily: 'ui-monospace, monospace', fontSize: 11.5, fontWeight: 500, background: '#ece1f1', borderColor: '#c8b8d8', color: '#5a3b7a', lineHeight: 1 }}
                   onClick={() => insertTag('<note>', '</note>')}
-                  title="Wrap selection in <note> (⌘M)"
+                  title={t('review.tagNote')}
                 >
                   &lt;note&gt;
                   <span className="inline-flex items-center gap-0.5">
@@ -965,7 +966,7 @@ export default function Review(): React.JSX.Element {
                   className="inline-flex items-center gap-1.5 border rounded"
                   style={{ padding: '4px 8px', fontFamily: 'ui-monospace, monospace', fontSize: 11.5, fontWeight: 500, background: '#e2ddc7', borderColor: '#d4ca9c', color: '#6b5a2b', lineHeight: 1 }}
                   onClick={() => insertTag('<tab/>', '')}
-                  title="Insert <tab/> (Tab key)"
+                  title={t('review.tagTab')}
                 >
                   &lt;tab/&gt;
                   <span style={{ fontFamily: 'ui-monospace', fontSize: 9, padding: '1px 4px', borderRadius: 3, background: 'rgba(0,0,0,.08)', border: '1px solid rgba(0,0,0,.12)', color: 'inherit' }}>Tab</span>
@@ -975,10 +976,45 @@ export default function Review(): React.JSX.Element {
                   className="inline-flex items-center border rounded"
                   style={{ padding: '4px 8px', fontFamily: 'ui-monospace, monospace', fontSize: 11.5, fontWeight: 500, background: '#d6e7df', borderColor: '#adcfc1', color: '#2e5a4a', lineHeight: 1 }}
                   onClick={() => insertTag('<lb/>', '')}
-                  title="Insert <lb/> line break"
+                  title={t('review.tagLb')}
                 >
                   &lt;lb/&gt;
                 </button>
+
+                {/* More menu — right-aligned */}
+                <div ref={moreMenuRef} className="relative ml-auto">
+                  <button
+                    className="btn btn-quiet text-[11.5px]"
+                    style={{ padding: '4px 8px' }}
+                    onClick={() => setMoreMenuOpen((v) => !v)}
+                  >
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.6" /><circle cx="12" cy="12" r="1.6" /><circle cx="19" cy="12" r="1.6" /></svg>
+                    {t('review.more')}
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m6 9 6 6 6-6" /></svg>
+                  </button>
+                  {moreMenuOpen && (
+                    <div style={{ position: 'absolute', top: 'calc(100% + 6px)', right: 0, minWidth: 240, background: 'var(--paper-2)', border: '1px solid var(--line-2)', borderRadius: 7, boxShadow: '0 12px 30px -10px rgba(40,30,20,.25)', padding: 4, fontSize: 12, zIndex: 20 }}>
+                      <div className="px-2 py-1 text-[10px] tracking-[.12em] uppercase font-semibold" style={{ color: 'var(--mute)' }}>{t('review.thisPage')}</div>
+                      <button className="w-full text-left flex items-center gap-2.5 px-2 py-1.5 rounded hover:bg-[color:var(--paper-3)]"
+                        onClick={() => { restore(); setMoreMenuOpen(false) }}>
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" style={{ color: 'var(--mute)' }}><path d="M3 12a9 9 0 1 0 3-6.7" /><path d="M3 3v6h6" /></svg>
+                        {t('review.restoreFromOcr')}
+                      </button>
+                      <button className="w-full text-left flex items-center gap-2.5 px-2 py-1.5 rounded hover:bg-[color:var(--paper-3)]"
+                        onClick={() => { resetCache(); setMoreMenuOpen(false) }}>
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" style={{ color: 'var(--mute)' }}><rect x="4" y="6" width="16" height="14" rx="1" /><path d="M9 11h6M9 15h4" /></svg>
+                        {t('review.resetCache')}
+                      </button>
+                      <div style={{ height: 1, background: 'var(--line)', margin: '4px 0' }} />
+                      <div className="px-2 py-1 text-[10px] tracking-[.12em] uppercase font-semibold" style={{ color: 'var(--mute)' }}>{t('review.rerunOcr')}</div>
+                      <button className="w-full text-left flex items-center gap-2.5 px-2 py-1.5 rounded hover:bg-[color:var(--paper-3)]"
+                        onClick={() => { setReOcrOpen((v) => !v); setReOcrError(null); setMoreMenuOpen(false) }}>
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" style={{ color: 'var(--mute)' }}><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></svg>
+                        {t('review.reOcrThisPage')}
+                      </button>
+                    </div>
+                  )}
+                </div>
               </div>
 
               {/* Row 2: processing + view */}
@@ -990,7 +1026,7 @@ export default function Review(): React.JSX.Element {
                   disabled={hyphenCount === 0}
                 >
                   <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M6 12h12" /><path d="M4 8v8M20 8v8" /></svg>
-                  Fix hyphens{hyphenCount > 0 ? ` (${hyphenCount})` : ''}
+                  {hyphenCount > 0 ? t('review.fixHyphensCount', { count: hyphenCount }) : t('review.fixHyphens')}
                 </button>
                 <button
                   className="btn btn-quiet text-[11.5px]"
@@ -998,7 +1034,7 @@ export default function Review(): React.JSX.Element {
                   onClick={runScan}
                 >
                   <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg>
-                  Scan refs
+                  {t('review.scanRefs')}
                 </button>
 
                 <div className="w-px h-4" style={{ background: 'var(--line-2)' }} />
@@ -1021,15 +1057,15 @@ export default function Review(): React.JSX.Element {
                 {/* Betacode */}
                 <div className="flex items-center gap-1">
                   <span className="text-[11.5px] font-semibold mr-1" style={{ color: 'var(--mute)' }}>
-                    <span style={{ fontFamily: 'serif', fontStyle: 'italic', fontSize: 15, lineHeight: 1, color: betaMode ? '#6a1b9a' : 'var(--oxblood)', fontWeight: 600 }}>β</span>etacode
+                    <span style={{ fontFamily: 'serif', fontStyle: 'italic', fontSize: 15, lineHeight: 1, color: betaMode ? '#6a1b9a' : 'var(--oxblood)', fontWeight: 600 }}>β</span>{t('review.betacode')}
                   </span>
                   <button
                     className="btn btn-quiet text-[11px]"
                     style={{ padding: '3px 7px', ...(betaMode ? { color: '#6a1b9a', borderColor: '#9c6ab0', background: '#f0eaf8' } : {}) }}
                     onClick={() => { setBetaMode((m) => !m); betaPendingRef.current.clear() }}
-                    title="Toggle betacode keyboard (⌘K)"
+                    title={t('review.betacodeToggleTitle')}
                   >
-                    {betaMode ? 'Enabled' : 'Enable'}
+                    {betaMode ? t('review.betacodeEnabled') : t('review.betacodeEnable')}
                     <span className="inline-flex gap-0.5 ml-0.5">
                       <KbdChip>⌘</KbdChip><KbdChip>K</KbdChip>
                     </span>
@@ -1040,45 +1076,11 @@ export default function Review(): React.JSX.Element {
                       style={{ padding: '3px 7px', ...(betaHelpVisible ? { color: '#6a1b9a', borderColor: '#9c6ab0', background: '#f0eaf8' } : {}) }}
                       onClick={() => setBetaHelpVisible((v) => { const next = !v; localStorage.setItem('review:betaHelp', String(next)); return next })}
                     >
-                      Cheatsheet
+                      {t('review.betacodeCheatsheet')}
                     </button>
                   )}
                 </div>
 
-                {/* More menu */}
-                <div ref={moreMenuRef} className="relative ml-auto">
-                  <button
-                    className="btn btn-quiet text-[11.5px]"
-                    style={{ padding: '4px 8px' }}
-                    onClick={() => setMoreMenuOpen((v) => !v)}
-                  >
-                    <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.6" /><circle cx="12" cy="12" r="1.6" /><circle cx="19" cy="12" r="1.6" /></svg>
-                    More
-                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m6 9 6 6 6-6" /></svg>
-                  </button>
-                  {moreMenuOpen && (
-                    <div style={{ position: 'absolute', top: 'calc(100% + 6px)', right: 0, minWidth: 240, background: 'var(--paper-2)', border: '1px solid var(--line-2)', borderRadius: 7, boxShadow: '0 12px 30px -10px rgba(40,30,20,.25)', padding: 4, fontSize: 12, zIndex: 20 }}>
-                      <div className="px-2 py-1 text-[10px] tracking-[.12em] uppercase font-semibold" style={{ color: 'var(--mute)' }}>This page</div>
-                      <button className="w-full text-left flex items-center gap-2.5 px-2 py-1.5 rounded hover:bg-[color:var(--paper-3)]"
-                        onClick={() => { restore(); setMoreMenuOpen(false) }}>
-                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" style={{ color: 'var(--mute)' }}><path d="M3 12a9 9 0 1 0 3-6.7" /><path d="M3 3v6h6" /></svg>
-                        Restore from OCR
-                      </button>
-                      <button className="w-full text-left flex items-center gap-2.5 px-2 py-1.5 rounded hover:bg-[color:var(--paper-3)]"
-                        onClick={() => { resetCache(); setMoreMenuOpen(false) }}>
-                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" style={{ color: 'var(--mute)' }}><rect x="4" y="6" width="16" height="14" rx="1" /><path d="M9 11h6M9 15h4" /></svg>
-                        Reset cache
-                      </button>
-                      <div style={{ height: 1, background: 'var(--line)', margin: '4px 0' }} />
-                      <div className="px-2 py-1 text-[10px] tracking-[.12em] uppercase font-semibold" style={{ color: 'var(--mute)' }}>Re-run OCR</div>
-                      <button className="w-full text-left flex items-center gap-2.5 px-2 py-1.5 rounded hover:bg-[color:var(--paper-3)]"
-                        onClick={() => { setReOcrOpen((v) => !v); setReOcrError(null); setMoreMenuOpen(false) }}>
-                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" style={{ color: 'var(--mute)' }}><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></svg>
-                        Re-OCR this page…
-                      </button>
-                    </div>
-                  )}
-                </div>
               </div>
             </div>
 
@@ -1110,7 +1112,7 @@ export default function Review(): React.JSX.Element {
                   onKeyUp={updateCursorTag}
                   onKeyDown={handleBetaKeyDown}
                   spellCheck={false}
-                  placeholder={currentState?.loaded ? '' : 'Loading…'}
+                  placeholder={currentState?.loaded ? '' : t('review.loadingPage')}
                 />
               </div>
             </div>
@@ -1129,7 +1131,7 @@ export default function Review(): React.JSX.Element {
                   {(cursorTag.kind === 'ref' || cursorTag.kind === 'note') && (
                     <>
                       <div className="flex items-center gap-1.5 shrink-0">
-                        <span className="text-[10px] uppercase tracking-[.12em] font-semibold shrink-0" style={{ color: 'var(--mute)' }}>Convert</span>
+                        <span className="text-[10px] uppercase tracking-[.12em] font-semibold shrink-0" style={{ color: 'var(--mute)' }}>{t('review.convert')}</span>
                         {cursorTag.kind === 'ref' && (
                           <button
                             onClick={() => { replaceTag(cursorTag.start, cursorTag.end, `<note>${cursorTag.inner}</note>`); closePopover() }}
@@ -1150,7 +1152,7 @@ export default function Review(): React.JSX.Element {
                         onClick={() => { replaceTag(cursorTag.start, cursorTag.end, (cursorTag as { inner: string }).inner); closePopover() }}
                       >
                         <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M4 9h16" /><path d="M4 15h16" /><path d="m9 4 3 3 3-3" /><path d="m9 20 3-3 3 3" /></svg>
-                        Unwrap
+                        {t('review.unwrap')}
                         <KbdChip>U</KbdChip>
                       </button>
                       <button
@@ -1159,7 +1161,7 @@ export default function Review(): React.JSX.Element {
                         onClick={() => { replaceTag(cursorTag.start, cursorTag.end, ''); closePopover() }}
                       >
                         <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13" /></svg>
-                        Delete
+                        {t('review.delete')}
                         <KbdChip>⌫</KbdChip>
                       </button>
                     </>
@@ -1171,14 +1173,14 @@ export default function Review(): React.JSX.Element {
                       onClick={() => { replaceTag(cursorTag.start, cursorTag.end, ''); closePopover() }}
                     >
                       <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13" /></svg>
-                      Delete <span className="font-mono" style={{ color: 'var(--oxblood)', opacity: 0.8 }}>{cursorTag.tag}</span>
+                      {t('review.delete')} <span className="font-mono" style={{ color: 'var(--oxblood)', opacity: 0.8 }}>{cursorTag.tag}</span>
                       <KbdChip>⌫</KbdChip>
                     </button>
                   )}
                   <div className="ml-auto flex items-center gap-1.5 shrink-0">
                     <span className="text-[10.5px]" style={{ color: 'var(--mute)' }}>
                       <KbdChip>esc</KbdChip>
-                      {' '}to deselect
+                      {' '}{t('review.toDeselect')}
                     </span>
                     <button
                       className="btn btn-quiet"
@@ -1195,7 +1197,7 @@ export default function Review(): React.JSX.Element {
                   <div className="px-3 py-1.5 flex items-center gap-2.5 border-t" style={{ borderColor: 'rgba(0,0,0,.06)', borderStyle: 'dashed' }}>
                     {levelList.length > 0 && (
                       <div className="flex items-center gap-1.5 shrink-0">
-                        <span className="text-[10px] uppercase tracking-[.12em] font-semibold" style={{ color: 'var(--mute)' }}>Level</span>
+                        <span className="text-[10px] uppercase tracking-[.12em] font-semibold" style={{ color: 'var(--mute)' }}>{t('review.levelLabel')}</span>
                         <div className="inline-flex gap-0.5">
                           {levelList.map((l) => {
                             const { fg, bg } = levelColor(l)
@@ -1219,7 +1221,7 @@ export default function Review(): React.JSX.Element {
                               replaceTag(cursorTag.start, cursorTag.end, newTag)
                               setCursorTag({ kind: 'ref', start: cursorTag.start, end: cursorTag.start + newTag.length, inner: cursorTag.inner, level: '' })
                             }}
-                            title="No level"
+                            title={t('review.noLevel')}
                           >–</button>
                         </div>
                       </div>
@@ -1231,7 +1233,7 @@ export default function Review(): React.JSX.Element {
                       onClick={snapRefToSegment}
                     >
                       <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M14 6H6" /><path d="m10 2-4 4 4 4" /><path d="M4 14h16v6H4z" /></svg>
-                      Snap to segment
+                      {t('review.snapToSegment')}
                       <KbdChip>⇧</KbdChip><KbdChip>←</KbdChip>
                     </button>
                   </div>
@@ -1251,14 +1253,14 @@ export default function Review(): React.JSX.Element {
                       style={{ padding: '3px 7px' }}
                       onClick={() => { replaceTag(cursorTag.start, cursorTag.end, cursorTag.word); closePopover() }}
                     >
-                      Join only
+                      {t('review.joinOnly')}
                     </button>
                     <button
                       className="btn btn-quiet text-[11px]"
                       style={{ padding: '3px 7px', color: 'var(--oxblood)' }}
                       onClick={() => { replaceTag(cursorTag.start, cursorTag.end, ''); closePopover() }}
                     >
-                      Delete
+                      {t('review.delete')}
                     </button>
                   </div>
                 )}

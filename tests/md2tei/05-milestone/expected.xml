@@ -16,6 +16,13 @@
       </sourceDesc>
     </fileDesc>
     <encodingDesc>
+      <appInfo>
+        <application ident="cllg-editor" version="1.0">
+          <label>CLLG Editor
+          </label>
+          <ptr target="https://github.com/cllg-project/cllg-scanner"/>
+        </application>
+      </appInfo>
       <refsDecl>
         <citeStructure match="/TEI/text/body/div[@type='book']" unit="book" use="@n">
           <citeStructure match="div[@type='chapter']" unit="chapter" use="@n" delim=".">
@@ -30,7 +37,8 @@
       <div>
         <pb n="1"/>
         <div type="book" n="I">
-          <head>LIBER PRIMUS</head>
+          <head>LIBER PRIMUS
+          </head>
           <div type="chapter" n="1">
             <milestone unit="section" n="10"/>
             <p>Initium cum pagina decima. <milestone unit="section" n="11"/> Continuatio in pagina undecima.

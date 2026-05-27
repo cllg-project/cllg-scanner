@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { stringify } from 'yaml'
 import { useNavigate } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import type { HierarchyLevel, ProjectMetadata, BibEntry, BibPerson, BibScope } from '@shared/types'
 import Sidebar from '../components/Sidebar'
 import { useProject } from '../App'
@@ -20,6 +21,7 @@ function LevelCard({
   onDelete: () => void
   onAddChild: () => void
 }): React.JSX.Element {
+  const { t } = useTranslation()
   const [open, setOpen] = useState(true)
 
   return (
@@ -35,14 +37,14 @@ function LevelCard({
         <span className="font-mono text-[10.5px] font-semibold" style={{ color: 'var(--oxblood)' }}>
           L{depth + 1}
         </span>
-        <span className="font-serif text-[14px]">{level.name || 'Unnamed'}</span>
+        <span className="font-serif text-[14px]">{level.name || t('config.unnamed')}</span>
         <span className="ml-auto text-[11px] font-mono" style={{ color: 'var(--mute)' }}>
           {level.pattern}
         </span>
         <button
           className="tool-btn !w-6 !h-6"
           onClick={(e) => { e.stopPropagation(); onDelete() }}
-          title="Delete level"
+          title={t('config.deleteLevel')}
         >
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13" />
@@ -58,7 +60,7 @@ function LevelCard({
       {open && (
         <div className="px-3 py-3 grid grid-cols-2 gap-3">
           <div>
-            <div className="text-[11px] mb-1" style={{ color: 'var(--mute)' }}>Name</div>
+            <div className="text-[11px] mb-1" style={{ color: 'var(--mute)' }}>{t('config.levelName')}</div>
             <div className="flex gap-1.5 items-center">
               <input
                 type="color"
@@ -71,12 +73,12 @@ function LevelCard({
                 className="input text-[12.5px]"
                 value={level.name}
                 onChange={(e) => onChange({ ...level, name: e.target.value })}
-                placeholder="chapter"
+                placeholder={t('config.levelNamePlaceholder')}
               />
             </div>
           </div>
           <div>
-            <div className="text-[11px] mb-1" style={{ color: 'var(--mute)' }}>Format / pattern</div>
+            <div className="text-[11px] mb-1" style={{ color: 'var(--mute)' }}>{t('config.levelFormat')}</div>
             <div className="flex gap-1.5">
               <select
                 className="input font-mono text-[12px] !w-auto"
@@ -86,14 +88,14 @@ function LevelCard({
                 }
               >
                 {FORMAT_OPTIONS.map((f) => <option key={f}>{f}</option>)}
-                <option value="custom">custom regex</option>
+                <option value="custom">{t('config.customRegex')}</option>
               </select>
               {!FORMAT_OPTIONS.includes(level.pattern) && (
                 <input
                   className="input font-mono text-[12px]"
                   value={level.pattern}
                   onChange={(e) => onChange({ ...level, pattern: e.target.value })}
-                  placeholder="\d+"
+                  placeholder={t('config.levelPatternPlaceholder')}
                 />
               )}
             </div>
@@ -107,7 +109,7 @@ function LevelCard({
                 className="rounded border"
                 style={{ borderColor: 'var(--line-2)', accentColor: 'var(--oxblood)' }}
               />
-              missing_first
+              {t('config.missingFirst')}
             </label>
             <label className="flex items-center gap-2 text-[12px] cursor-pointer">
               <input
@@ -117,7 +119,7 @@ function LevelCard({
                 className="rounded border"
                 style={{ borderColor: 'var(--line-2)', accentColor: 'var(--oxblood)' }}
               />
-              allow_gaps
+              {t('config.allowGaps')}
             </label>
             <label className="flex items-center gap-2 text-[12px] cursor-pointer">
               <input
@@ -127,7 +129,7 @@ function LevelCard({
                 className="rounded border"
                 style={{ borderColor: 'var(--line-2)', accentColor: 'var(--oxblood)' }}
               />
-              milestone
+              {t('config.milestone')}
             </label>
           </div>
 
@@ -169,7 +171,7 @@ function LevelCard({
                 <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                   <path d="M12 5v14M5 12h14" />
                 </svg>
-                Add child level
+                {t('config.addChildLevel')}
               </button>
             </div>
           )}
@@ -240,6 +242,7 @@ function PersonList({ persons, list, onChange }: {
   list: 'authors' | 'editors'
   onChange: (updated: BibPersonDraft[]) => void
 }): React.JSX.Element {
+  const { t } = useTranslation()
   const setPerson = (i: number, k: keyof BibPersonDraft, v: string): void => {
     onChange(persons.map((p, j) => j === i ? { ...p, [k]: v } : p))
   }
@@ -248,33 +251,33 @@ function PersonList({ persons, list, onChange }: {
       {persons.map((p, i) => (
         <div key={i} className="flex gap-1.5 items-end">
           <div className="flex-1">
-            {i === 0 && <span style={labelStyle} className={LABEL}>Name</span>}
+            {i === 0 && <span style={labelStyle} className={LABEL}>{t('config.personName')}</span>}
             <input className={INP} style={inpStyle} value={p.persName}
-              placeholder="Personal name"
+              placeholder={t('config.personNamePlaceholder')}
               onChange={e => setPerson(i, 'persName', e.target.value)} />
           </div>
           <div className="w-24">
-            {i === 0 && <span style={labelStyle} className={LABEL}>VIAF ID</span>}
+            {i === 0 && <span style={labelStyle} className={LABEL}>{t('config.viafId')}</span>}
             <input className={INP} style={inpStyle} value={p.viafId}
-              placeholder="e.g. 7524651"
+              placeholder={t('config.viafIdPlaceholder')}
               onChange={e => setPerson(i, 'viafId', e.target.value)} />
           </div>
           <div className="w-28">
-            {i === 0 && <span style={labelStyle} className={LABEL}>WorldCat ID</span>}
+            {i === 0 && <span style={labelStyle} className={LABEL}>{t('config.worldcatId')}</span>}
             <input className={INP} style={inpStyle} value={p.worldcatId}
-              placeholder="OCLC / WC"
+              placeholder={t('config.worldcatIdPlaceholder')}
               onChange={e => setPerson(i, 'worldcatId', e.target.value)} />
           </div>
           <button className="tool-btn shrink-0" style={{ marginBottom: 2 }}
             onClick={() => onChange(persons.filter((_, j) => j !== i))}
-            title="Remove">
+            title={t('config.removeBtn')}>
             <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6 6 18M6 6l12 12" /></svg>
           </button>
         </div>
       ))}
       <button className="btn btn-quiet !py-0.5 !px-2 !text-[11px] mt-0.5"
         onClick={() => onChange([...persons, newPerson()])}>
-        + {list === 'authors' ? 'Author' : 'Editor'}
+        {list === 'authors' ? t('config.addAuthor') : t('config.addEditor')}
       </button>
     </div>
   )
@@ -286,13 +289,14 @@ function BibForm({ draft, onChange, onSave, onCancel }: {
   onSave: () => void
   onCancel: () => void
 }): React.JSX.Element {
+  const { t } = useTranslation()
   const set = <K extends keyof BibDraft>(k: K, v: BibDraft[K]): void => onChange({ ...draft, [k]: v })
 
   return (
     <div className="border rounded-lg p-5 space-y-4" style={{ borderColor: 'var(--line)', background: 'var(--paper)' }}>
       <div className="flex gap-4">
         <div className="w-48">
-          <span style={labelStyle} className={LABEL}>Identifier <span className="font-mono normal-case tracking-normal">n=</span></span>
+          <span style={labelStyle} className={LABEL}>{t('config.bibIdentifier')} <span className="font-mono normal-case tracking-normal">n=</span></span>
           <input className={INP} style={inpStyle} value={draft.n}
             placeholder='e.g. 1381 001'
             onChange={e => set('n', e.target.value)} />
@@ -300,69 +304,69 @@ function BibForm({ draft, onChange, onSave, onCancel }: {
       </div>
 
       <div>
-        <span style={labelStyle} className={`${LABEL} mb-1`}>Authors</span>
+        <span style={labelStyle} className={`${LABEL} mb-1`}>{t('config.bibAuthors')}</span>
         <PersonList persons={draft.authors} list="authors"
           onChange={updated => set('authors', updated)} />
       </div>
 
       <div>
-        <span style={labelStyle} className={`${LABEL} mb-1`}>Editors</span>
+        <span style={labelStyle} className={`${LABEL} mb-1`}>{t('config.bibEditors')}</span>
         <PersonList persons={draft.editors} list="editors"
           onChange={updated => set('editors', updated)} />
       </div>
 
       <div className="flex gap-3 items-end">
         <div className="flex-1">
-          <span style={labelStyle} className={LABEL}>Title</span>
+          <span style={labelStyle} className={LABEL}>{t('config.bibTitle')}</span>
           <input className={INP} style={inpStyle} value={draft.title}
-            placeholder="Work title"
+            placeholder={t('config.workTitle')}
             onChange={e => set('title', e.target.value)} />
         </div>
         <div className="w-32">
-          <span style={labelStyle} className={LABEL}>Level</span>
+          <span style={labelStyle} className={LABEL}>{t('config.bibTitleLevel')}</span>
           <select className={INP} style={inpStyle} value={draft.titleLevel}
             onChange={e => set('titleLevel', e.target.value)}>
-            <option value="m">m — monograph</option>
-            <option value="s">s — series</option>
-            <option value="a">a — article</option>
-            <option value="j">j — journal</option>
-            <option value="">— none</option>
+            <option value="m">{t('config.titleLevelMonograph')}</option>
+            <option value="s">{t('config.titleLevelSeries')}</option>
+            <option value="a">{t('config.titleLevelArticle')}</option>
+            <option value="j">{t('config.titleLevelJournal')}</option>
+            <option value="">{t('config.titleLevelNone')}</option>
           </select>
         </div>
       </div>
 
       <div>
-        <span style={labelStyle} className={`${LABEL} mb-1.5`}>Imprint</span>
+        <span style={labelStyle} className={`${LABEL} mb-1.5`}>{t('config.bibImprint')}</span>
         <div className="grid grid-cols-2 gap-2">
           <div>
-            <span style={labelStyle} className={LABEL}>Publisher</span>
+            <span style={labelStyle} className={LABEL}>{t('config.bibPublisher')}</span>
             <input className={INP} style={inpStyle} value={draft.publisher}
-              placeholder="Publisher name"
+              placeholder={t('config.publisherName')}
               onChange={e => set('publisher', e.target.value)} />
           </div>
           <div>
-            <span style={labelStyle} className={LABEL}>Place of publication</span>
+            <span style={labelStyle} className={LABEL}>{t('config.bibPubPlace')}</span>
             <input className={INP} style={inpStyle} value={draft.pubPlace}
-              placeholder="City"
+              placeholder={t('config.city')}
               onChange={e => set('pubPlace', e.target.value)} />
           </div>
           <div>
-            <span style={labelStyle} className={LABEL}>Date</span>
+            <span style={labelStyle} className={LABEL}>{t('config.bibDate')}</span>
             <input className={INP} style={inpStyle} value={draft.date}
-              placeholder="e.g. 1846"
+              placeholder={t('config.datePlaceholder')}
               onChange={e => set('date', e.target.value)} />
           </div>
           <div>
-            <span style={labelStyle} className={LABEL}>Reprint date</span>
+            <span style={labelStyle} className={LABEL}>{t('config.bibDateReprint')}</span>
             <input className={INP} style={inpStyle} value={draft.dateReprint}
-              placeholder="e.g. 1974"
+              placeholder={t('config.dateReprintPlaceholder')}
               onChange={e => set('dateReprint', e.target.value)} />
           </div>
         </div>
       </div>
 
       <div>
-        <span style={labelStyle} className={`${LABEL} mb-1`}>Bibliographic scope</span>
+        <span style={labelStyle} className={`${LABEL} mb-1`}>{t('config.bibScope')}</span>
         <div className="space-y-1">
           {draft.scopes.map((s, i) => (
             <div key={i} className="flex gap-1.5 items-center">
@@ -372,25 +376,25 @@ function BibForm({ draft, onChange, onSave, onCancel }: {
                 {SCOPE_UNITS.map(u => <option key={u} value={u}>{u}</option>)}
               </select>
               <input className={INP} style={inpStyle} value={s.value}
-                placeholder="e.g. 3–12 or MPG 2"
+                placeholder={t('config.scopePlaceholder')}
                 onChange={e => onChange({ ...draft, scopes: draft.scopes.map((x, j) => j === i ? { ...x, value: e.target.value } : x) })} />
               <button className="tool-btn shrink-0"
                 onClick={() => onChange({ ...draft, scopes: draft.scopes.filter((_, j) => j !== i) })}
-                title="Remove">
+                title={t('config.removeBtn')}>
                 <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6 6 18M6 6l12 12" /></svg>
               </button>
             </div>
           ))}
           <button className="btn btn-quiet !py-0.5 !px-2 !text-[11px] mt-0.5"
             onClick={() => onChange({ ...draft, scopes: [...draft.scopes, { unit: 'page', value: '' }] })}>
-            + Scope
+            {t('config.addScope')}
           </button>
         </div>
       </div>
 
       <div className="flex justify-end gap-2 pt-1 border-t" style={{ borderColor: 'var(--line)' }}>
-        <button className="btn btn-ghost !text-[12px]" onClick={onCancel}>Discard</button>
-        <button className="btn btn-primary !text-[12px]" onClick={onSave}>Done</button>
+        <button className="btn btn-ghost !text-[12px]" onClick={onCancel}>{t('common.discard')}</button>
+        <button className="btn btn-primary !text-[12px]" onClick={onSave}>{t('common.done')}</button>
       </div>
     </div>
   )
@@ -447,10 +451,11 @@ export function hierarchyToYAML(hierarchy: HierarchyLevel[], metadata: ProjectMe
   return stringify(doc)
 }
 
-const STEP_LABELS = ['Import', 'Mask', 'OCR', 'Config', 'Review', 'TEI']
 const CURRENT_STEP = 4
 
 export default function Config(): React.JSX.Element {
+  const { t } = useTranslation()
+  const STEP_LABELS = [t('steps.import'), t('steps.mask'), t('steps.ocr'), t('steps.config'), t('steps.review'), t('steps.tei')]
   const { project, saveProject } = useProject()
   const navigate = useNavigate()
   const [metadata, setMetadata] = useState<ProjectMetadata>(
@@ -509,7 +514,7 @@ export default function Config(): React.JSX.Element {
     ])
   }
 
-  if (!project) return <div className="p-8">No project open.</div>
+  if (!project) return <div className="p-8">{t('common.noProjectOpen')}</div>
 
   return (
     <div className="flex h-full">
@@ -552,9 +557,9 @@ export default function Config(): React.JSX.Element {
               ))}
             </span>
           </div>
-          <h2 className="font-serif text-[26px] leading-none">Structure configuration</h2>
+          <h2 className="font-serif text-[26px] leading-none">{t('config.title')}</h2>
           <div className="text-[12.5px] mt-1.5" style={{ color: 'var(--mute)' }}>
-            Describe the textual hierarchy and document metadata · drives TEI export and reference classification
+            {t('config.subtitle')}
           </div>
         </div>
 
@@ -567,18 +572,18 @@ export default function Config(): React.JSX.Element {
             {/* Metadata */}
             <section>
               <div className="flex items-baseline gap-3 mb-4">
-                <h3 className="font-serif text-[20px]">Document metadata</h3>
+                <h3 className="font-serif text-[20px]">{t('config.documentMetadata')}</h3>
                 <span className="font-mono text-[10px] tracking-wider uppercase" style={{ color: 'var(--mute)' }}>
-                  TEI header
+                  {t('config.teiHeader')}
                 </span>
               </div>
               <div className="panel p-5 grid grid-cols-2 gap-4">
                 {(
                   [
-                    ['title', 'Title'],
-                    ['author', 'Author'],
-                    ['edition', 'Edition / source'],
-                    ['language', 'Language (BCP-47)']
+                    ['title', t('config.fieldTitle')],
+                    ['author', t('config.fieldAuthor')],
+                    ['edition', t('config.fieldEdition')],
+                    ['language', t('config.fieldLanguage')]
                   ] as const
                 ).map(([k, label]) => (
                   <div key={k}>
@@ -597,9 +602,9 @@ export default function Config(): React.JSX.Element {
             <section>
               <div className="flex items-baseline justify-between mb-4">
                 <div className="flex items-baseline gap-3">
-                  <h3 className="font-serif text-[20px]">Hierarchy</h3>
+                  <h3 className="font-serif text-[20px]">{t('config.hierarchy')}</h3>
                   <span className="font-mono text-[10px] tracking-wider uppercase" style={{ color: 'var(--mute)' }}>
-                    TEI structure
+                    {t('config.teiStructure')}
                   </span>
                 </div>
                 <div className="flex items-center gap-2">
@@ -607,7 +612,7 @@ export default function Config(): React.JSX.Element {
                     <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                       <path d="M12 5v14M5 12h14" />
                     </svg>
-                    Add level
+                    {t('config.addLevel')}
                   </button>
                 </div>
               </div>
@@ -621,10 +626,10 @@ export default function Config(): React.JSX.Element {
                     <path d="M12 2 2 21h20z" /><path d="M12 9v5M12 17h.01" />
                   </svg>
                   <div className="text-[12.5px]" style={{ color: 'var(--mute)' }}>
-                    No levels defined. Add at least one to enable TEI export.
+                    {t('config.noLevels')}
                   </div>
                   <button className="btn btn-quiet !py-1 !px-3 !text-[11.5px] mt-1" onClick={addLevel}>
-                    Add first level
+                    {t('config.addFirstLevel')}
                   </button>
                 </div>
               )}
@@ -659,9 +664,9 @@ export default function Config(): React.JSX.Element {
             <section>
               <div className="flex items-baseline justify-between mb-4">
                 <div className="flex items-baseline gap-3">
-                  <h3 className="font-serif text-[20px]">Bibliography</h3>
+                  <h3 className="font-serif text-[20px]">{t('config.bibliography')}</h3>
                   <span className="font-mono text-[10px] tracking-wider uppercase" style={{ color: 'var(--mute)' }}>
-                    TEI sourceDesc
+                    {t('config.teiSourceDesc')}
                   </span>
                 </div>
                 {!bibDraft && (
@@ -669,7 +674,7 @@ export default function Config(): React.JSX.Element {
                     <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                       <path d="M12 5v14M5 12h14" />
                     </svg>
-                    Add entry
+                    {t('config.addEntry')}
                   </button>
                 )}
               </div>
@@ -703,10 +708,10 @@ export default function Config(): React.JSX.Element {
                     style={{ borderStyle: 'dashed' }}
                   >
                     <div className="text-[12.5px]" style={{ color: 'var(--mute)' }}>
-                      No entries. Entries are placed in <span className="font-mono">&lt;sourceDesc&gt;&lt;listBibl&gt;</span> in the TEI header.
+                      {t('config.noEntries')} <span className="font-mono">&lt;sourceDesc&gt;&lt;listBibl&gt;</span> {t('config.inTeiHeader')}
                     </div>
                     <button className="btn btn-quiet !py-1 !px-3 !text-[11.5px] mt-1" onClick={() => upsertBibDraft(freshDraft())}>
-                      Add first entry
+                      {t('config.addFirstEntry')}
                     </button>
                   </div>
                 ) : null}
@@ -724,7 +729,7 @@ export default function Config(): React.JSX.Element {
                 structure.yaml
               </span>
               <span className="font-mono text-[10.5px]" style={{ color: 'var(--mute)' }}>
-                live preview
+                {t('config.livePreview')}
               </span>
             </div>
             <div className="flex-1 overflow-y-auto px-5 py-5">
@@ -732,7 +737,7 @@ export default function Config(): React.JSX.Element {
                 className="code text-[12px] leading-relaxed whitespace-pre-wrap"
                 style={{ color: compiledYAML ? 'var(--ink)' : 'var(--mute)' }}
               >
-                {compiledYAML || '# fill in metadata and hierarchy\n# to see the compiled YAML'}
+                {compiledYAML || t('config.yamlPlaceholder')}
               </pre>
             </div>
           </div>
@@ -747,17 +752,17 @@ export default function Config(): React.JSX.Element {
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <path d="m15 18-6-6 6-6" />
             </svg>
-            Back to OCR
+            {t('config.backToOcr')}
           </button>
           <div className="ml-auto flex items-center gap-3">
             <span className="text-[11.5px] font-mono" style={{ color: 'var(--mute)' }}>
-              auto-saved
+              {t('common.autoSaved')}
             </span>
             <button
               className="btn btn-primary"
               onClick={() => navigate('/review')}
             >
-              Next: Review
+              {t('config.nextReview')}
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <path d="m9 18 6-6-6-6" />
               </svg>

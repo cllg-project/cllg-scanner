@@ -16,6 +16,13 @@
       </sourceDesc>
     </fileDesc>
     <encodingDesc>
+      <appInfo>
+        <application ident="cllg-editor" version="1.0">
+          <label>CLLG Editor
+          </label>
+          <ptr target="https://github.com/cllg-project/cllg-scanner"/>
+        </application>
+      </appInfo>
       <refsDecl>
         <citeStructure match="/TEI/text/body/div[@type='book']" unit="book" use="@n">
           <citeStructure match="div[@type='chapter']" unit="chapter" use="@n" delim="."/>
@@ -31,8 +38,7 @@
           <head>LIBER PRIMUS
           </head>
           <div type="chapter" n="1">
-            <p>Textus cum nota
-              <note>Haec est nota marginalis.</note> et continuatio textus.
+            <p>Textus cum nota <note>Haec est nota marginalis.</note> et continuatio textus.
             </p>
           </div>
           <div type="chapter" n="2">

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react'
+import { useTranslation } from 'react-i18next'
 import Sidebar from '../components/Sidebar'
 import { useProject } from '../App'
 import { hierarchyToYAML } from './Config'
@@ -34,10 +35,11 @@ function XmlHighlight({ xml }: { xml: string }): React.JSX.Element {
 
 // ── Main component ────────────────────────────────────────────────────────────
 
-const STEP_LABELS = ['Import', 'Mask', 'OCR', 'Config', 'Review', 'TEI']
 const CURRENT_STEP = 6
 
 export default function Export(): React.JSX.Element {
+  const { t } = useTranslation()
+  const STEP_LABELS = [t('steps.import'), t('steps.mask'), t('steps.ocr'), t('steps.config'), t('steps.review'), t('steps.tei')]
   const { project } = useProject()
   const [log, setLog] = useState<string[]>([])
   const [generating, setGenerating] = useState(false)
@@ -102,7 +104,7 @@ export default function Export(): React.JSX.Element {
     }
   }, [project, teiXml])
 
-  if (!project) return <div className="p-8">No project open.</div>
+  if (!project) return <div className="p-8">{t('common.noProjectOpen')}</div>
 
   const hasHierarchy = project.hierarchy.length > 0
 
@@ -130,7 +132,7 @@ export default function Export(): React.JSX.Element {
         {/* Header */}
         <div className="px-6 pt-5 pb-3 border-b shrink-0" style={{ borderColor: 'var(--line)' }}>
           <div className="flex items-center gap-1.5 mb-3" style={{ fontSize: 10, color: 'var(--mute)' }}>
-            <span className="text-[10px] tracking-[.18em] uppercase mr-1 font-mono" style={{ color: 'var(--mute-2)' }}>Step</span>
+            <span className="text-[10px] tracking-[.18em] uppercase mr-1 font-mono" style={{ color: 'var(--mute-2)' }}>{t('common.step')}</span>
             {STEP_LABELS.map((label, i) => {
               const n = i + 1
               const isDone = n < CURRENT_STEP
@@ -165,14 +167,14 @@ export default function Export(): React.JSX.Element {
           </div>
           <div className="flex items-end justify-between gap-6">
             <div className="min-w-0">
-              <h2 className="font-serif text-[26px] leading-none">TEI Export</h2>
+              <h2 className="font-serif text-[26px] leading-none">{t('export.title')}</h2>
               <div className="text-[12.5px] mt-1.5" style={{ color: 'var(--mute)' }}>
-                CLLG concatenates the OCR'd markdown and emits a single TEI P5 XML file
+                {t('export.subtitle')}
               </div>
             </div>
             <div className="text-[11.5px] font-mono text-right shrink-0" style={{ color: 'var(--mute)' }}>
-              schema · <span style={{ color: 'var(--ink)' }}>tei_all.rng</span><br />
-              encoding · <span style={{ color: 'var(--ink)' }}>UTF-8 (NFC)</span>
+              {t('export.schema')} · <span style={{ color: 'var(--ink)' }}>tei_all.rng</span><br />
+              {t('export.encoding')} · <span style={{ color: 'var(--ink)' }}>UTF-8 (NFC)</span>
             </div>
           </div>
         </div>
@@ -182,12 +184,12 @@ export default function Export(): React.JSX.Element {
           {tabBtn('md', 'ocr_output.md')}
           {tabBtn('tei', 'output.xml', !!teiXml)}
           <div className="ml-auto pb-1 text-[11.5px] font-mono" style={{ color: 'var(--mute)' }}>
-            {activeTab === 'md' && `${(ocrPreview.match(/<pb n="/g) ?? []).length} pages done`}
-            {activeTab === 'tei' && teiXml && `${teiXml.split('\n').length} lines`}
+            {activeTab === 'md' && t('export.pagesDone', { count: (ocrPreview.match(/<pb n="/g) ?? []).length })}
+            {activeTab === 'tei' && teiXml && t('export.lines', { count: teiXml.split('\n').length })}
           </div>
           {bibliography.length > 0 && (
             <div className="pb-1 ml-2 text-[11px] font-mono" style={{ color: 'var(--mute)' }}>
-              {bibliography.length} bib entr{bibliography.length === 1 ? 'y' : 'ies'}
+              {bibliography.length === 1 ? t('export.bibEntry', { count: 1 }) : t('export.bibEntries', { count: bibliography.length })}
             </div>
           )}
         </div>
@@ -197,7 +199,7 @@ export default function Export(): React.JSX.Element {
           <div className="flex-1 overflow-y-auto px-10 py-6">
             {activeTab === 'md' && (
               <div className="code text-[12px] leading-relaxed whitespace-pre-wrap" style={{ color: ocrPreview ? 'var(--ink)' : 'var(--mute)' }}>
-                {ocrPreview || '(OCR output will appear here after running OCR)'}
+                {ocrPreview || t('export.ocrOutputPlaceholder')}
               </div>
             )}
             {activeTab === 'tei' && (
@@ -209,7 +211,7 @@ export default function Export(): React.JSX.Element {
 
           {log.length > 0 && (
             <div className="px-10 py-4 border-t shrink-0" style={{ borderColor: 'var(--line)' }}>
-              <div className="label mb-2">Generation log</div>
+              <div className="label mb-2">{t('export.generationLog')}</div>
               <div ref={logRef} className="terminal h-36 overflow-y-auto">
                 {log.map((line, i) => (
                   <div key={i} className={line.includes('error') ? 't-err' : line.includes('done') || line.includes('✓') ? 't-ok' : ''}>
@@ -227,14 +229,14 @@ export default function Export(): React.JSX.Element {
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z" /><polyline points="13 2 13 9 20 9" />
             </svg>
-            {generating ? 'Generating…' : 'Generate'}
+            {generating ? t('export.generating') : t('export.generate')}
           </button>
 
           <button className="btn btn-ghost" onClick={saveXml} disabled={saving || !teiXml}>
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
               <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" /><polyline points="17 21 17 13 7 13 7 21" /><polyline points="7 3 7 8 15 8" />
             </svg>
-            {saving ? 'Saving…' : 'Save as…'}
+            {saving ? t('export.saving') : t('export.saveAs')}
           </button>
 
           {lastOutputPath && (
@@ -242,7 +244,7 @@ export default function Export(): React.JSX.Element {
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
                 <path d="M12 3v12" /><path d="m7 10 5 5 5-5" /><path d="M5 21h14" />
               </svg>
-              Show in folder
+              {t('export.showInFolder')}
             </button>
           )}
 
@@ -252,7 +254,7 @@ export default function Export(): React.JSX.Element {
                 <path d="M12 2 2 21h20z" /><path d="M12 9v5M12 17h.01" />
               </svg>
               <span className="text-[11.5px]" style={{ color: '#8a6a18' }}>
-                No hierarchy defined — go back to Structure configuration.
+                {t('export.noHierarchy')}
               </span>
             </div>
           )}

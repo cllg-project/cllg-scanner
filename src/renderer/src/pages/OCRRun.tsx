@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import type { LMConfig, OCRProgressEvent, Page } from '@shared/types'
 import Sidebar from '../components/Sidebar'
 import { useProject } from '../App'
@@ -14,6 +15,7 @@ function LearnFromExamplesToggle({
   count: number
   onChange: (v: boolean) => void
 }): React.JSX.Element {
+  const { t } = useTranslation()
   return (
     <button
       onClick={() => onChange(!enabled)}
@@ -48,7 +50,7 @@ function LearnFromExamplesToggle({
       <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" style={{ flexShrink: 0 }}>
         <path d="m12 2 2.6 6.5 7 .6-5.3 4.6 1.7 6.8L12 17l-6 3.5 1.7-6.8L2.4 9.1l7-.6z" />
       </svg>
-      Learn from examples
+      {t('ocr.learnFromExamples')}
       <span style={{
         background: enabled ? '#c89328' : 'var(--mute-2)',
         color: '#fff',
@@ -65,6 +67,7 @@ function LearnFromExamplesToggle({
   )
 }
 
+
 interface PageRow {
   page: Page
   status: 'pending' | 'running' | 'done' | 'error' | 'skipped'
@@ -77,10 +80,11 @@ interface PageRow {
 
 type Filter = 'all' | 'pending' | 'done' | 'errors'
 
-const STEP_LABELS = ['Import', 'Mask', 'OCR', 'Config', 'Review', 'TEI']
 const CURRENT_STEP = 3 // 1-based
 
 export default function OCRRun(): React.JSX.Element {
+  const { t } = useTranslation()
+  const STEP_LABELS = [t('steps.import'), t('steps.mask'), t('steps.ocr'), t('steps.config'), t('steps.review'), t('steps.tei')]
   const { project, saveProject } = useProject()
   const navigate = useNavigate()
 
@@ -292,7 +296,7 @@ export default function OCRRun(): React.JSX.Element {
 
   const basename = (p: string): string => p.split('/').pop() ?? p
 
-  if (!project) return <div className="p-8">No project open.</div>
+  if (!project) return <div className="p-8">{t('common.noProjectOpen')}</div>
 
   return (
     <div className="flex h-full">
@@ -342,9 +346,9 @@ export default function OCRRun(): React.JSX.Element {
           {/* Title row + run buttons */}
           <div className="flex items-end justify-between gap-6">
             <div className="min-w-0">
-              <h2 className="font-serif text-[26px] leading-none">OCR run</h2>
+              <h2 className="font-serif text-[26px] leading-none">{t('ocr.title')}</h2>
               <div className="text-[12.5px] mt-1.5" style={{ color: 'var(--mute)' }}>
-                Pages sent one at a time to LM Studio · output appended to{' '}
+                {t('ocr.subtitle')}{' '}
                 <span className="font-mono" style={{ color: 'var(--ink)' }}>ocr_output.md</span>
               </div>
             </div>
@@ -361,7 +365,7 @@ export default function OCRRun(): React.JSX.Element {
                   <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                     <path d="M6 4h4v16H6zM14 4h4v16h-4z" />
                   </svg>
-                  Stop
+                  {t('ocr.stop')}
                 </button>
               ) : (
                 <>
@@ -369,11 +373,11 @@ export default function OCRRun(): React.JSX.Element {
                     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
                       <path d="M3 12a9 9 0 1 0 3-6.7" /><path d="M3 3v6h6" />
                     </svg>
-                    Resume
+                    {t('ocr.resume')}
                   </button>
                   <button className="btn btn-primary" onClick={startOCR} disabled={running}>
                     <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M6 4l14 8-14 8z" /></svg>
-                    Run OCR
+                    {t('ocr.runOcr')}
                   </button>
                 </>
               )}
@@ -390,10 +394,10 @@ export default function OCRRun(): React.JSX.Element {
             <div className="panel">
               {/* Single inline row */}
               <div className="flex items-center gap-3 px-3 py-2.5 flex-wrap">
-                <h3 className="font-serif text-[15px] leading-none shrink-0 py-1 pr-3 mr-1 border-r" style={{ borderColor: 'var(--line)' }}>LM&nbsp;Studio</h3>
+                <h3 className="font-serif text-[15px] leading-none shrink-0 py-1 pr-3 mr-1 border-r" style={{ borderColor: 'var(--line)' }}>{t('ocr.lmStudio')}</h3>
 
                 <div className="flex items-center gap-2">
-                  <div className="label" style={{ letterSpacing: '.1em' }}>Endpoint</div>
+                  <div className="label" style={{ letterSpacing: '.1em' }}>{t('ocr.endpoint')}</div>
                   <input
                     className="input font-mono text-[12px]"
                     style={{ paddingTop: 4, paddingBottom: 4, width: 210 }}
@@ -404,7 +408,7 @@ export default function OCRRun(): React.JSX.Element {
                 </div>
 
                 <div className="flex items-center gap-2">
-                  <div className="label" style={{ letterSpacing: '.1em' }}>Model</div>
+                  <div className="label" style={{ letterSpacing: '.1em' }}>{t('ocr.model')}</div>
                   <div className="relative">
                     <input
                       className="input font-mono text-[12px]"
@@ -419,20 +423,20 @@ export default function OCRRun(): React.JSX.Element {
                       {availableModels.map((m) => <option key={m} value={m} />)}
                     </datalist>
                   </div>
-                  <button className="btn btn-quiet" style={{ padding: 5 }} onClick={fetchModels} title="Refresh models">
+                  <button className="btn btn-quiet" style={{ padding: 5 }} onClick={fetchModels} title={t('ocr.refreshModels')}>
                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M3 12a9 9 0 1 0 3-6.7" /><path d="M3 3v6h6" /></svg>
                   </button>
                 </div>
 
                 <button className="btn btn-ghost" style={{ paddingTop: 4, paddingBottom: 4 }} onClick={testConnection}>
                   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M5 12h14M12 5l7 7-7 7" /></svg>
-                  Test
+                  {t('ocr.test')}
                 </button>
 
                 {connectionStatus !== 'idle' && (
                   <span className={`ml-auto inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-mono border ${connectionStatus === 'ok' ? 'bg-[color:var(--moss-bg)] border-[#b8c8a0] text-[#3b5a30]' : 'bg-[#f1d6cf] border-[#d9a0a0] text-[#7a2a23]'}`}>
                     <span className={`dot ${connectionStatus === 'ok' ? 'dot-ok' : 'dot-err'}`} />
-                    {connectionStatus === 'ok' ? `connected · ${connectionLatency}ms` : 'error'}
+                    {connectionStatus === 'ok' ? t('ocr.connected', { latency: connectionLatency }) : t('ocr.connectionError')}
                   </span>
                 )}
               </div>
@@ -442,14 +446,14 @@ export default function OCRRun(): React.JSX.Element {
                 <summary className="px-3 py-2 flex items-center justify-between cursor-pointer hover:bg-[color:var(--paper-3)] transition-colors list-none [&::-webkit-details-marker]:hidden">
                   <div className="flex items-center gap-2 text-[12px]">
                     <svg className="details-chev transition-transform" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ color: 'var(--mute)' }}><path d="m9 6 6 6-6 6" /></svg>
-                    <span className="font-medium">Advanced parameters</span>
+                    <span className="font-medium">{t('ocr.advancedParams')}</span>
                     <span className="font-mono text-[11px]" style={{ color: 'var(--mute)' }}>{advSummary}</span>
                   </div>
-                  <span className="text-[10px] tracking-[.1em] uppercase" style={{ color: 'var(--mute-2)' }}>defaults are fine for most projects</span>
+                  <span className="text-[10px] tracking-[.1em] uppercase" style={{ color: 'var(--mute-2)' }}>{t('ocr.advancedDefaults')}</span>
                 </summary>
                 <div className="px-3 pb-3 pt-2 grid gap-3 border-t border-dashed" style={{ borderColor: 'var(--line)', gridTemplateColumns: '120px 160px 1fr' }}>
                   <div>
-                    <div className="label mb-1">Temperature</div>
+                    <div className="label mb-1">{t('ocr.temperature')}</div>
                     <input
                       className="input font-mono text-[12px]"
                       type="number"
@@ -461,7 +465,7 @@ export default function OCRRun(): React.JSX.Element {
                     />
                   </div>
                   <div>
-                    <div className="label mb-1">Context length</div>
+                    <div className="label mb-1">{t('ocr.contextLength')}</div>
                     <input
                       className="input font-mono text-[12px]"
                       type="number"
@@ -470,12 +474,12 @@ export default function OCRRun(): React.JSX.Element {
                     />
                   </div>
                   <div>
-                    <div className="label mb-1">API Key</div>
+                    <div className="label mb-1">{t('ocr.apiKey')}</div>
                     <input
                       className="input font-mono text-[12px]"
                       type="password"
                       value={lmConfig.apiKey ?? ''}
-                      placeholder="optional"
+                      placeholder={t('ocr.apiKeyPlaceholder')}
                       onChange={(e) => setLMConfig((c) => ({ ...c, apiKey: e.target.value || undefined }))}
                     />
                   </div>
@@ -488,33 +492,41 @@ export default function OCRRun(): React.JSX.Element {
           <section>
             <div className="flex items-end justify-between mb-2">
               <div className="flex items-baseline gap-3">
-                <h3 className="font-serif text-[16px]">Page queue</h3>
+                <h3 className="font-serif text-[16px]">{t('ocr.pageQueue')}</h3>
                 <div className="flex items-center gap-3 text-[11px] font-mono" style={{ color: 'var(--mute)' }}>
-                  <span><span className="dot dot-ok mr-0.5" />done <span className="font-semibold" style={{ color: 'var(--ink)' }}>{doneCount}</span></span>
-                  {runningCount > 0 && <span><span className="dot dot-warn mr-0.5" />running <span className="font-semibold" style={{ color: 'var(--ink)' }}>{runningCount}</span></span>}
-                  <span><span className="dot mr-0.5" style={{ background: 'var(--mute-2)' }} />pending <span className="font-semibold" style={{ color: 'var(--ink)' }}>{pendingCount}</span></span>
-                  {errorCount > 0 && <span><span className="dot dot-err mr-0.5" />error <span className="font-semibold" style={{ color: 'var(--ink)' }}>{errorCount}</span></span>}
+                  <span><span className="dot dot-ok mr-0.5" />{t('ocr.statusDone')} <span className="font-semibold" style={{ color: 'var(--ink)' }}>{doneCount}</span></span>
+                  {runningCount > 0 && <span><span className="dot dot-warn mr-0.5" />{t('ocr.statusRunning')} <span className="font-semibold" style={{ color: 'var(--ink)' }}>{runningCount}</span></span>}
+                  <span><span className="dot mr-0.5" style={{ background: 'var(--mute-2)' }} />{t('ocr.statusPending')} <span className="font-semibold" style={{ color: 'var(--ink)' }}>{pendingCount}</span></span>
+                  {errorCount > 0 && <span><span className="dot dot-err mr-0.5" />{t('ocr.statusError')} <span className="font-semibold" style={{ color: 'var(--ink)' }}>{errorCount}</span></span>}
                 </div>
               </div>
               <div className="flex items-center gap-2">
                 {/* Filter tabs */}
                 <div className="flex p-0.5 rounded-md border gap-0.5" style={{ background: 'var(--paper-3)', borderColor: 'var(--line-2)' }}>
-                  {(['all', 'pending', 'done', 'errors'] as Filter[]).map((f) => (
-                    <button
-                      key={f}
-                      className="px-2.5 py-1 rounded text-[11.5px] font-medium capitalize"
-                      style={{
-                        background: filter === f ? 'var(--paper-2)' : 'transparent',
-                        color: filter === f ? 'var(--ink)' : 'var(--mute)',
-                        boxShadow: filter === f ? '0 1px 2px rgba(0,0,0,.05), 0 0 0 1px rgba(0,0,0,.04)' : undefined
-                      }}
-                      onClick={() => setFilter(f)}
-                    >
-                      {f === 'errors' && errorCount > 0
-                        ? <><span>{f}</span> <span style={{ color: 'var(--oxblood)' }}>{errorCount}</span></>
-                        : f}
-                    </button>
-                  ))}
+                  {(['all', 'pending', 'done', 'errors'] as Filter[]).map((f) => {
+                    const filterLabel: Record<Filter, string> = {
+                      all: t('ocr.filterAll'),
+                      pending: t('ocr.filterPending'),
+                      done: t('ocr.filterDone'),
+                      errors: t('ocr.filterErrors'),
+                    }
+                    return (
+                      <button
+                        key={f}
+                        className="px-2.5 py-1 rounded text-[11.5px] font-medium capitalize"
+                        style={{
+                          background: filter === f ? 'var(--paper-2)' : 'transparent',
+                          color: filter === f ? 'var(--ink)' : 'var(--mute)',
+                          boxShadow: filter === f ? '0 1px 2px rgba(0,0,0,.05), 0 0 0 1px rgba(0,0,0,.04)' : undefined
+                        }}
+                        onClick={() => setFilter(f)}
+                      >
+                        {f === 'errors' && errorCount > 0
+                          ? <><span>{filterLabel[f]}</span> <span style={{ color: 'var(--oxblood)' }}>{errorCount}</span></>
+                          : filterLabel[f]}
+                      </button>
+                    )
+                  })}
                 </div>
                 {/* Search */}
                 <div className="relative">
@@ -524,7 +536,7 @@ export default function OCRRun(): React.JSX.Element {
                   <input
                     className="input text-[12px]"
                     style={{ paddingLeft: 26, paddingRight: 8, paddingTop: 5, paddingBottom: 5, width: 150 }}
-                    placeholder="Find page…"
+                    placeholder={t('ocr.searchPlaceholder')}
                     value={search}
                     onChange={(e) => setSearch(e.target.value)}
                   />
@@ -535,13 +547,13 @@ export default function OCRRun(): React.JSX.Element {
             <div className="panel overflow-hidden">
               {/* Selection bar */}
               <div className="px-3 py-1.5 flex items-center gap-2 border-b text-[11.5px]" style={{ borderColor: 'var(--line)', background: 'rgba(236,229,214,.6)' }}>
-                <span style={{ color: 'var(--mute)' }}>Select</span>
+                <span style={{ color: 'var(--mute)' }}>{t('common.all')}</span>
                 <button className="btn btn-quiet text-[11.5px]" style={{ padding: '2px 6px' }}
-                  onClick={() => setExcluded(new Set())}>All</button>
+                  onClick={() => setExcluded(new Set())}>{t('ocr.selectAll')}</button>
                 <button className="btn btn-quiet text-[11.5px]" style={{ padding: '2px 6px' }}
-                  onClick={() => setExcluded(new Set(project.pages.map((p) => p.n)))}>None</button>
+                  onClick={() => setExcluded(new Set(project.pages.map((p) => p.n)))}>{t('ocr.selectNone')}</button>
                 <button className="btn btn-quiet text-[11.5px]" style={{ padding: '2px 6px' }}
-                  onClick={() => setExcluded(new Set(project.pages.filter((p) => p.status === 'ocr_done').map((p) => p.n)))}>Pending only</button>
+                  onClick={() => setExcluded(new Set(project.pages.filter((p) => p.status === 'ocr_done').map((p) => p.n)))}>{t('ocr.selectPendingOnly')}</button>
               </div>
 
               {/* Table */}
@@ -550,13 +562,13 @@ export default function OCRRun(): React.JSX.Element {
                   <thead>
                     <tr style={{ background: 'var(--paper-3)', borderBottom: '1px solid var(--line)', position: 'sticky', top: 0, zIndex: 1 }}>
                       <th style={{ width: 36, padding: '7px 10px', textAlign: 'left', fontSize: 10, letterSpacing: '.12em', textTransform: 'uppercase', color: 'var(--mute)', fontWeight: 600 }} />
-                      <th style={{ width: 58, padding: '7px 10px', textAlign: 'left', fontSize: 10, letterSpacing: '.12em', textTransform: 'uppercase', color: 'var(--mute)', fontWeight: 600 }}>Page</th>
+                      <th style={{ width: 58, padding: '7px 10px', textAlign: 'left', fontSize: 10, letterSpacing: '.12em', textTransform: 'uppercase', color: 'var(--mute)', fontWeight: 600 }}>{t('ocr.colPage')}</th>
                       <th style={{ width: 28, padding: '7px 10px', textAlign: 'left', fontSize: 10 }} />
-                      <th style={{ padding: '7px 10px', textAlign: 'left', fontSize: 10, letterSpacing: '.12em', textTransform: 'uppercase', color: 'var(--mute)', fontWeight: 600 }}>File</th>
-                      <th style={{ width: 110, padding: '7px 10px', textAlign: 'left', fontSize: 10, letterSpacing: '.12em', textTransform: 'uppercase', color: 'var(--mute)', fontWeight: 600 }}>Status</th>
-                      <th style={{ width: 90, padding: '7px 10px', textAlign: 'left', fontSize: 10, letterSpacing: '.12em', textTransform: 'uppercase', color: 'var(--mute)', fontWeight: 600 }}>Elapsed</th>
-                      <th style={{ width: 80, padding: '7px 10px', textAlign: 'left', fontSize: 10, letterSpacing: '.12em', textTransform: 'uppercase', color: 'var(--mute)', fontWeight: 600 }}>Tokens</th>
-                      <th style={{ width: 70, padding: '7px 10px', textAlign: 'left', fontSize: 10, letterSpacing: '.12em', textTransform: 'uppercase', color: 'var(--mute)', fontWeight: 600 }}>tok/s</th>
+                      <th style={{ padding: '7px 10px', textAlign: 'left', fontSize: 10, letterSpacing: '.12em', textTransform: 'uppercase', color: 'var(--mute)', fontWeight: 600 }}>{t('ocr.colFile')}</th>
+                      <th style={{ width: 110, padding: '7px 10px', textAlign: 'left', fontSize: 10, letterSpacing: '.12em', textTransform: 'uppercase', color: 'var(--mute)', fontWeight: 600 }}>{t('ocr.colStatus')}</th>
+                      <th style={{ width: 90, padding: '7px 10px', textAlign: 'left', fontSize: 10, letterSpacing: '.12em', textTransform: 'uppercase', color: 'var(--mute)', fontWeight: 600 }}>{t('ocr.colElapsed')}</th>
+                      <th style={{ width: 80, padding: '7px 10px', textAlign: 'left', fontSize: 10, letterSpacing: '.12em', textTransform: 'uppercase', color: 'var(--mute)', fontWeight: 600 }}>{t('ocr.colTokens')}</th>
+                      <th style={{ width: 70, padding: '7px 10px', textAlign: 'left', fontSize: 10, letterSpacing: '.12em', textTransform: 'uppercase', color: 'var(--mute)', fontWeight: 600 }}>{t('ocr.colTokPerSec')}</th>
                       <th style={{ width: 60, padding: '7px 10px', textAlign: 'right', fontSize: 10 }} />
                     </tr>
                   </thead>
@@ -607,14 +619,14 @@ export default function OCRRun(): React.JSX.Element {
                               <span style={{ fontStyle: 'normal', fontSize: 11, color: 'var(--mute)', marginLeft: 8 }}>— {r.errorMessage}</span>
                             )}
                             {r.status === 'running' && (
-                              <span style={{ fontStyle: 'normal', fontSize: 11, color: 'var(--mute)', marginLeft: 8 }}>— running</span>
+                              <span style={{ fontStyle: 'normal', fontSize: 11, color: 'var(--mute)', marginLeft: 8 }}>— {t('ocr.running')}</span>
                             )}
                           </td>
                           <td style={tdStyle}>
                             <span className={`badge ${r.status === 'done' ? 'badge-ocr' : r.status === 'error' ? 'badge-error' : r.status === 'skipped' ? 'badge-skipped' : r.status === 'running' ? 'badge-pending' : 'badge-pending'}`}>
                               {r.status === 'done' && <span className="dot dot-ok" />}
                               {r.status === 'running' && <span className="dot dot-warn" />}
-                              {r.forceReprocess ? '↺ queued' : r.fromCache ? 'cache' : r.status}
+                              {r.forceReprocess ? t('ocr.queued') : r.fromCache ? t('ocr.cache') : r.status}
                             </span>
                           </td>
                           <td style={{ ...tdStyle, fontFamily: 'var(--font-mono, ui-monospace)', fontVariantNumeric: 'tabular-nums', fontSize: 11, color: 'var(--mute)' }}>
@@ -635,7 +647,7 @@ export default function OCRRun(): React.JSX.Element {
                               <button
                                 className="btn btn-quiet"
                                 style={{ padding: '2px 6px', fontSize: 11, color: r.forceReprocess ? 'var(--oxblood)' : 'var(--mute)' }}
-                                title="Force reprocess"
+                                title={t('ocr.forceReprocess')}
                                 onClick={() => toggleForceReprocess(r.page.n)}
                               >
                                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M3 12a9 9 0 1 0 3-6.7" /><path d="M3 3v6h6" /></svg>
@@ -648,7 +660,7 @@ export default function OCRRun(): React.JSX.Element {
                     {filteredRows.length === 0 && (
                       <tr>
                         <td colSpan={9} style={{ padding: '20px', textAlign: 'center', color: 'var(--mute)', fontSize: 12.5 }}>
-                          No pages match the current filter.
+                          {t('ocr.noMatchingPages')}
                         </td>
                       </tr>
                     )}
@@ -661,17 +673,17 @@ export default function OCRRun(): React.JSX.Element {
                 <div className="flex-1">
                   <div className="flex items-baseline justify-between mb-1">
                     <span className="text-[11.5px] font-medium">
-                      Overall <span className="font-mono" style={{ color: 'var(--mute)' }}>{doneCount} / {totalActive} pages</span>
+                      {t('ocr.overall')} <span className="font-mono" style={{ color: 'var(--mute)' }}>{doneCount} / {totalActive} {t('common.pages')}</span>
                     </span>
                     <div className="flex items-baseline gap-3">
                       {avgMs != null && (
                         <span className="font-mono text-[11px] tabular-nums" style={{ color: 'var(--mute)' }}>
-                          avg {(avgMs / 1000).toFixed(0)} s/page
+                          {t('ocr.avgPerPage', { avg: (avgMs / 1000).toFixed(0) })}
                         </span>
                       )}
                       {etaMs != null && running && (
                         <span className="font-mono text-[11.5px] tabular-nums font-semibold" style={{ color: 'var(--oxblood)' }}>
-                          ETA {fmtEta(etaMs)}
+                          {t('ocr.eta', { eta: fmtEta(etaMs) })}
                         </span>
                       )}
                       <span className="font-mono text-[11.5px] tabular-nums font-semibold" style={{ color: 'var(--oxblood)' }}>
@@ -692,15 +704,15 @@ export default function OCRRun(): React.JSX.Element {
             <summary className="px-3 py-2 flex items-center justify-between cursor-pointer list-none [&::-webkit-details-marker]:hidden" style={{ borderRadius: 8 }}>
               <div className="flex items-center gap-2 text-[12.5px]">
                 <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ color: 'var(--mute)' }}><path d="m9 6 6 6-6 6" /></svg>
-                <h3 className="font-serif text-[15px]">Live log</h3>
-                <span className="font-mono text-[11px]" style={{ color: 'var(--mute)' }}>{log.length} lines</span>
+                <h3 className="font-serif text-[15px]">{t('ocr.liveLog')}</h3>
+                <span className="font-mono text-[11px]" style={{ color: 'var(--mute)' }}>{t('ocr.logLines', { count: log.length })}</span>
               </div>
               <button
                 className="text-[11.5px] font-mono"
                 style={{ color: 'var(--oxblood)' }}
                 onClick={(e) => { e.preventDefault(); setLog([]) }}
               >
-                clear
+                {t('ocr.clearLog')}
               </button>
             </summary>
             <div className="px-3 pb-3">
@@ -715,7 +727,7 @@ export default function OCRRun(): React.JSX.Element {
                     </div>
                   )
                 })}
-                {log.length === 0 && <div className="t-mute">Waiting for run…</div>}
+                {log.length === 0 && <div className="t-mute">{t('ocr.waitingForRun')}</div>}
               </div>
             </div>
           </details>
@@ -723,7 +735,7 @@ export default function OCRRun(): React.JSX.Element {
           {/* Next step */}
           <div className="flex justify-end pt-1">
             <button className="btn btn-primary" onClick={() => navigate('/config')}>
-              Next: Structure
+              {t('ocr.nextStructure')}
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m9 6 6 6-6 6" /></svg>
             </button>
           </div>

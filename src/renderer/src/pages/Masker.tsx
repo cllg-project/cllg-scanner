@@ -1,5 +1,6 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import { Stage, Layer, Image as KonvaImage, Rect, Transformer } from 'react-konva'
 import type Konva from 'konva'
 import type { Page, Mask } from '@shared/types'
@@ -26,10 +27,10 @@ type Tool = 'pointer' | 'rect'
 const FILL_WHITE = '#ffffff'
 const FILL_BLACK = '#000000'
 const MAX_EXAMPLES = 3
-const STEP_LABELS = ['Import', 'Mask', 'OCR', 'Config', 'Review', 'TEI']
 const CURRENT_STEP = 2
 
 function StatusBadge({ status }: { status: Page['status'] }): React.JSX.Element {
+  const { t } = useTranslation()
   const map: Record<Page['status'], string> = {
     pending: 'badge-pending',
     masked: 'badge-masked',
@@ -38,11 +39,11 @@ function StatusBadge({ status }: { status: Page['status'] }): React.JSX.Element 
     error: 'badge-error'
   }
   const labels: Record<Page['status'], string> = {
-    pending: 'Pend',
-    masked: 'Mask',
-    ocr_done: 'OCR',
-    skipped: 'Skip',
-    error: 'Err'
+    pending: t('masker.statusPend'),
+    masked: t('masker.statusMask'),
+    ocr_done: t('masker.statusOcr'),
+    skipped: t('masker.statusSkip'),
+    error: t('masker.statusErr')
   }
   return <span className={`badge ${map[status]}`}>{labels[status]}</span>
 }
@@ -79,6 +80,7 @@ function AddPagesModal({
   onPickSource, onRangeChange, onTogglePage, onSelectAll, onDeselectAll,
   onConfirm, onClose
 }: AddPagesModalProps): React.JSX.Element {
+  const { t } = useTranslation()
   const selectedNums = pending ? parseRange(pending.rangeText, pending.totalPages) : []
   const selectedSet = new Set(selectedNums)
   const [thumbSize, setThumbSize] = useState<80 | 120 | 160>(80)
@@ -92,7 +94,7 @@ function AddPagesModal({
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="animate-spin" style={{ color: 'var(--oxblood)' }}>
               <path d="M21 12a9 9 0 1 1-6.3-8.6" />
             </svg>
-            <div className="text-[13px]">Importing page {importProgress.cur} of {importProgress.total}…</div>
+            <div className="text-[13px]">{t('masker.importingPage', { cur: importProgress.cur, total: importProgress.total })}</div>
             <div className="w-full progress mt-1">
               <div className="progress-bar" style={{ width: `${Math.round((importProgress.cur / importProgress.total) * 100)}%` }} />
             </div>
@@ -106,9 +108,9 @@ function AddPagesModal({
     <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: 'rgba(0,0,0,.45)' }}>
       <div className="rounded-lg shadow-2xl overflow-hidden flex flex-col" style={{ background: 'var(--paper-2)', border: '1px solid var(--line)', width: pending ? 640 : 360, maxHeight: '85vh' }}>
         <div className="px-6 pt-5 pb-3 border-b shrink-0" style={{ borderColor: 'var(--line)' }}>
-          <div className="font-serif text-[20px]">Add pages</div>
+          <div className="font-serif text-[20px]">{t('masker.addPages')}</div>
           <div className="text-[12px] mt-0.5" style={{ color: 'var(--mute)' }}>
-            {pending ? `${pending.totalPages} pages found · select which to import` : 'New pages are appended after existing ones.'}
+            {pending ? t('masker.pagesFound', { count: pending.totalPages }) : t('masker.addPagesSubtitle')}
           </div>
         </div>
 
@@ -120,8 +122,8 @@ function AddPagesModal({
                 <path d="M4 4h10l4 4v12H4z" /><path d="M14 4v4h4" />
               </svg>
               <div className="text-left">
-                <div className="text-[13px] font-medium">PDF or DjVu file</div>
-                <div className="text-[11px]" style={{ color: 'var(--mute)' }}>Choose which pages to import</div>
+                <div className="text-[13px] font-medium">{t('masker.pdfOrDjvu')}</div>
+                <div className="text-[11px]" style={{ color: 'var(--mute)' }}>{t('masker.pdfOrDjvuSubtitle')}</div>
               </div>
             </button>
             <button className="btn btn-ghost w-full justify-start gap-3 !py-3" onClick={() => onPickSource('folder')}>
@@ -129,8 +131,8 @@ function AddPagesModal({
                 <path d="M3 7l2-2h6l2 2h8v12H3z" />
               </svg>
               <div className="text-left">
-                <div className="text-[13px] font-medium">Image folder</div>
-                <div className="text-[11px]" style={{ color: 'var(--mute)' }}>Choose which images to import</div>
+                <div className="text-[13px] font-medium">{t('masker.imageFolder')}</div>
+                <div className="text-[11px]" style={{ color: 'var(--mute)' }}>{t('masker.imageFolderSubtitle')}</div>
               </div>
             </button>
             <button className="btn btn-ghost w-full justify-start gap-3 !py-3" onClick={() => onPickSource('images')}>
@@ -138,8 +140,8 @@ function AddPagesModal({
                 <rect x="3" y="3" width="18" height="18" rx="2" /><path d="m3 15 5-5 4 4 3-3 5 5" />
               </svg>
               <div className="text-left">
-                <div className="text-[13px] font-medium">Individual image(s)</div>
-                <div className="text-[11px]" style={{ color: 'var(--mute)' }}>Pick one or more image files</div>
+                <div className="text-[13px] font-medium">{t('masker.individualImages')}</div>
+                <div className="text-[11px]" style={{ color: 'var(--mute)' }}>{t('masker.individualImagesSubtitle')}</div>
               </div>
             </button>
           </div>
@@ -156,10 +158,10 @@ function AddPagesModal({
                 value={pending.rangeText}
                 onChange={(e) => onRangeChange(e.target.value)}
               />
-              <button className="btn btn-quiet !py-1 !text-[11.5px]" onClick={onSelectAll}>All</button>
-              <button className="btn btn-quiet !py-1 !text-[11.5px]" onClick={onDeselectAll}>None</button>
+              <button className="btn btn-quiet !py-1 !text-[11.5px]" onClick={onSelectAll}>{t('common.all')}</button>
+              <button className="btn btn-quiet !py-1 !text-[11.5px]" onClick={onDeselectAll}>{t('common.none')}</button>
               <span className="text-[11.5px] tabular-nums font-mono shrink-0" style={{ color: 'var(--mute)' }}>
-                {selectedNums.length} / {pending.totalPages} selected
+                {t('masker.selected', { count: selectedNums.length, total: pending.totalPages })}
               </span>
               <div className="flex border rounded overflow-hidden shrink-0" style={{ borderColor: 'var(--line-2)' }}>
                 {([80, 120, 160] as const).map((size, si) => (
@@ -184,7 +186,7 @@ function AddPagesModal({
             <div className="overflow-y-auto flex-1 px-4 py-3">
               {thumbProgress && thumbProgress.cur < thumbProgress.total && (
                 <div className="text-[11px] mb-2" style={{ color: 'var(--mute)' }}>
-                  Loading thumbnails… {thumbProgress.cur} / {thumbProgress.total}
+                  {t('masker.importingPage', { cur: thumbProgress.cur, total: thumbProgress.total })}
                 </div>
               )}
               <div className="grid gap-2" style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${thumbSize}px, 1fr))` }}>
@@ -226,14 +228,14 @@ function AddPagesModal({
         )}
 
         <div className="px-6 py-4 border-t flex justify-between items-center shrink-0" style={{ borderColor: 'var(--line)', background: 'var(--paper-3)' }}>
-          <button className="btn btn-quiet" onClick={onClose}>Cancel</button>
+          <button className="btn btn-quiet" onClick={onClose}>{t('common.cancel')}</button>
           {pending && (
             <button
               className="btn btn-primary"
               disabled={selectedNums.length === 0}
               onClick={onConfirm}
             >
-              Import {selectedNums.length} page{selectedNums.length !== 1 ? 's' : ''}
+              {t('masker.importPages', { count: selectedNums.length })}
             </button>
           )}
         </div>
@@ -245,6 +247,8 @@ function AddPagesModal({
 // ── Component ────────────────────────────────────────────────────────────────
 
 export default function Masker(): React.JSX.Element {
+  const { t } = useTranslation()
+  const STEP_LABELS = [t('steps.import'), t('steps.mask'), t('steps.ocr'), t('steps.config'), t('steps.review'), t('steps.tei')]
   const { project, saveProject } = useProject()
   const navigate = useNavigate()
 
@@ -592,7 +596,7 @@ export default function Masker(): React.JSX.Element {
     await saveProject({ ...project, pages: renumbered })
   }, [project, dragIdx, saveProject])
 
-  if (!project) return <div className="p-8">No project open.</div>
+  if (!project) return <div className="p-8">{t('common.noProjectOpen')}</div>
 
   const stageW = konvaImg ? konvaImg.naturalWidth * zoom : 600
   const stageH = konvaImg ? konvaImg.naturalHeight * zoom : 800
@@ -608,9 +612,9 @@ export default function Masker(): React.JSX.Element {
       >
         <div className="px-3 py-3 flex items-center justify-between border-b" style={{ borderColor: 'var(--line-2)' }}>
           <div>
-            <div className="font-serif text-[15px] leading-tight">Pages</div>
+            <div className="font-serif text-[15px] leading-tight">{t('masker.pages')}</div>
             <div className="font-mono text-[10.5px]" style={{ color: 'var(--mute)' }}>
-              {pages.length} total · {pages.filter((p) => p.status === 'masked').length} masked
+              {t('masker.pagesStats', { total: pages.length, masked: pages.filter((p) => p.status === 'masked').length })}
             </div>
           </div>
         </div>
@@ -618,7 +622,7 @@ export default function Masker(): React.JSX.Element {
         {exampleWarning && (
           <div className="mx-3 mt-2 px-2 py-1.5 rounded text-[11px]"
             style={{ background: '#fdf3d0', border: '1px solid #e8c84a', color: '#7a6010' }}>
-            Max {MAX_EXAMPLES} example pages
+            {t('masker.maxExamples', { count: MAX_EXAMPLES })}
           </div>
         )}
 
@@ -670,7 +674,7 @@ export default function Masker(): React.JSX.Element {
                 <button
                   className="absolute top-1 right-1 z-20 w-5 h-5 flex items-center justify-center rounded"
                   style={{ background: 'rgba(255,255,255,.75)' }}
-                  title={p.isExample ? 'Remove as example page' : 'Set as OCR example page (max 3)'}
+                  title={p.isExample ? t('masker.removeExample') : t('masker.setExample', { max: MAX_EXAMPLES })}
                   onClick={(e) => { e.stopPropagation(); toggleExample(i) }}
                 >
                   <svg width="11" height="11" viewBox="0 0 24 24" fill={p.isExample ? '#c89328' : 'none'} stroke={p.isExample ? '#c89328' : '#aaa'} strokeWidth="2">
@@ -697,7 +701,7 @@ export default function Masker(): React.JSX.Element {
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <path d="M12 5v14M5 12h14" />
             </svg>
-            Add pages…
+            {t('masker.addPagesButton')}
           </button>
         </div>
       </aside>
@@ -706,7 +710,7 @@ export default function Masker(): React.JSX.Element {
       <main className="flex-1 flex flex-col" style={{ background: 'var(--paper-3)' }}>
         {/* Step rail */}
         <div className="px-4 pt-3 pb-2 border-b shrink-0 flex items-center gap-1.5" style={{ borderColor: 'var(--line)', background: 'var(--paper-2)', fontSize: 10, color: 'var(--mute)' }}>
-          <span className="text-[10px] tracking-[.18em] uppercase mr-1 font-mono" style={{ color: 'var(--mute-2)' }}>Step</span>
+          <span className="text-[10px] tracking-[.18em] uppercase mr-1 font-mono" style={{ color: 'var(--mute-2)' }}>{t('common.step')}</span>
           {STEP_LABELS.map((label, i) => {
             const n = i + 1
             const isDone = n < CURRENT_STEP
@@ -739,16 +743,31 @@ export default function Masker(): React.JSX.Element {
             ))}
           </span>
           <button className="btn btn-primary ml-2" style={{ padding: '3px 10px', fontSize: 11 }} onClick={() => navigate('/ocr')}>
-            Next: OCR
+            {t('masker.nextOcr')}
             <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m9 6 6 6-6 6" /></svg>
           </button>
         </div>
-        {/* Toolbar */}
+        {/* Toolbar — row 1: description */}
+        <div className="px-3 py-2 border-b flex items-center gap-2 shrink-0 text-[11.5px]" style={{ borderColor: 'var(--line)', background: 'var(--paper-2)', color: 'var(--mute)' }}>
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" style={{ color: 'var(--mute-2)', flexShrink: 0 }}>
+            <circle cx="12" cy="12" r="9" /><path d="M12 8v4M12 16h.01" />
+          </svg>
+          <span>
+            {t('masker.instructionsBefore')} <span style={{ color: 'var(--ink)', fontStyle: 'italic' }}>{t('masker.apparatusCriticus')}</span> {t('masker.instructionsAfter')}
+          </span>
+          {project?.pages.some((p) => p.masks.length > 0) && (
+            <span className="font-mono shrink-0" style={{ color: 'var(--moss, #5a8c3f)' }}>
+              {t('masker.pagesMasked', { count: project.pages.filter((p) => p.masks.length > 0).length })}
+            </span>
+          )}
+        </div>
+
+        {/* Toolbar — row 2: tools */}
         <div className="toolbar">
           <button
             className={`tool-btn ${tool === 'pointer' ? 'active' : ''}`}
             onClick={() => setTool('pointer')}
-            title="Pointer"
+            title={t('masker.toolPointer')}
           >
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
               <path d="m4 4 6 16 2-7 7-2z" />
@@ -757,7 +776,7 @@ export default function Masker(): React.JSX.Element {
           <button
             className={`tool-btn ${tool === 'rect' ? 'active' : ''}`}
             onClick={() => setTool('rect')}
-            title="Rectangle mask"
+            title={t('masker.toolRect')}
           >
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
               <rect x="4" y="6" width="16" height="12" rx="1" />
@@ -767,16 +786,16 @@ export default function Masker(): React.JSX.Element {
           <div className="tool-sep" />
 
           {/* Fill color */}
-          <span className="text-[11px] mr-1" style={{ color: 'var(--mute)' }}>Fill</span>
+          <span className="text-[11px] mr-1" style={{ color: 'var(--mute)' }}>{t('masker.fillLabel')}</span>
           <button
             className={`w-7 h-7 rounded border-2 bg-white ${fillColor === FILL_WHITE ? 'border-[color:var(--oxblood)]' : 'border-[color:var(--line-2)]'}`}
             onClick={() => setFillColor(FILL_WHITE)}
-            title="White"
+            title={t('masker.fillWhite')}
           />
           <button
             className={`w-7 h-7 rounded border bg-[#1a1714] ${fillColor === FILL_BLACK ? 'border-[color:var(--oxblood)]' : 'border-[color:var(--line-2)]'}`}
             onClick={() => setFillColor(FILL_BLACK)}
-            title="Black"
+            title={t('masker.fillBlack')}
           />
 
           <div className="tool-sep" />
@@ -784,7 +803,7 @@ export default function Masker(): React.JSX.Element {
           <button
             className="tool-btn"
             onClick={deleteSelected}
-            title="Delete selected"
+            title={t('masker.deleteSelected')}
             disabled={selectedRectId === null}
             style={{ color: selectedRectId !== null ? 'var(--oxblood)' : undefined }}
           >
@@ -795,26 +814,19 @@ export default function Masker(): React.JSX.Element {
 
           <div className="tool-sep" />
 
-          <button className="btn btn-quiet !py-1.5 text-[12px]" onClick={copyMasksToAll} title="Copy current page masks to all pages">
-            Copy to all pages
+          <button className="btn btn-quiet !py-1.5 text-[12px]" onClick={copyMasksToAll} title={t('masker.copyToAllTitle')}>
+            {t('masker.copyToAll')}
           </button>
-
-          <span className="text-[11px] px-2 py-1 rounded" style={{ background: 'var(--paper-2)', color: 'var(--mute)' }}>
-            Draw rectangles to cover <span style={{ color: 'var(--ink)' }}>apparatus criticus</span> and marginalia — masked areas are whited out before OCR
-            {project?.pages.some((p) => p.masks.length > 0) && (
-              <> · {project.pages.filter((p) => p.masks.length > 0).length} pages masked</>
-            )}
-          </span>
 
           <div className="tool-sep" />
 
           <button
             className="btn btn-quiet !py-1.5 text-[12px]"
             onClick={() => project && window.api.exportCOCO(project)}
-            title="Export all masks as COCO JSON (class: ApparatusCriticus)"
+            title={t('masker.exportCocoTitle')}
             disabled={!project?.pages.some((p) => p.masks.length > 0)}
           >
-            Export COCO
+            {t('masker.exportCoco')}
           </button>
 
           <div className="ml-auto flex items-center gap-2 text-[12px]" style={{ color: 'var(--mute)' }}>
@@ -822,7 +834,7 @@ export default function Masker(): React.JSX.Element {
               p. <span className="font-mono font-semibold" style={{ color: 'var(--ink)' }}>{page?.n}</span>
             </span>
             <span>·</span>
-            <span>{page?.masks.length ?? 0} masks</span>
+            <span>{t('masker.masksCount', { count: page?.masks.length ?? 0 })}</span>
           </div>
         </div>
 
@@ -904,7 +916,7 @@ export default function Masker(): React.JSX.Element {
             </Stage>
           ) : (
             <div className="flex items-center justify-center w-[420px] h-[560px]" style={{ background: 'var(--paper-2)', border: '1px solid var(--line-2)' }}>
-              <span className="font-mono text-[12px]" style={{ color: 'var(--mute)' }}>Loading…</span>
+              <span className="font-mono text-[12px]" style={{ color: 'var(--mute)' }}>{t('masker.loading')}</span>
             </div>
           )}
         </div>
@@ -948,7 +960,7 @@ export default function Masker(): React.JSX.Element {
 
           <div className="ml-auto flex items-center gap-3">
             <label className="flex items-center gap-2 text-[12px] cursor-pointer">
-              <span style={{ color: 'var(--mute)' }}>Skip this page</span>
+              <span style={{ color: 'var(--mute)' }}>{t('masker.skipPage')}</span>
               <button
                 className={`relative w-9 h-5 rounded-full border transition-colors ${page?.status === 'skipped' ? 'bg-[color:var(--oxblood)] border-[color:var(--oxblood-2)]' : 'border-[color:var(--line-2)]'}`}
                 style={{ background: page?.status === 'skipped' ? undefined : 'var(--paper-3)' }}
@@ -964,7 +976,7 @@ export default function Masker(): React.JSX.Element {
               className="btn btn-ghost !py-1.5"
               onClick={() => navigate('/ocr')}
             >
-              Next: OCR Run
+              {t('masker.nextOcrRun')}
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m9 6 6 6-6 6" /></svg>
             </button>
           </div>

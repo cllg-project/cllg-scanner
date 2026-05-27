@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import type * as pdfjs from 'pdfjs-dist'
 import type { Project } from '@shared/types'
 import Sidebar from '../components/Sidebar'
@@ -19,23 +20,21 @@ import {
   togglePage
 } from '../utils/pageImport'
 
-const STATUS_LABEL: Record<string, string> = {
-  pending: 'pending',
-  masked: 'masking',
-  ocr_done: 'complete',
-  skipped: 'skipped',
-  error: 'error'
-}
-
 function projectProgress(p: Project): number {
   if (!p.pages.length) return 0
   const done = p.pages.filter((pg) => pg.status === 'ocr_done').length
   return Math.round((done / p.pages.length) * 100)
 }
 
-function timeAgo(iso: string): string {
+function timeAgo(iso: string, locale: string): string {
   const diff = Date.now() - new Date(iso).getTime()
   const mins = Math.floor(diff / 60000)
+  if (locale === 'fr') {
+    if (mins < 60) return mins <= 1 ? "à l'instant" : `il y a ${mins} min`
+    const hrs = Math.floor(mins / 60)
+    if (hrs < 24) return `il y a ${hrs} h`
+    return `il y a ${Math.floor(hrs / 24)} j`
+  }
   if (mins < 60) return mins <= 1 ? 'just now' : `${mins} min ago`
   const hrs = Math.floor(mins / 60)
   if (hrs < 24) return `${hrs} hr ago`
@@ -60,6 +59,7 @@ interface PendingImport {
 // ── Component ────────────────────────────────────────────────────────────────
 
 export default function Home(): React.JSX.Element {
+  const { t, i18n } = useTranslation()
   const [recent, setRecent] = useState<Project[]>([])
   const [pendingImport, setPendingImport] = useState<PendingImport | null>(null)
   const [importStep, setImportStep] = useState<string | null>(null)
@@ -149,7 +149,7 @@ export default function Home(): React.JSX.Element {
     const sourcePath = await window.api.selectDocument()
     if (!sourcePath) return
 
-    setImportStep('Reading file…')
+    setImportStep(t('home.readingFile'))
     try {
       const bytes = await window.api.loadPDFData(sourcePath)
 
@@ -157,7 +157,7 @@ export default function Home(): React.JSX.Element {
       const primary: 'pdf' | 'djvu' = magic !== 'unknown' ? magic : formatFromExtension(sourcePath)
       const fallback: 'pdf' | 'djvu' = primary === 'pdf' ? 'djvu' : 'pdf'
 
-      setImportStep(`Opening as ${primary.toUpperCase()}…`)
+      setImportStep(t('home.openingAs', { format: primary.toUpperCase() }))
       let mode = primary
       let result: { doc: pdfjs.PDFDocumentProxy | unknown; totalPages: number } | null = null
       let primaryError: string | null = null
@@ -167,14 +167,14 @@ export default function Home(): React.JSX.Element {
       } catch (err) {
         primaryError = err instanceof Error ? err.message : String(err)
         console.warn(`Failed as ${primary}, trying ${fallback}:`, err)
-        setImportStep(`Retrying as ${fallback.toUpperCase()}…`)
+        setImportStep(t('home.retryingAs', { format: fallback.toUpperCase() }))
         try {
           result = await tryLoadDocument(fallback, bytes)
           mode = fallback
         } catch (fallbackErr) {
           const fallbackError = fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr)
           setErrorMessage({
-            title: 'Cannot open this file',
+            title: t('home.cannotOpenFile'),
             detail: `Tried PDF: ${primaryError}\n\nTried DjVu: ${fallbackError}`
           })
           return
@@ -190,7 +190,7 @@ export default function Home(): React.JSX.Element {
       })
     } catch (err) {
       setErrorMessage({
-        title: 'Failed to read file',
+        title: t('home.failedToReadFile'),
         detail: err instanceof Error ? err.message : String(err)
       })
     } finally {
@@ -202,11 +202,11 @@ export default function Home(): React.JSX.Element {
     const dirPath = await window.api.selectImageDir()
     if (!dirPath) return
 
-    setImportStep('Scanning folder…')
+    setImportStep(t('home.scanningFolder'))
     try {
       const files = await window.api.listImagesInDir(dirPath)
       if (!files.length) {
-        setImportStep('No images found in that folder')
+        setImportStep(t('home.noImagesFound'))
         await new Promise((r) => setTimeout(r, 2000))
         return
       }
@@ -233,10 +233,10 @@ export default function Home(): React.JSX.Element {
     if (!projectDir) return
 
     setPendingImport(null)
-    setImportStep('Creating project…')
+    setImportStep(t('home.creatingProject'))
     try {
       const project = await window.api.newProject(sourcePath, projectDir)
-      setImportStep(`Importing ${pageNums.length} pages…`)
+      setImportStep(t('home.importingPages', { count: pageNums.length }))
 
       let updated: Project
       if (mode === 'pdf') {
@@ -248,7 +248,7 @@ export default function Home(): React.JSX.Element {
         updated = await importImagePages(selectedPaths, project, (cur, total) => setImportProgress({ cur, total }))
       }
 
-      setImportStep('Saving…')
+      setImportStep(t('home.savingProject'))
       await saveProject(updated)
       setProject(updated)
       navigate('/masker')
@@ -274,7 +274,6 @@ export default function Home(): React.JSX.Element {
   }, [])
 
   const busy = !!importStep
-  const modeLabel: Record<ImportMode, string> = { pdf: 'PDF', djvu: 'DjVu', images: 'images' }
 
   return (
     <div className="flex h-full">
@@ -287,13 +286,13 @@ export default function Home(): React.JSX.Element {
           <div className="flex items-end justify-between gap-8">
             <div>
               <div className="font-mono text-[10px] tracking-[.18em] uppercase mb-2" style={{ color: 'var(--mute)' }}>
-                Welcome back
+                {t('home.welcomeBack')}
               </div>
               <h1 className="font-serif text-[40px] leading-[1.05] tracking-tight">
-                Begin a new <em>codex</em>, or resume your work.
+                {t('home.heroTitle')}
               </h1>
               <p className="text-[13.5px] mt-3 max-w-[560px]" style={{ color: 'var(--mute)' }}>
-                Import a PDF, DjVu, or folder of images — CLLG will render them for masking and OCR.
+                {t('home.heroSubtitle')}
               </p>
             </div>
             <div className="flex flex-col gap-2 shrink-0 items-end">
@@ -308,20 +307,20 @@ export default function Home(): React.JSX.Element {
                       <path d="M12 5v14M5 12h14" />
                     </svg>
                   )}
-                  New project (PDF / DjVu)
+                  {t('home.newProject')}
                 </button>
                 <button className="btn btn-ghost" onClick={handleNewProjectFromImages} disabled={busy || !!pendingImport}>
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
                     <rect x="3" y="3" width="18" height="18" rx="2" /><path d="m3 15 5-5 4 4 3-3 5 5" />
                   </svg>
-                  Image folder…
+                  {t('home.imageFolder')}
                 </button>
               </div>
               <button className="btn btn-ghost" onClick={handleOpenProject} disabled={busy || !!pendingImport}>
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
                   <path d="M3 7l2-2h6l2 2h8v12H3z" />
                 </svg>
-                Open existing project…
+                {t('home.openExisting')}
               </button>
             </div>
           </div>
@@ -331,17 +330,17 @@ export default function Home(): React.JSX.Element {
             <div className="mt-6 panel p-5" style={{ maxWidth: '960px' }}>
               <div className="flex items-baseline justify-between mb-3">
                 <div>
-                  <div className="font-serif text-[17px] leading-tight">Select pages to import</div>
+                  <div className="font-serif text-[17px] leading-tight">{t('home.selectPages')}</div>
                   <div className="font-mono text-[11px] mt-0.5" style={{ color: 'var(--mute)' }}>
                     {pendingImport.mode === 'images'
-                      ? `Folder contains `
-                      : `${modeLabel[pendingImport.mode]} has `}
+                      ? t('home.folderContains')
+                      : t('home.pdfHas', { format: pendingImport.mode.toUpperCase() })}{' '}
                     <span style={{ color: 'var(--ink)' }}>{pendingImport.totalPages}</span>
-                    {pendingImport.mode === 'images' ? ' images' : ' pages'} total
+                    {' '}{pendingImport.mode === 'images' ? t('home.images') : t('common.pages')} {t('home.total')}
                   </div>
                 </div>
                 <button className="btn btn-quiet !py-1 !px-2 !text-[12px]" onClick={() => setPendingImport(null)}>
-                  Cancel
+                  {t('common.cancel')}
                 </button>
               </div>
 
@@ -352,11 +351,11 @@ export default function Home(): React.JSX.Element {
                   <>
                     <div className="flex items-center gap-3">
                       <div className="flex-1">
-                        <div className="label mb-1">Pages</div>
+                        <div className="label mb-1">{t('home.pagesLabel')}</div>
                         <input
                           type="text"
                           className="input font-mono"
-                          placeholder={`e.g. 1-5,7,9 (total: ${pendingImport.totalPages})`}
+                          placeholder={t('home.pagesPlaceholder', { total: pendingImport.totalPages })}
                           value={pendingImport.rangeText}
                           onChange={(e) => {
                             const val = e.target.value
@@ -375,51 +374,51 @@ export default function Home(): React.JSX.Element {
                         />
                       </div>
                       <div className="mt-4 font-mono text-[12px]" style={{ color: valid ? 'var(--ink)' : 'var(--oxblood)', fontWeight: 600, minWidth: 60 }}>
-                        {valid ? `${parsed.length} pages` : 'invalid'}
+                        {valid ? t('home.pagesCount', { count: parsed.length }) : t('home.invalid')}
                       </div>
                       <div className="mt-4">
                         <button className="btn btn-primary" onClick={handleConfirmImport} disabled={!valid}>
                           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                             <path d="M12 3v12" /><path d="m7 10 5 5 5-5" /><path d="M5 21h14" />
                           </svg>
-                          Import {valid ? parsed.length : 0} pages
+                          {t('home.importPages', { count: valid ? parsed.length : 0 })}
                         </button>
                       </div>
                     </div>
 
                     <div className="mt-2 flex gap-2 flex-wrap">
-                      <button className="btn btn-quiet !py-1 !px-2 !text-[11px]" onClick={() => setPendingImport((p) => p && ({ ...p, rangeText: `1-${p.totalPages}` }))}>All</button>
-                      <button className="btn btn-quiet !py-1 !px-2 !text-[11px]" onClick={() => setPendingImport((p) => p && ({ ...p, rangeText: `${Math.max(1, Math.round(p.totalPages * 0.05))}-${Math.round(p.totalPages * 0.95)}` }))}>Skip covers (~5%)</button>
-                      <button className="btn btn-quiet !py-1 !px-2 !text-[11px]" onClick={() => setPendingImport((p) => p && ({ ...p, rangeText: `1-${Math.ceil(p.totalPages / 2)}` }))}>First half</button>
-                      <button className="btn btn-quiet !py-1 !px-2 !text-[11px]" onClick={() => setPendingImport((p) => p && ({ ...p, rangeText: `${Math.floor(p.totalPages / 2) + 1}-${p.totalPages}` }))}>Second half</button>
+                      <button className="btn btn-quiet !py-1 !px-2 !text-[11px]" onClick={() => setPendingImport((p) => p && ({ ...p, rangeText: `1-${p.totalPages}` }))}>{t('home.quickSelectAll')}</button>
+                      <button className="btn btn-quiet !py-1 !px-2 !text-[11px]" onClick={() => setPendingImport((p) => p && ({ ...p, rangeText: `${Math.max(1, Math.round(p.totalPages * 0.05))}-${Math.round(p.totalPages * 0.95)}` }))}>{t('home.quickSkipCovers')}</button>
+                      <button className="btn btn-quiet !py-1 !px-2 !text-[11px]" onClick={() => setPendingImport((p) => p && ({ ...p, rangeText: `1-${Math.ceil(p.totalPages / 2)}` }))}>{t('home.quickFirstHalf')}</button>
+                      <button className="btn btn-quiet !py-1 !px-2 !text-[11px]" onClick={() => setPendingImport((p) => p && ({ ...p, rangeText: `${Math.floor(p.totalPages / 2) + 1}-${p.totalPages}` }))}>{t('home.quickSecondHalf')}</button>
                       <div className="w-px self-stretch" style={{ background: 'var(--line-2)' }} />
                       <button
                         className="btn btn-quiet !py-1 !px-2 !text-[11px]"
-                        title="Keep only odd-numbered pages from the current selection"
+                        title={t('home.quickOddPagesTitle')}
                         onClick={() => setPendingImport((p) => {
                           if (!p) return p
                           const base = parseRange(p.rangeText || `1-${p.totalPages}`, p.totalPages)
                           return { ...p, rangeText: compressRange(base.filter((n) => n % 2 === 1)) }
                         })}
-                      >Odd pages</button>
+                      >{t('home.quickOddPages')}</button>
                       <button
                         className="btn btn-quiet !py-1 !px-2 !text-[11px]"
-                        title="Keep only even-numbered pages from the current selection"
+                        title={t('home.quickEvenPagesTitle')}
                         onClick={() => setPendingImport((p) => {
                           if (!p) return p
                           const base = parseRange(p.rangeText || `1-${p.totalPages}`, p.totalPages)
                           return { ...p, rangeText: compressRange(base.filter((n) => n % 2 === 0)) }
                         })}
-                      >Even pages</button>
+                      >{t('home.quickEvenPages')}</button>
                     </div>
 
                     {/* ── Thumbnail filmstrip ───────────────────────── */}
                     <div className="mt-4 border-t pt-4" style={{ borderColor: 'var(--line)' }}>
                       <div className="flex items-center justify-between mb-2">
-                        <span className="label">Preview</span>
+                        <span className="label">{t('home.previewLabel')}</span>
                         {thumbProgress && (
                           <span className="font-mono text-[10px]" style={{ color: 'var(--mute)' }}>
-                            Loading {thumbProgress.cur}/{thumbProgress.total}…
+                            {t('home.loading', { cur: thumbProgress.cur, total: thumbProgress.total })}
                           </span>
                         )}
                       </div>
@@ -445,12 +444,12 @@ export default function Home(): React.JSX.Element {
                               }}
                             >
                               <button
-                                title={`View page ${n}`}
+                                title={t('home.pagePreviewTitle', { n })}
                                 onClick={() => setZoomedPage(n)}
                                 style={{ display: 'block', height: '100%', padding: 0, border: 'none', background: 'none', cursor: 'zoom-in' }}
                               >
                                 {thumb
-                                  ? <img src={thumb} alt={`Page ${n}`} style={{ display: 'block', height: '100%', width: 'auto' }} draggable={false} />
+                                  ? <img src={thumb} alt={t('home.pageAlt', { n })} style={{ display: 'block', height: '100%', width: 'auto' }} draggable={false} />
                                   : <div style={{ height: '100%', width: Math.round(thumbH * 0.72), display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                                       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="animate-spin" style={{ color: 'var(--mute-2)' }}>
                                         <path d="M21 12a9 9 0 1 1-6.3-8.6"/>
@@ -468,7 +467,7 @@ export default function Home(): React.JSX.Element {
 
                               <button
                                 className="opacity-0 group-hover/thumb:opacity-100 transition-opacity"
-                                title={selected ? 'Remove from selection' : 'Add to selection'}
+                                title={selected ? t('home.removeFromSelection') : t('home.addToSelection')}
                                 onClick={() => setPendingImport((p) => p && ({ ...p, rangeText: togglePage(p.rangeText, n, p.totalPages) }))}
                                 style={{
                                   position: 'absolute', top: 3, right: 3,
@@ -493,7 +492,7 @@ export default function Home(): React.JSX.Element {
                       </div>
 
                       <div className="text-[10.5px] mt-1" style={{ color: 'var(--mute)' }}>
-                        Click thumbnail to preview · +/× to add/remove · drag handle to resize · nothing saved until you choose a folder
+                        {t('home.filmstripHint')}
                       </div>
                     </div>
                   </>
@@ -532,8 +531,8 @@ export default function Home(): React.JSX.Element {
         {recent.length > 0 && (
           <div className="px-10 pt-8 pb-10">
             <div className="flex items-baseline justify-between mb-5">
-              <h2 className="font-serif text-[22px]">Recent projects</h2>
-              <span className="text-[12px]" style={{ color: 'var(--mute)' }}>{recent.length} total</span>
+              <h2 className="font-serif text-[22px]">{t('home.recentProjects')}</h2>
+              <span className="text-[12px]" style={{ color: 'var(--mute)' }}>{t('home.recentTotal', { count: recent.length })}</span>
             </div>
             <div className="grid grid-cols-3 gap-4">
               {recent.map((p) => {
@@ -548,15 +547,15 @@ export default function Home(): React.JSX.Element {
                     <div className="flex items-start gap-2 mb-2">
                       <span className={`badge ${done ? 'badge-ocr' : p.pages.some((pg) => pg.status === 'masked') ? 'badge-masked' : 'badge-pending'}`}>
                         {done && <span className="dot dot-ok" />}
-                        {STATUS_LABEL[done ? 'ocr_done' : p.pages.some((pg) => pg.status === 'masked') ? 'masked' : 'pending']}
+                        {done ? t('masker.statusOcr') : p.pages.some((pg) => pg.status === 'masked') ? t('masker.statusMask') : t('masker.statusPend')}
                       </span>
                       <span className="font-mono text-[10.5px] mr-auto" style={{ color: 'var(--mute)' }}>
-                        {timeAgo(p.updatedAt)}
+                        {timeAgo(p.updatedAt, i18n.language)}
                       </span>
                       <button
                         onClick={(e) => removeRecent(e, p)}
                         className="opacity-0 group-hover:opacity-100 transition-opacity w-5 h-5 flex items-center justify-center rounded hover:bg-black/10 shrink-0"
-                        title="Remove from list"
+                        title={t('home.removeFromList')}
                         style={{ color: 'var(--mute)' }}
                       >
                         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
@@ -574,7 +573,7 @@ export default function Home(): React.JSX.Element {
                       <div className="text-[11px]" style={{ color: 'var(--mute)' }}>
                         <span className="font-semibold" style={{ color: 'var(--ink)' }}>
                           {p.pages.filter((pg) => pg.status === 'ocr_done').length}
-                        </span>{' '}/ {p.pages.length} pages
+                        </span>{' '}/ {p.pages.length} {t('common.pages')}
                       </div>
                       <div className="text-[11px] font-semibold" style={{ color: done ? 'var(--moss)' : 'var(--oxblood)' }}>
                         {p.pages.length ? `${progress}%` : '—'}
@@ -616,7 +615,7 @@ export default function Home(): React.JSX.Element {
             {thumbnails[zoomedPage - 1]
               ? <img
                   src={thumbnails[zoomedPage - 1]}
-                  alt={`Page ${zoomedPage}`}
+                  alt={t('home.pageAlt', { n: zoomedPage })}
                   style={{ maxWidth: '80vw', maxHeight: '78vh', objectFit: 'contain', borderRadius: 4, boxShadow: '0 8px 40px rgba(0,0,0,0.6)' }}
                   draggable={false}
                 />
@@ -630,20 +629,20 @@ export default function Home(): React.JSX.Element {
             {/* Controls bar */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <span style={{ color: 'rgba(255,255,255,0.5)', fontFamily: 'monospace', fontSize: 12 }}>
-                Page {zoomedPage} / {pendingImport.totalPages}
+                {t('home.pageCounter', { current: zoomedPage, total: pendingImport.totalPages })}
               </span>
               <div style={{ width: 1, height: 14, background: 'rgba(255,255,255,0.2)' }} />
               <button
                 className="btn btn-quiet"
                 style={{ color: 'rgba(255,255,255,0.75)', fontSize: 12 }}
                 onClick={() => setPendingImport((p) => p && ({ ...p, rangeText: togglePage(p.rangeText, zoomedPage, p.totalPages) }))}
-              >{pendingImport && parseRange(pendingImport.rangeText, pendingImport.totalPages).includes(zoomedPage) ? '× Remove' : '+ Add'}</button>
+              >{pendingImport && parseRange(pendingImport.rangeText, pendingImport.totalPages).includes(zoomedPage) ? t('home.removePage') : t('home.addPage')}</button>
               <div style={{ width: 1, height: 14, background: 'rgba(255,255,255,0.2)' }} />
               <button
                 className="btn btn-quiet"
                 style={{ color: 'rgba(255,255,255,0.5)', fontSize: 12 }}
                 onClick={() => setZoomedPage(null)}
-              >Close <kbd style={{ fontSize: 10, opacity: 0.6 }}>Esc</kbd></button>
+              >{t('common.close')} <kbd style={{ fontSize: 10, opacity: 0.6 }}>Esc</kbd></button>
             </div>
           </div>
 
@@ -687,7 +686,7 @@ export default function Home(): React.JSX.Element {
               </div>
             </div>
             <div className="flex justify-end">
-              <button className="btn btn-ghost" onClick={() => setErrorMessage(null)}>Dismiss</button>
+              <button className="btn btn-ghost" onClick={() => setErrorMessage(null)}>{t('common.dismiss')}</button>
             </div>
           </div>
         </div>

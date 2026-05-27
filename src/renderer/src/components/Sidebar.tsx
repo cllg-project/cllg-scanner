@@ -1,7 +1,7 @@
 import React, { useState } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
-import { useProject } from '../App'
+import { useProject, useTourContext } from '../App'
 
 interface SidebarProps {
   collapsed?: boolean
@@ -125,6 +125,7 @@ export default function Sidebar({ collapsed = false }: SidebarProps): React.JSX.
   const { project } = useProject()
   const [showAbout, setShowAbout] = useState(false)
   const { t, i18n } = useTranslation()
+  const tour = useTourContext()
 
   const NAV = [
     {
@@ -268,31 +269,59 @@ export default function Sidebar({ collapsed = false }: SidebarProps): React.JSX.
           </div>
         )}
 
-        <div className="px-3 py-3 border-t border-black/30 flex items-center gap-2">
-          <div
-            className="w-7 h-7 rounded-full flex items-center justify-center font-serif text-[14px]"
-            style={{ background: '#5a4a36', color: '#f3ecda' }}
-          >
-            C
-          </div>
-          {!collapsed && (
-            <div className="text-[11.5px] leading-tight flex-1 min-w-0">
-              <div style={{ color: '#e9e3d3' }}>{t('common.localWorkspace')}</div>
-              <div className="font-mono text-[10px]" style={{ color: '#8e8472' }}>
-                {t('common.offline')}
-              </div>
-            </div>
+        <div className="px-2 py-2 border-t border-black/30 flex items-center gap-1.5">
+          {collapsed ? (
+            <>
+              <button
+                onClick={() => tour.start()}
+                title={t('tour.startTour')}
+                className="flex-1 flex items-center justify-center h-8 rounded opacity-60 hover:opacity-100 transition-opacity"
+                style={{ color: '#e9e3d9' }}
+              >
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <circle cx="12" cy="12" r="10" />
+                  <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" strokeLinecap="round" /><circle cx="12" cy="17" r="1" fill="currentColor" stroke="none" />
+                </svg>
+              </button>
+              <button
+                onClick={() => setShowAbout(true)}
+                title={t('sidebar.aboutTitle')}
+                className="flex-1 flex items-center justify-center h-8 rounded opacity-60 hover:opacity-100 transition-opacity"
+                style={{ color: '#e9e3d9' }}
+              >
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <circle cx="12" cy="12" r="10" /><line x1="12" y1="11" x2="12" y2="16" strokeLinecap="round" /><circle cx="12" cy="7.5" r="1" fill="currentColor" stroke="none" />
+                </svg>
+              </button>
+            </>
+          ) : (
+            <>
+              <button
+                onClick={() => tour.start()}
+                title={t('tour.startTour')}
+                className="flex-1 flex items-center gap-2 px-2.5 h-8 rounded text-left transition-colors"
+                style={{ color: '#c9bfad', fontSize: 12.5, background: 'rgba(255,255,255,0.04)' }}
+                onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(255,255,255,0.1)')}
+                onMouseLeave={(e) => (e.currentTarget.style.background = 'rgba(255,255,255,0.04)')}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ flexShrink: 0 }}>
+                  <circle cx="12" cy="12" r="10" />
+                  <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" strokeLinecap="round" /><circle cx="12" cy="17" r="1" fill="currentColor" stroke="none" />
+                </svg>
+                {t('tour.startTour')}
+              </button>
+              <button
+                onClick={() => setShowAbout(true)}
+                title={t('sidebar.aboutTitle')}
+                className="shrink-0 flex items-center justify-center w-8 h-8 rounded opacity-50 hover:opacity-100 transition-opacity"
+                style={{ color: '#e9e3d9' }}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <circle cx="12" cy="12" r="10" /><line x1="12" y1="11" x2="12" y2="16" strokeLinecap="round" /><circle cx="12" cy="7.5" r="1" fill="currentColor" stroke="none" />
+                </svg>
+              </button>
+            </>
           )}
-          <button
-            onClick={() => setShowAbout(true)}
-            title={t('sidebar.aboutTitle')}
-            className="shrink-0 flex items-center justify-center w-6 h-6 rounded-full opacity-50 hover:opacity-100 transition-opacity"
-            style={{ color: '#e9e3d9' }}
-          >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <circle cx="12" cy="12" r="10" /><path d="M12 16v-4M12 8h.01" />
-            </svg>
-          </button>
         </div>
       </div>
 

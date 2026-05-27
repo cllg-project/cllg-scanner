@@ -225,7 +225,7 @@ export default function Export(): React.JSX.Element {
 
         {/* Bottom bar */}
         <div className="border-t px-6 h-14 flex items-center gap-4 shrink-0" style={{ borderColor: 'var(--line)', background: 'var(--paper-3)' }}>
-          <button className="btn btn-primary" onClick={generate} disabled={generating || !hasHierarchy}>
+          <button className="btn btn-primary" data-tour="export-generate" onClick={generate} disabled={generating || !hasHierarchy}>
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z" /><polyline points="13 2 13 9 20 9" />
             </svg>

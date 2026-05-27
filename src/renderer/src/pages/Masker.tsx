@@ -269,12 +269,13 @@ export default function Masker(): React.JSX.Element {
   const [filmstripImages, setFilmstripImages] = useState<Map<number, string>>(new Map())
 
   useEffect(() => {
-    if (!project) return
+    if (!project) { setFilmstripImages(new Map()); return }
     let cancelled = false
+    // Clear stale thumbnails so images from a previous project are not shown
+    setFilmstripImages(new Map())
     const load = async (): Promise<void> => {
       for (const p of project.pages) {
         if (cancelled) break
-        if (filmstripImages.has(p.n)) continue
         const abs = await window.api.joinPaths(project.projectDir, p.imagePath)
         const url = await window.api.loadImageAsDataUrl(abs)
         if (cancelled) break
@@ -288,7 +289,7 @@ export default function Masker(): React.JSX.Element {
     load()
     return () => { cancelled = true }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [project?.pages.length, project?.id])
+  }, [project?.id])
 
   // Add Pages state
   const [showAddPages, setShowAddPages] = useState(false)
@@ -674,6 +675,7 @@ export default function Masker(): React.JSX.Element {
                 <button
                   className="absolute top-1 right-1 z-20 w-5 h-5 flex items-center justify-center rounded"
                   style={{ background: 'rgba(255,255,255,.75)' }}
+                  data-tour={i === 0 ? 'masker-example' : undefined}
                   title={p.isExample ? t('masker.removeExample') : t('masker.setExample', { max: MAX_EXAMPLES })}
                   onClick={(e) => { e.stopPropagation(); toggleExample(i) }}
                 >
@@ -763,7 +765,7 @@ export default function Masker(): React.JSX.Element {
         </div>
 
         {/* Toolbar — row 2: tools */}
-        <div className="toolbar">
+        <div className="toolbar" data-tour="masker-tools">
           <button
             className={`tool-btn ${tool === 'pointer' ? 'active' : ''}`}
             onClick={() => setTool('pointer')}
@@ -840,6 +842,7 @@ export default function Masker(): React.JSX.Element {
 
         {/* Canvas */}
         <div
+          data-tour="masker-canvas"
           className="flex-1 relative overflow-auto flex items-start justify-center p-8"
           style={{ background: '#d5cdb8', backgroundImage: 'radial-gradient(rgba(0,0,0,.08) 1px, transparent 1px)', backgroundSize: '14px 14px' }}
         >

@@ -375,7 +375,7 @@ export default function OCRRun(): React.JSX.Element {
                     </svg>
                     {t('ocr.resume')}
                   </button>
-                  <button className="btn btn-primary" onClick={startOCR} disabled={running}>
+                  <button className="btn btn-primary" data-tour="ocr-run" onClick={startOCR} disabled={running}>
                     <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M6 4l14 8-14 8z" /></svg>
                     {t('ocr.runOcr')}
                   </button>
@@ -401,6 +401,7 @@ export default function OCRRun(): React.JSX.Element {
                   <input
                     className="input font-mono text-[12px]"
                     style={{ paddingTop: 4, paddingBottom: 4, width: 210 }}
+                    data-tour="ocr-endpoint"
                     value={lmConfig.endpoint}
                     onChange={(e) => setLMConfig((c) => ({ ...c, endpoint: e.target.value }))}
                     placeholder="http://localhost:1234"

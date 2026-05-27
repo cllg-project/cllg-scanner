@@ -82,6 +82,7 @@ function LevelCard({
             <div className="flex gap-1.5">
               <select
                 className="input font-mono text-[12px] !w-auto"
+                data-tour="config-format"
                 value={FORMAT_OPTIONS.includes(level.pattern) ? level.pattern : 'custom'}
                 onChange={(e) =>
                   onChange({ ...level, pattern: e.target.value === 'custom' ? '' : e.target.value })
@@ -599,7 +600,7 @@ export default function Config(): React.JSX.Element {
             </section>
 
             {/* Hierarchy */}
-            <section>
+            <section data-tour="config-hierarchy">
               <div className="flex items-baseline justify-between mb-4">
                 <div className="flex items-baseline gap-3">
                   <h3 className="font-serif text-[20px]">{t('config.hierarchy')}</h3>

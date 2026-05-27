@@ -207,7 +207,8 @@ export default function Review(): React.JSX.Element {
       if (!project) return
       if (pages.has(page.n)) return
       const content = await window.api.loadMarkdown(project.projectDir, page.n)
-      setPages((prev) => new Map(prev).set(page.n, makePageState(content)))
+      // loadMarkdown returns '' when file is missing; fall back to page.markdown (used by tour demo)
+      setPages((prev) => new Map(prev).set(page.n, makePageState(content || page.markdown || '')))
     },
     [project, pages]
   )
@@ -929,7 +930,7 @@ export default function Review(): React.JSX.Element {
           </div>
 
           {/* Right: editor pane */}
-          <div className="flex flex-col overflow-hidden">
+          <div className="flex flex-col overflow-hidden" data-tour="review-editor">
 
             {/* Editor local toolbar */}
             <div className="border-b shrink-0" style={{ borderColor: 'var(--line)', background: 'var(--paper-2)' }}>
@@ -939,6 +940,7 @@ export default function Review(): React.JSX.Element {
                 <button
                   className="inline-flex items-center gap-1.5 border rounded"
                   style={{ padding: '4px 8px', fontFamily: 'ui-monospace, monospace', fontSize: 11.5, fontWeight: 500, background: '#d8e2c6', borderColor: '#b8c8a0', color: '#3b5a30', lineHeight: 1 }}
+                  data-tour="review-tag-ref"
                   onClick={() => insertTag('<ref level="">', '</ref>')}
                   title={t('review.tagRef')}
                 >
@@ -1194,7 +1196,7 @@ export default function Review(): React.JSX.Element {
 
                 {/* Row 2: tag-specific */}
                 {cursorTag.kind === 'ref' && (
-                  <div className="px-3 py-1.5 flex items-center gap-2.5 border-t" style={{ borderColor: 'rgba(0,0,0,.06)', borderStyle: 'dashed' }}>
+                  <div className="px-3 py-1.5 flex items-center gap-2.5 border-t" data-tour="review-level" style={{ borderColor: 'rgba(0,0,0,.06)', borderStyle: 'dashed' }}>
                     {levelList.length > 0 && (
                       <div className="flex items-center gap-1.5 shrink-0">
                         <span className="text-[10px] uppercase tracking-[.12em] font-semibold" style={{ color: 'var(--mute)' }}>{t('review.levelLabel')}</span>

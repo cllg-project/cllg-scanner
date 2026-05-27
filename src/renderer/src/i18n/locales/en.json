@@ -343,6 +343,76 @@
     "runReOcr": "Run",
     "runningReOcr": "Running…"
   },
+  "tour": {
+    "startTour": "Take the tour",
+    "skipTour": "Skip",
+    "prev": "Back",
+    "next": "Next",
+    "finish": "Start my first project",
+    "stepOf": "{{current}} / {{total}}",
+    "steps": {
+      "welcome": {
+        "title": "CLLG — Guided Tour",
+        "body": "This 6-step tool turns scanned PDFs of ancient Greek and Latin scholarship into structured TEI XML, using the Qwen3VL-8b vision model. Follow along to see every key button and field. The page on the right is from the BNF Discours funèbres — used as an example throughout this tour."
+      },
+      "home-new-project": {
+        "title": "Step 1 · Import your document",
+        "body": "Click «New project» to load a PDF or DjVu scan — for example a Gallica facsimile. CLLG renders each page as an image inside a project folder on your machine."
+      },
+      "home-page-range": {
+        "title": "Select the pages to import",
+        "body": "Type a range like «127-131» to import only the relevant text pages. Use the quick buttons (Skip covers, First half, Odd pages…) to filter faster. The filmstrip lets you preview each page before confirming."
+      },
+      "masker-canvas": {
+        "title": "Step 2 · Mask what shouldn't be read",
+        "body": "Draw white rectangles over the apparatus criticus and margin notes. Masked areas are replaced with white pixels before the model sees the image, keeping the transcription focused on the main text."
+      },
+      "masker-tools": {
+        "title": "Masking tools",
+        "body": "Rectangle tool (shortcut D) draws a new mask. Choose White to blank text, Black to erase an existing mask. Select a rectangle then press Delete to remove it. Use «Copy to all pages» for a consistent apparatus position."
+      },
+      "masker-example": {
+        "title": "Mark few-shot example pages",
+        "body": "Star up to 3 pages as examples. Before processing each new page, the model will read their completed transcriptions as context — significantly improving accuracy on unusual typefaces, ligatures, or layouts."
+      },
+      "ocr-endpoint": {
+        "title": "Step 3 · Connect to LM Studio",
+        "body": "Enter your LM Studio server address (default: http://localhost:1234) and select the Qwen3VL-8b model from the dropdown. Click «Test» to confirm the connection and measure latency."
+      },
+      "ocr-run": {
+        "title": "Run OCR",
+        "body": "Click «Run OCR» to start transcription. Pages are processed one by one and cached to disk — you can stop at any time and resume later. The live log shows token count and generation speed. Below: real Qwen3VL-8b output from the BNF Discours funèbres."
+      },
+      "config-hierarchy": {
+        "title": "Step 4 · Define the document structure",
+        "body": "This is the heart of the pipeline. Describe the hierarchical reference structure of your text: Book → Chapter → Section. This drives both the reference classifier (which assigns <ref> tags to levels) and the nested <div> structure in TEI export."
+      },
+      "config-format": {
+        "title": "Reference patterns — how the classifier reads your text",
+        "body": "Choose the numeral system for each level: Roman (I II III) for books, Arabic (1 2 3) for chapters, Greek (α β γ) for sections. The classifier scores every reference token against all levels and picks the best fit. Custom regex patterns work for unusual numbering systems."
+      },
+      "review-editor": {
+        "title": "Step 5 · Review and correct",
+        "body": "Compare the source scan (left) with the OCR transcription (right). Edit the text directly to fix recognition errors. Changes are auto-saved. Use the page status dropdown to track your progress across the document."
+      },
+      "review-tag-ref": {
+        "title": "Tag reference markers",
+        "body": "Select a reference number (e.g. «II» or «3a») and press ⌘R to wrap it in a <ref> tag. The tag dock appears at the bottom of the editor — use it to assign the marker to the right level."
+      },
+      "review-level": {
+        "title": "Assign a hierarchy level",
+        "body": "Click a numbered button (1, 2…) to tell CLLG which level this reference belongs to. Level 1 = the outermost division (e.g. discourse), level 2 = the next one (e.g. section). A marker with no level (–) is kept in the text but ignored during TEI export."
+      },
+      "export-generate": {
+        "title": "Step 6 · Export to TEI P5 XML",
+        "body": "Click «Generate» to produce a TEI P5 XML file validated against tei_all.rng. Each level-1 <ref> opens a <div>, level-2 <ref> opens a nested <div>, and the transcribed text becomes <p> elements inside. The snippet below is the actual structure you get."
+      },
+      "finale": {
+        "title": "You're ready!",
+        "body": "Import a PDF from Gallica or any other source and start building your corpus. The BNF «Discours funèbres de Grégoire de Nazianze» used in this tour is a fine starting point — pages 127–131 contain Greek orations with Roman numeral references (I, II, III…) that map directly to the hierarchy system shown above."
+      }
+    }
+  },
   "export": {
     "title": "TEI Export",
     "subtitle": "CLLG concatenates the OCR'd markdown and emits a single TEI P5 XML file",

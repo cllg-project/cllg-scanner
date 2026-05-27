@@ -36,6 +36,8 @@ export function registerPDFHandlers(): void {
   // recomputed relative to the base to handle cross-OS project moves.
   ipcMain.handle('path:join', (_event, ...parts: string[]) => {
     const last = parts[parts.length - 1]
+    // data: URIs are self-contained — path.join would corrupt them via normalization
+    if (last.startsWith('data:')) return last
     if (!isAbsolute(last)) return join(...parts)
     if (existsSync(last)) return last
     // Absolute path doesn't exist on this OS — resolve relative to base
@@ -46,6 +48,7 @@ export function registerPDFHandlers(): void {
 
   // Load an image file and return as base64 data URL
   ipcMain.handle('page:loadImage', async (_event, absolutePath: string) => {
+    if (absolutePath.startsWith('data:')) return absolutePath   // pre-encoded (e.g. tour demo)
     const data = await readFile(absolutePath)
     const ext = absolutePath.split('.').pop()?.toLowerCase()
     const mime = ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg' : 'image/png'

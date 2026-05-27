@@ -343,6 +343,76 @@
     "runReOcr": "Lancer",
     "runningReOcr": "En cours…"
   },
+  "tour": {
+    "startTour": "Visite guidée",
+    "skipTour": "Passer",
+    "prev": "Précédent",
+    "next": "Suivant",
+    "finish": "Commencer mon premier projet",
+    "stepOf": "{{current}} / {{total}}",
+    "steps": {
+      "welcome": {
+        "title": "CLLG — Visite guidée",
+        "body": "Cet outil en 6 étapes convertit des PDF de textes grecs et latins anciens en XML TEI structuré, grâce au modèle de vision Qwen3VL-8b. Suivez ce guide pour découvrir chaque champ et bouton clé. La page à droite est extraite des Discours funèbres de la BNF — utilisée comme exemple tout au long de cette visite."
+      },
+      "home-new-project": {
+        "title": "Étape 1 · Importer votre document",
+        "body": "Cliquez sur «Nouveau projet» pour charger un PDF ou DjVu — par exemple un fac-similé Gallica. CLLG convertit chaque page en image dans un dossier projet sur votre machine."
+      },
+      "home-page-range": {
+        "title": "Sélectionner les pages à importer",
+        "body": "Saisissez une plage comme «127-131» pour n'importer que les pages de texte pertinentes. Les boutons rapides (Sans couvertures, Première moitié, Pages impaires…) accélèrent la sélection. La bande de film vous permet de prévisualiser chaque page avant de confirmer."
+      },
+      "masker-canvas": {
+        "title": "Étape 2 · Masquer ce que le modèle ne doit pas lire",
+        "body": "Dessinez des rectangles blancs sur l'apparat critique et les notes marginales. Les zones masquées sont remplacées par des pixels blancs avant que le modèle ne voie l'image, concentrant la transcription sur le texte principal."
+      },
+      "masker-tools": {
+        "title": "Outils de masquage",
+        "body": "L'outil Rectangle (raccourci D) dessine un nouveau masque. Choisissez Blanc pour effacer du texte, Noir pour supprimer un masque existant. Sélectionnez un rectangle puis appuyez sur Supprimer pour le retirer. Utilisez «Copier vers toutes les pages» pour un apparat toujours à la même position."
+      },
+      "masker-example": {
+        "title": "Pages exemples pour l'apprentissage",
+        "body": "Étoilez jusqu'à 3 pages comme exemples. Avant chaque nouvelle page, le modèle lira leurs transcriptions finalisées comme contexte — ce qui améliore nettement la précision sur les polices, ligatures ou mises en page inhabituelles."
+      },
+      "ocr-endpoint": {
+        "title": "Étape 3 · Connexion à LM Studio",
+        "body": "Saisissez l'adresse de votre serveur LM Studio (par défaut : http://localhost:1234) et sélectionnez le modèle Qwen3VL-8b dans la liste. Cliquez sur «Tester» pour confirmer la connexion et mesurer la latence."
+      },
+      "ocr-run": {
+        "title": "Lancer l'OCR",
+        "body": "Cliquez sur «Lancer l'OCR» pour démarrer la transcription. Les pages sont traitées une par une et mises en cache — vous pouvez vous arrêter à tout moment et reprendre plus tard. Le journal affiche le nombre de tokens et la vitesse. Ci-dessous : sortie réelle de Qwen3VL-8b sur les Discours funèbres de la BNF."
+      },
+      "config-hierarchy": {
+        "title": "Étape 4 · Définir la structure du document",
+        "body": "C'est le cœur du pipeline. Décrivez la hiérarchie des références de votre texte : Livre → Chapitre → Section. Cela pilote à la fois le classificateur de références (qui assigne les balises <ref> aux niveaux) et la structure <div> imbriquée de l'export TEI."
+      },
+      "config-format": {
+        "title": "Motifs de référence — comment le classificateur lit votre texte",
+        "body": "Choisissez le système de numération pour chaque niveau : Romain (I II III) pour les livres, Arabe (1 2 3) pour les chapitres, Grec (α β γ) pour les sections. Le classificateur évalue chaque token de référence contre tous les niveaux et choisit le meilleur. Les expressions régulières personnalisées fonctionnent pour les systèmes inhabituels."
+      },
+      "review-editor": {
+        "title": "Étape 5 · Réviser et corriger",
+        "body": "Comparez le scan source (gauche) avec la transcription OCR (droite). Modifiez directement pour corriger les erreurs de reconnaissance. Les modifications sont sauvegardées automatiquement. Utilisez le menu de statut pour suivre l'avancement sur l'ensemble du document."
+      },
+      "review-tag-ref": {
+        "title": "Baliser les marqueurs de référence",
+        "body": "Sélectionnez un numéro de référence (ex. «II» ou «3a») et appuyez sur ⌘R pour l'entourer d'une balise <ref>. La barre de balisage apparaît en bas de l'éditeur — utilisez-la pour affecter le marqueur au bon niveau."
+      },
+      "review-level": {
+        "title": "Affecter un niveau hiérarchique",
+        "body": "Cliquez sur un bouton numéroté (1, 2…) pour indiquer à CLLG à quel niveau appartient cette référence. Niveau 1 = division extérieure (ex. discours), niveau 2 = division suivante (ex. section). Un marqueur sans niveau (–) est conservé dans le texte mais ignoré à l'export TEI."
+      },
+      "export-generate": {
+        "title": "Étape 6 · Exporter en TEI P5 XML",
+        "body": "Cliquez sur «Générer» pour produire un fichier TEI P5 XML validé selon tei_all.rng. Chaque <ref> de niveau 1 ouvre un <div>, le niveau 2 un <div> imbriqué, et le texte transcrit devient des éléments <p>. L'extrait ci-dessous est la structure réelle obtenue."
+      },
+      "finale": {
+        "title": "Vous êtes prêt·e !",
+        "body": "Importez un PDF depuis Gallica ou toute autre source et commencez à construire votre corpus. Les «Discours funèbres de Grégoire de Nazianze» de la BNF utilisés dans cette visite sont un excellent point de départ — les pages 127–131 contiennent des oraisons grecques avec des références en chiffres romains (I, II, III…) qui s'appliquent directement au système de hiérarchie présenté ci-dessus."
+      }
+    }
+  },
   "export": {
     "title": "Export TEI",
     "subtitle": "CLLG concatène le markdown OCR et génère un fichier XML TEI P5 unique",

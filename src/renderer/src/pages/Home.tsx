@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next'
 import type * as pdfjs from 'pdfjs-dist'
 import type { Project } from '@shared/types'
 import Sidebar from '../components/Sidebar'
-import { useProject } from '../App'
+import { useProject, useTourContext } from '../App'
 import {
   detectFormatFromBytes,
   formatFromExtension,
@@ -71,8 +71,28 @@ export default function Home(): React.JSX.Element {
   const [filmstripHeight, setFilmstripHeight] = useState(180)
   const filmstripRef = React.useRef<HTMLDivElement>(null)
   const dragRef = React.useRef<{ startY: number; startH: number } | null>(null)
-  const { setProject, saveProject } = useProject()
+  const { setProject, saveProject, project } = useProject()
   const navigate = useNavigate()
+  const tour = useTourContext()
+
+  // When the tour reaches the page-range step, inject a fake pendingImport
+  // so the filmstrip is visible. We use the demo project's data-URI pages.
+  const isTourPageRange = tour.active && tour.stepIndex === 2
+  useEffect(() => {
+    if (isTourPageRange && project?.pages?.length) {
+      setPendingImport({
+        mode: 'images',
+        sourcePath: '__tour_demo__',
+        doc: null,
+        imagePaths: project.pages.map((p) => p.imagePath),
+        totalPages: project.pages.length,
+        rangeText: `1-${project.pages.length}`,
+      })
+    } else {
+      setPendingImport((prev) => (prev?.sourcePath === '__tour_demo__' ? null : prev))
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isTourPageRange, project?.id])
 
   useEffect(() => {
     window.api.getRecentProjects().then(setRecent)
@@ -225,6 +245,7 @@ export default function Home(): React.JSX.Element {
 
   const handleConfirmImport = useCallback(async () => {
     if (!pendingImport) return
+    if (pendingImport.sourcePath === '__tour_demo__') return
     const { mode, sourcePath, doc, imagePaths, totalPages, rangeText } = pendingImport
     const pageNums = parseRange(rangeText, totalPages)
     if (!pageNums.length) return
@@ -297,7 +318,7 @@ export default function Home(): React.JSX.Element {
             </div>
             <div className="flex flex-col gap-2 shrink-0 items-end">
               <div className="flex gap-2">
-                <button className="btn btn-primary" onClick={handleNewProject} disabled={busy || !!pendingImport}>
+                <button className="btn btn-primary" data-tour="home-new-project" onClick={handleNewProject} disabled={busy || !!pendingImport}>
                   {busy ? (
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="animate-spin">
                       <path d="M21 12a9 9 0 1 1-6.3-8.6" />
@@ -321,6 +342,13 @@ export default function Home(): React.JSX.Element {
                   <path d="M3 7l2-2h6l2 2h8v12H3z" />
                 </svg>
                 {t('home.openExisting')}
+              </button>
+              <button className="btn btn-ghost" onClick={() => tour.start()} disabled={busy || !!pendingImport}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+                  <circle cx="12" cy="12" r="10" />
+                  <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" strokeLinecap="round" /><circle cx="12" cy="17" r="1" fill="currentColor" stroke="none" />
+                </svg>
+                {t('tour.startTour')}
               </button>
             </div>
           </div>
@@ -355,6 +383,7 @@ export default function Home(): React.JSX.Element {
                         <input
                           type="text"
                           className="input font-mono"
+                          data-tour="home-page-range"
                           placeholder={t('home.pagesPlaceholder', { total: pendingImport.totalPages })}
                           value={pendingImport.rangeText}
                           onChange={(e) => {

@@ -346,7 +346,12 @@
     "lmEndpoint": "{{endpoint}} · {{model}}",
     "lmNoModel": "(no model set)",
     "runReOcr": "Run",
-    "runningReOcr": "Running…"
+    "runningReOcr": "Running…",
+    "compare": "Compare",
+    "compareKraken": "KRAKEN",
+    "compareRefresh": "Refresh",
+    "compareRunning": "Running Kraken…",
+    "compareStale": "Click Refresh to run Kraken on this page"
   },
   "tour": {
     "startTour": "Take the tour",

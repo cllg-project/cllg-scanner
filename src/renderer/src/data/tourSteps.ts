@@ -105,6 +105,12 @@ export const TOUR_STEPS: TourStep[] = [
     demo: '<!-- discourse II, section 3 -->\n<ref level="1">II</ref>  →  discourse\n<ref level="2">3</ref>   →  section\n<ref>α</ref>            →  unclassified',
   },
   {
+    id: 'review-compare',
+    selector: '[data-tour="review-compare"]',
+    position: 'top',
+    route: '/review',
+  },
+  {
     id: 'export-generate',
     selector: '[data-tour="export-generate"]',
     position: 'top',

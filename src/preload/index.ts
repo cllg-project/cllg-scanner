@@ -85,7 +85,10 @@ const api = {
   getKrakenBuiltinPaths: (): Promise<{ segModelPath: string; recModelPath: string }> =>
     ipcRenderer.invoke('kraken:getBuiltinPaths'),
 
-  rerunPageKraken: (imagePath: string, krakenConfig: KrakenConfig): Promise<{ text: string }> =>
+  rerunPageKraken: (
+    imagePath: string,
+    krakenConfig: KrakenConfig
+  ): Promise<{ text: string; lines: { text: string; corners: [number, number][] }[] }> =>
     ipcRenderer.invoke('kraken:rerun-page', imagePath, krakenConfig.segModelPath, krakenConfig.recModelPath),
 
   // ── TEI ──────────────────────────────────────────────────────────────

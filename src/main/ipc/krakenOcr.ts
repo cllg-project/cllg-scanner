@@ -27,11 +27,13 @@ export function registerKrakenHandlers(): void {
       imagePath: string,
       segModelPath: string,
       recModelPath: string
-    ): Promise<{ text: string }> => {
+    ): Promise<{ text: string; lines: { text: string; corners: [number, number][] }[] }> => {
       // eslint-disable-next-line @typescript-eslint/no-require-imports
       const { KrakenPipeline } = require('kraken-js') as {
         KrakenPipeline: {
-          create: (s: string, r: string) => Promise<{ process: (img: string) => Promise<{ text: string }[]> }>
+          create: (s: string, r: string) => Promise<{
+            process: (img: string) => Promise<{ text: string; obb: { corners: [number, number][] } }[]>
+          }>
         }
       }
 
@@ -47,10 +49,13 @@ export function registerKrakenHandlers(): void {
         }
       }
 
-      const pipeline = cachedPipeline.pipeline as { process: (img: string) => Promise<{ text: string }[]> }
-      const lines = await pipeline.process(imagePath)
+      const pipeline = cachedPipeline.pipeline as {
+        process: (img: string) => Promise<{ text: string; obb: { corners: [number, number][] } }[]>
+      }
+      const rawLines = await pipeline.process(imagePath)
+      const lines = rawLines.map((l) => ({ text: l.text, corners: l.obb.corners }))
       const text = lines.map((l) => l.text).join('\n')
-      return { text }
+      return { text, lines }
     }
   )
 }

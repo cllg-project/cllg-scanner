@@ -179,6 +179,9 @@ export default function Review(): React.JSX.Element {
   const betaPendingRef = useRef<Set<string>>(new Set())
   const sigmaTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
+  const [imgZoom, setImgZoom] = useState(1.0)
+  const imageContainerRef = useRef<HTMLDivElement>(null)
+
   // UI state
   const [statusMenuOpen, setStatusMenuOpen] = useState(false)
   const [moreMenuOpen, setMoreMenuOpen] = useState(false)
@@ -529,6 +532,21 @@ export default function Review(): React.JSX.Element {
   useEffect(() => {
     return () => { if (sigmaTimerRef.current) clearTimeout(sigmaTimerRef.current) }
   }, [betaMode, currentPage])
+
+  useEffect(() => { setImgZoom(1.0) }, [currentIdx])
+
+  useEffect(() => {
+    const el = imageContainerRef.current
+    if (!el) return
+    const handleWheel = (e: WheelEvent): void => {
+      if (!e.ctrlKey && !e.metaKey) return
+      e.preventDefault()
+      const delta = e.deltaY > 0 ? -0.15 : 0.15
+      setImgZoom((prev) => Math.min(4, Math.max(0.2, parseFloat((prev + delta).toFixed(2)))))
+    }
+    el.addEventListener('wheel', handleWheel, { passive: false })
+    return () => el.removeEventListener('wheel', handleWheel)
+  }, [])
 
   const handleBetaKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>): void => {
     if (!betaMode) return
@@ -907,10 +925,23 @@ export default function Review(): React.JSX.Element {
 
           {/* Left: image pane */}
           <div className="flex flex-col overflow-hidden border-r" style={{ borderColor: 'var(--line)' }}>
-            <div className="px-3 py-1.5 border-b shrink-0 flex items-center" style={{ borderColor: 'var(--line)', background: 'var(--paper-2)' }}>
+            <div className="px-3 py-1.5 border-b shrink-0 flex items-center gap-2" style={{ borderColor: 'var(--line)', background: 'var(--paper-2)' }}>
               <span className="font-mono text-[11px]" style={{ color: 'var(--mute)' }}>{t('review.source')}</span>
+              <div className="ml-auto flex items-center gap-0.5">
+                <button className="tool-btn" style={{ width: 22, height: 22, fontSize: 12 }}
+                  onClick={() => setImgZoom((z) => Math.max(0.2, parseFloat((z - 0.15).toFixed(2))))}>−</button>
+                <button
+                  className="font-mono text-[11px] tabular-nums px-1 rounded"
+                  style={{ minWidth: 38, textAlign: 'center', color: imgZoom !== 1 ? 'var(--oxblood)' : 'var(--mute)', cursor: 'pointer', background: 'transparent', border: 'none' }}
+                  onClick={() => setImgZoom(1.0)}
+                  title={t('review.resetZoom')}
+                >{Math.round(imgZoom * 100)}%</button>
+                <button className="tool-btn" style={{ width: 22, height: 22, fontSize: 12 }}
+                  onClick={() => setImgZoom((z) => Math.min(4, parseFloat((z + 0.15).toFixed(2))))}>+</button>
+              </div>
             </div>
             <div
+              ref={imageContainerRef}
               className="flex-1 overflow-auto flex items-start justify-center p-4"
               style={{ background: '#f5f2ec' }}
             >
@@ -918,8 +949,12 @@ export default function Review(): React.JSX.Element {
                 <img
                   src={imageUrl}
                   alt={`Page ${currentPage?.n}`}
-                  className="max-w-full shadow-md"
-                  style={{ border: '1px solid var(--line)' }}
+                  className="shadow-md"
+                  style={{
+                    border: '1px solid var(--line)',
+                    maxWidth: imgZoom === 1 ? '100%' : 'none',
+                    width: imgZoom !== 1 ? `${Math.round(imgZoom * 100)}%` : undefined,
+                  }}
                 />
               ) : (
                 <div className="flex items-center justify-center w-full h-full text-[13px]" style={{ color: 'var(--mute)' }}>

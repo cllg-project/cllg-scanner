@@ -302,6 +302,7 @@
     "saving": "Saving…",
     "save": "Save",
     "source": "SOURCE",
+    "resetZoom": "Reset zoom (click)",
     "loadingPage": "Loading…",
     "noPageSelected": "No page selected",
     "tagRef": "Wrap selection in <ref level=''> (⌘R)",

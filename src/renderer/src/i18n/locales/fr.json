@@ -302,6 +302,7 @@
     "saving": "Enregistrement…",
     "save": "Enregistrer",
     "source": "SOURCE",
+    "resetZoom": "Réinitialiser le zoom (clic)",
     "loadingPage": "Chargement…",
     "noPageSelected": "Aucune page sélectionnée",
     "tagRef": "Entourer la sélection dans <ref level=''> (⌘R)",

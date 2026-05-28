@@ -180,6 +180,7 @@ export default function Review(): React.JSX.Element {
   const sigmaTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const [imgZoom, setImgZoom] = useState(1.0)
+  const [imgNaturalWidth, setImgNaturalWidth] = useState<number | null>(null)
   const imageContainerRef = useRef<HTMLDivElement>(null)
 
   // UI state
@@ -533,7 +534,7 @@ export default function Review(): React.JSX.Element {
     return () => { if (sigmaTimerRef.current) clearTimeout(sigmaTimerRef.current) }
   }, [betaMode, currentPage])
 
-  useEffect(() => { setImgZoom(1.0) }, [currentIdx])
+  useEffect(() => { setImgZoom(1.0); setImgNaturalWidth(null) }, [currentIdx])
 
   useEffect(() => {
     const el = imageContainerRef.current
@@ -542,7 +543,7 @@ export default function Review(): React.JSX.Element {
       if (!e.ctrlKey && !e.metaKey) return
       e.preventDefault()
       const delta = e.deltaY > 0 ? -0.15 : 0.15
-      setImgZoom((prev) => Math.min(4, Math.max(0.2, parseFloat((prev + delta).toFixed(2)))))
+      setImgZoom((prev) => Math.min(7.5,Math.max(0.2, parseFloat((prev + delta).toFixed(2)))))
     }
     el.addEventListener('wheel', handleWheel, { passive: false })
     return () => el.removeEventListener('wheel', handleWheel)
@@ -937,23 +938,34 @@ export default function Review(): React.JSX.Element {
                   title={t('review.resetZoom')}
                 >{Math.round(imgZoom * 100)}%</button>
                 <button className="tool-btn" style={{ width: 22, height: 22, fontSize: 12 }}
-                  onClick={() => setImgZoom((z) => Math.min(4, parseFloat((z + 0.15).toFixed(2))))}>+</button>
+                  onClick={() => setImgZoom((z) => Math.min(7.5,parseFloat((z + 0.15).toFixed(2))))}>+</button>
               </div>
             </div>
             <div
               ref={imageContainerRef}
-              className="flex-1 overflow-auto flex items-start justify-center p-4"
-              style={{ background: '#f5f2ec' }}
+              className="flex-1 overflow-auto flex items-start p-4"
+              style={{ background: '#f5f2ec', justifyContent: 'safe center' }}
             >
               {imageUrl ? (
                 <img
                   src={imageUrl}
                   alt={`Page ${currentPage?.n}`}
                   className="shadow-md"
+                  onLoad={(e) => {
+                    const img = e.target as HTMLImageElement
+                    const nw = img.naturalWidth
+                    setImgNaturalWidth(nw)
+                    const container = imageContainerRef.current
+                    if (container && nw > 0) {
+                      const available = container.clientWidth - 32
+                      setImgZoom(nw > available ? available / nw : 1.0)
+                    }
+                  }}
                   style={{
                     border: '1px solid var(--line)',
-                    maxWidth: imgZoom === 1 ? '100%' : 'none',
-                    width: imgZoom !== 1 ? `${Math.round(imgZoom * 100)}%` : undefined,
+                    flexShrink: 0,
+                    width: imgNaturalWidth ? `${Math.round(imgNaturalWidth * imgZoom)}px` : undefined,
+                    maxWidth: imgNaturalWidth ? 'none' : '100%',
                   }}
                 />
               ) : (

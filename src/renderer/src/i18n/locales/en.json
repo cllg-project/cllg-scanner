@@ -57,7 +57,11 @@
     "openSource": "Open-source dependencies",
     "library": "Library",
     "author": "Author",
-    "license_col": "License"
+    "license_col": "License",
+    "fonts": "Bundled fonts",
+    "fontName": "Font",
+    "fontCopyright": "Copyright",
+    "fontsOflNote": "All fonts are distributed under the SIL Open Font License 1.1. Full license texts are included in the licenses/ directory of this application."
   },
   "language": {
     "label": "Language",

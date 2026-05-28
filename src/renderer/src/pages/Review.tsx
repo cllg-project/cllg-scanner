@@ -1131,14 +1131,14 @@ export default function Review(): React.JSX.Element {
                 <div
                   ref={highlightRef}
                   aria-hidden="true"
-                  className="absolute inset-0 px-4 pt-4 pb-10 overflow-hidden pointer-events-none font-mono leading-relaxed whitespace-pre-wrap break-words"
-                  style={{ color: 'transparent', background: 'transparent', fontSize }}
+                  className="absolute inset-0 px-4 pt-4 pb-10 overflow-hidden pointer-events-none leading-relaxed whitespace-pre-wrap break-words"
+                  style={{ color: 'transparent', background: 'transparent', fontSize, fontFamily: "'Noto Sans Mono', monospace" }}
                   dangerouslySetInnerHTML={{ __html: highlightMarkdown(content, levelMap) }}
                 />
                 <textarea
                   ref={textareaRef}
-                  className="relative w-full px-4 pt-4 pb-10 font-mono leading-relaxed resize-none outline-none caret-[var(--ink)]"
-                  style={{ color: 'var(--ink)', background: 'transparent', overflow: 'hidden', display: 'block', fontSize }}
+                  className="relative w-full px-4 pt-4 pb-10 leading-relaxed resize-none outline-none caret-[var(--ink)]"
+                  style={{ color: 'var(--ink)', background: 'transparent', overflow: 'hidden', display: 'block', fontSize, fontFamily: "'Noto Sans Mono', monospace" }}
                   value={content}
                   onChange={(e) => {
                     setContent(e.target.value)

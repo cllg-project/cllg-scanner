@@ -20,6 +20,8 @@ extraResources:
     to: models/
     filter:
       - '**/*.js_mlmodel'
+  - from: licenses/
+    to: licenses/
 
 win:
   target:

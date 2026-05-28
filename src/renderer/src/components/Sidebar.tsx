@@ -19,6 +19,13 @@ const CREDITS: { name: string; author: string; license: string }[] = [
   { name: 'electron-vite',  author: 'Alex Wei',           license: 'MIT' },
 ]
 
+const FONT_CREDITS: { name: string; copyright: string }[] = [
+  { name: 'Noto Sans Mono', copyright: '© 2022 The Noto Project Authors' },
+  { name: 'IBM Plex Mono',  copyright: '© 2017 IBM Corp.' },
+  { name: 'IBM Plex Sans',  copyright: '© 2017 IBM Corp.' },
+  { name: 'Crimson Pro',    copyright: '© 2018 The Crimson Pro Project Authors' },
+]
+
 function AboutModal({ onClose }: { onClose: () => void }): React.JSX.Element {
   const { t } = useTranslation()
   return (
@@ -111,6 +118,33 @@ function AboutModal({ onClose }: { onClose: () => void }): React.JSX.Element {
                 ))}
               </tbody>
             </table>
+          </div>
+
+          <div className="pt-1" style={{ borderTop: '1px solid var(--line)' }}>
+            <div className="font-mono text-[10px] tracking-[.14em] uppercase mb-2" style={{ color: 'var(--mute)' }}>
+              {t('about.fonts')}
+            </div>
+            <table className="w-full text-[11.5px]" style={{ borderCollapse: 'collapse' }}>
+              <thead>
+                <tr style={{ color: 'var(--mute)' }}>
+                  <th className="text-left font-mono font-normal pb-1.5 pr-4">{t('about.fontName')}</th>
+                  <th className="text-left font-mono font-normal pb-1.5 pr-4">{t('about.fontCopyright')}</th>
+                  <th className="text-left font-mono font-normal pb-1.5">{t('about.license_col')}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {FONT_CREDITS.map(f => (
+                  <tr key={f.name} style={{ borderTop: '1px solid var(--line-2)' }}>
+                    <td className="py-1 pr-4 font-mono">{f.name}</td>
+                    <td className="py-1 pr-4 text-[11px]" style={{ color: 'var(--mute)' }}>{f.copyright}</td>
+                    <td className="py-1 font-mono text-[10.5px]" style={{ color: 'var(--mute)' }}>OFL 1.1</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <p className="mt-2 text-[11px] leading-relaxed" style={{ color: 'var(--mute)' }}>
+              {t('about.fontsOflNote')}
+            </p>
           </div>
 
         </div>

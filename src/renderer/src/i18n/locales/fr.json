@@ -57,7 +57,11 @@
     "openSource": "Dépendances open-source",
     "library": "Bibliothèque",
     "author": "Auteur",
-    "license_col": "Licence"
+    "license_col": "Licence",
+    "fonts": "Polices intégrées",
+    "fontName": "Police",
+    "fontCopyright": "Copyright",
+    "fontsOflNote": "Toutes les polices sont distribuées sous la licence SIL Open Font License 1.1. Les textes complets des licences sont inclus dans le répertoire licenses/ de cette application."
   },
   "language": {
     "label": "Langue",

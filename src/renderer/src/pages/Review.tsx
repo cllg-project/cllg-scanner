@@ -233,6 +233,30 @@ export default function Review(): React.JSX.Element {
   const [imgNaturalHeight, setImgNaturalHeight] = useState<number | null>(null)
   const imageContainerRef = useRef<HTMLDivElement>(null)
 
+  const [splitRatio, setSplitRatio] = useState(() => {
+    const saved = project?.id ? localStorage.getItem(`review:split:${project.id}`) : null
+    return saved ? parseFloat(saved) : 0.45
+  })
+  const splitContainerRef = useRef<HTMLDivElement>(null)
+  const isDraggingRef = useRef(false)
+
+  useEffect(() => {
+    if (!project?.id) return
+    localStorage.setItem(`review:split:${project.id}`, String(splitRatio))
+  }, [splitRatio, project?.id])
+
+  useEffect(() => {
+    const onMove = (e: MouseEvent): void => {
+      if (!isDraggingRef.current || !splitContainerRef.current) return
+      const rect = splitContainerRef.current.getBoundingClientRect()
+      setSplitRatio(Math.min(0.75, Math.max(0.2, (e.clientX - rect.left) / rect.width)))
+    }
+    const onUp = (): void => { isDraggingRef.current = false; document.body.style.cursor = '' }
+    document.addEventListener('mousemove', onMove)
+    document.addEventListener('mouseup', onUp)
+    return () => { document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp) }
+  }, [])
+
   const [compareMode, setCompareMode] = useState(false)
   const [krakenCompareText, setKrakenCompareText] = useState<string | null>(null)
   const [krakenLines, setKrakenLines] = useState<{ text: string; corners: [number, number][] }[]>([])
@@ -1044,10 +1068,10 @@ export default function Review(): React.JSX.Element {
         )}
 
         {/* ── Editor split ── */}
-        <div className="flex-1 grid overflow-hidden" style={{ gridTemplateColumns: '1fr 1fr' }}>
+        <div ref={splitContainerRef} className="flex-1 flex overflow-hidden">
 
           {/* Left: image pane */}
-          <div className="flex flex-col overflow-hidden border-r" style={{ borderColor: 'var(--line)' }}>
+          <div className="flex flex-col overflow-hidden" style={{ width: `${splitRatio * 100}%`, flexShrink: 0 }}>
             <div className="px-3 py-1.5 border-b shrink-0 flex items-center gap-2" style={{ borderColor: 'var(--line)', background: 'var(--paper-2)' }}>
               <span className="font-mono text-[11px]" style={{ color: 'var(--mute)' }}>{t('review.source')}</span>
               <div className="ml-auto flex items-center gap-0.5">
@@ -1125,8 +1149,18 @@ export default function Review(): React.JSX.Element {
             </div>
           </div>
 
+          {/* Drag handle */}
+          <div
+            style={{ width: 5, flexShrink: 0, cursor: 'col-resize', background: 'var(--line)', position: 'relative', zIndex: 10 }}
+            onMouseDown={(e) => { e.preventDefault(); isDraggingRef.current = true; document.body.style.cursor = 'col-resize' }}
+          >
+            <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%,-50%)', display: 'flex', flexDirection: 'column', gap: 3, pointerEvents: 'none' }}>
+              {[0,1,2,3,4].map((i) => <div key={i} style={{ width: 2, height: 2, borderRadius: '50%', background: 'var(--mute-2)' }} />)}
+            </div>
+          </div>
+
           {/* Right: editor pane */}
-          <div className="flex flex-col overflow-hidden" data-tour="review-editor">
+          <div className="flex flex-col overflow-hidden" style={{ flex: 1, minWidth: 0 }} data-tour="review-editor">
 
             {/* Editor local toolbar */}
             <div className="border-b shrink-0" style={{ borderColor: 'var(--line)', background: 'var(--paper-2)' }}>

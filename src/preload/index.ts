@@ -113,6 +113,9 @@ const api = {
   exportCOCO: (project: Project): Promise<void> =>
     ipcRenderer.invoke('export:coco', project),
 
+  exportProjectZip: (projectDir: string, projectName: string): Promise<string | null> =>
+    ipcRenderer.invoke('project:exportZip', projectDir, projectName),
+
   loadOCROutput: (projectDir: string): Promise<string> =>
     ipcRenderer.invoke('ocr:loadOutput', projectDir),
 

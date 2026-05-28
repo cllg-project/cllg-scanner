@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import {
   computeDiff, computeSuggestionRanges, acceptSuggestion,
-  type DiffTokens, type SuggestionRange,
+  detectLatinChars, applyLatinSuggestion,
+  type DiffTokens, type SuggestionRange, type LatinChar,
 } from '../utils/krakenDiff'
 import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
@@ -126,32 +127,15 @@ function highlightMarkdown(text: string, levelMap: Map<number, FlatLevel>): stri
       '<mark class="tag-lb">$1</mark>')
 }
 
-// Highlight markdown with integrated wavy-underline diff suggestions.
+// Highlight markdown with integrated wavy-underline diff suggestions and Latin char detection.
 // Uses private-use Unicode chars as placeholders that survive HTML escaping.
-const DIFF_OPEN = '', DIFF_SEP = '', DIFF_CLOSE = ''
+const DIFF_OPEN = '\uE001', DIFF_SEP = '\uE002', DIFF_CLOSE = '\uE003'
+const LATIN_OPEN = '\uE004', LATIN_CLOSE = '\uE005'
 const DIFF_TOKEN_RE = new RegExp(`${DIFF_OPEN}(\\d+)${DIFF_SEP}([\\s\\S]*?)${DIFF_CLOSE}`, 'g')
+const LATIN_TOKEN_RE = new RegExp(`${LATIN_OPEN}([\\s\\S])${LATIN_CLOSE}`, 'g')
 
-function highlightMarkdownWithDiff(
-  text: string,
-  levelMap: Map<number, FlatLevel>,
-  ranges: SuggestionRange[]
-): string {
-  if (!ranges.length) return highlightMarkdown(text, levelMap)
-
-  const starts = new Map<number, number>()
-  const ends = new Set<number>()
-  for (const r of ranges) { starts.set(r.origStart, r.tokenIdx); ends.add(r.origEnd) }
-
-  let marked = '', inMark = false
-  for (let pos = 0; pos < text.length; pos++) {
-    if (ends.has(pos) && inMark) { marked += DIFF_CLOSE; inMark = false }
-    if (starts.has(pos)) { marked += `${DIFF_OPEN}${starts.get(pos)!}${DIFF_SEP}`; inMark = true }
-    marked += text[pos]
-  }
-  if (inMark) marked += DIFF_CLOSE
-
-  let html = marked.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-  html = html
+function applyHighlights(html: string, levelMap: Map<number, FlatLevel>): string {
+  return html
     .replace(/(&lt;ref\s+level="([1-9]\d*)"&gt;)(.*?)(&lt;\/ref&gt;)/g, (_, open, n, inner, close) => {
       const lv = levelMap.get(Number(n))
       const { fg, bg } = lv ? levelColor(lv) : { fg: LEVEL_FG_DEFAULT, bg: '#eceff1' }
@@ -166,8 +150,51 @@ function highlightMarkdownWithDiff(
     .replace(/^(#{1,3} .+)$/gm, '<mark class="tag-head">$1</mark>')
     .replace(/(&lt;lb[^&]*?\/&gt;)/g, '<mark class="tag-lb">$1</mark>')
     .replace(/(\p{L}+-)(?=[\t ]|&lt;|$)/gmu, '<mark class="tag-lb">$1</mark>')
+}
+
+function highlightMarkdownWithDiff(
+  text: string,
+  levelMap: Map<number, FlatLevel>,
+  ranges: SuggestionRange[],
+  latinChars: LatinChar[] = []
+): string {
+  if (!ranges.length && !latinChars.length) return highlightMarkdown(text, levelMap)
+
+  const diffStarts = new Map<number, number>()
+  const diffEnds = new Set<number>()
+  const diffCovered = new Set<number>()
+  for (const r of ranges) {
+    diffStarts.set(r.origStart, r.tokenIdx)
+    diffEnds.add(r.origEnd)
+    for (let p = r.origStart; p < r.origEnd; p++) diffCovered.add(p)
+  }
+
+  const latinOpenSet = new Set<number>()
+  const latinCloseSet = new Set<number>()
+  for (const lc of latinChars) {
+    if (!diffCovered.has(lc.origStart)) {
+      latinOpenSet.add(lc.origStart)
+      latinCloseSet.add(lc.origStart + 1)
+    }
+  }
+
+  let marked = '', inDiff = false, inLatin = false
+  for (let pos = 0; pos < text.length; pos++) {
+    if (diffEnds.has(pos) && inDiff)        { marked += DIFF_CLOSE;  inDiff  = false }
+    if (latinCloseSet.has(pos) && inLatin)  { marked += LATIN_CLOSE; inLatin = false }
+    if (diffStarts.has(pos))  { marked += `${DIFF_OPEN}${diffStarts.get(pos)!}${DIFF_SEP}`; inDiff  = true }
+    if (latinOpenSet.has(pos)) { marked += LATIN_OPEN; inLatin = true }
+    marked += text[pos]
+  }
+  if (inDiff)  marked += DIFF_CLOSE
+  if (inLatin) marked += LATIN_CLOSE
+
+  let html = marked.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  html = applyHighlights(html, levelMap)
   html = html.replace(DIFF_TOKEN_RE, (_, tokenIdx, inner) =>
     `<mark class="diff-suggestion" data-token="${tokenIdx}">${inner}</mark>`)
+  html = html.replace(LATIN_TOKEN_RE, (_, ch) =>
+    `<mark class="latin-char">${ch}</mark>`)
   return html
 }
 
@@ -267,6 +294,10 @@ export default function Review(): React.JSX.Element {
   const [activeSuggestion, setActiveSuggestion] = useState<SuggestionRange | null>(null)
   const [ignoredTokens, setIgnoredTokens] = useState<Set<number>>(new Set())
 
+  const [latinMode, setLatinMode] = useState(false)
+  const [activeLatinChar, setActiveLatinChar] = useState<LatinChar | null>(null)
+  const [ignoredLatinPositions, setIgnoredLatinPositions] = useState<Set<number>>(new Set())
+
   // UI state
   const [statusMenuOpen, setStatusMenuOpen] = useState(false)
   const [moreMenuOpen, setMoreMenuOpen] = useState(false)
@@ -340,6 +371,11 @@ export default function Review(): React.JSX.Element {
   }, [compareMode, krakenDiffTokens, content, ignoredTokens])
 
   useEffect(() => { setActiveSuggestion(null); setIgnoredTokens(new Set()) }, [krakenDiffTokens])
+
+  const latinChars = useMemo<LatinChar[]>(() => {
+    if (!latinMode) return []
+    return detectLatinChars(content).filter((c) => !ignoredLatinPositions.has(c.origStart))
+  }, [latinMode, content, ignoredLatinPositions])
 
   // Find which Kraken line the active suggestion's replacement text falls in
   const activeSuggestionLineIdx = useMemo<number | null>(() => {
@@ -651,6 +687,7 @@ export default function Review(): React.JSX.Element {
     setImgZoom(1.0); setImgNaturalWidth(null); setImgNaturalHeight(null)
     setCompareMode(false)
     setKrakenCompareText(null); setKrakenLines([]); setCompareError(null); setActiveSuggestion(null)
+    setActiveLatinChar(null); setIgnoredLatinPositions(new Set())
   }, [currentIdx])
 
   useEffect(() => {
@@ -1365,6 +1402,25 @@ export default function Review(): React.JSX.Element {
                   )}
                 </button>
 
+                {/* Latin character detection */}
+                <button
+                  className="btn btn-quiet text-[11px]"
+                  style={{ padding: '3px 8px', ...(latinMode ? { color: '#1d4ed8', borderColor: '#1d4ed8', background: '#dbeafe' } : {}) }}
+                  onClick={() => {
+                    setLatinMode((m) => !m)
+                    setActiveLatinChar(null)
+                  }}
+                  title={t('review.latinTitle')}
+                >
+                  <span style={{ fontFamily: 'serif', fontStyle: 'italic', fontSize: 13, lineHeight: 1 }}>A/α</span>
+                  {t('review.latin')}
+                  {latinMode && latinChars.length > 0 && (
+                    <span style={{ marginLeft: 3, background: '#1d4ed8', color: '#fff', borderRadius: 8, padding: '0 5px', fontSize: 10, fontWeight: 600, lineHeight: '16px' }}>
+                      {latinChars.length}
+                    </span>
+                  )}
+                </button>
+
               </div>
             </div>
 
@@ -1396,6 +1452,38 @@ export default function Review(): React.JSX.Element {
               </div>
             )}
 
+            {/* Latin char banner */}
+            {latinMode && activeLatinChar && (
+              <div className="shrink-0 border-b px-4 py-2 flex items-center gap-3 text-[12px] flex-wrap" style={{ borderColor: 'var(--line)', background: '#eff6ff' }}>
+                <span className="font-mono shrink-0" style={{ color: 'var(--mute)', fontSize: 10, textTransform: 'uppercase', letterSpacing: '.1em' }}>{t('review.latinLabel')}</span>
+                <span style={{ fontFamily: "'Noto Sans Mono', monospace", color: '#1d4ed8', textDecoration: 'underline wavy #2563eb', textDecorationThickness: '1.5px' }}>{activeLatinChar.char}</span>
+                <span style={{ color: 'var(--mute)' }}>→</span>
+                {activeLatinChar.suggestion
+                  ? <span style={{ fontFamily: "'Noto Sans Mono', monospace", color: '#15803d' }}>{activeLatinChar.suggestion}</span>
+                  : <span style={{ color: 'var(--mute)', fontStyle: 'italic' }}>{t('review.latinNoSuggestion')}</span>}
+                <div className="ml-auto flex items-center gap-1.5 shrink-0">
+                  {activeLatinChar.suggestion && (
+                    <button
+                      className="btn btn-quiet text-[11px]"
+                      style={{ padding: '3px 10px', background: '#dcfce7', borderColor: '#15803d', color: '#15803d' }}
+                      onClick={() => {
+                        setContent(applyLatinSuggestion(content, activeLatinChar))
+                        setActiveLatinChar(null)
+                      }}
+                    >{t('review.latinAccept')}</button>
+                  )}
+                  <button
+                    className="btn btn-quiet text-[11px]"
+                    style={{ padding: '3px 10px' }}
+                    onClick={() => {
+                      setIgnoredLatinPositions((prev) => new Set(prev).add(activeLatinChar.origStart))
+                      setActiveLatinChar(null)
+                    }}
+                  >{t('review.latinDismiss')}</button>
+                </div>
+              </div>
+            )}
+
             {/* Scrollable editor */}
             <div
               ref={scrollContainerRef}
@@ -1408,8 +1496,8 @@ export default function Review(): React.JSX.Element {
                   aria-hidden="true"
                   className="absolute inset-0 px-4 pt-4 pb-10 overflow-hidden pointer-events-none leading-relaxed whitespace-pre-wrap break-words"
                   style={{ color: 'transparent', background: 'transparent', fontSize, fontFamily: "'Noto Sans Mono', monospace" }}
-                  dangerouslySetInnerHTML={{ __html: compareMode && suggestionRanges.length
-                    ? highlightMarkdownWithDiff(content, levelMap, suggestionRanges)
+                  dangerouslySetInnerHTML={{ __html: (compareMode && suggestionRanges.length) || (latinMode && latinChars.length)
+                    ? highlightMarkdownWithDiff(content, levelMap, suggestionRanges, latinChars)
                     : highlightMarkdown(content, levelMap) }}
                 />
                 <textarea
@@ -1424,11 +1512,15 @@ export default function Review(): React.JSX.Element {
                   }}
                   onClick={(e) => {
                     updateCursorTag()
+                    const ta = e.currentTarget
+                    const pos = ta.selectionStart
                     if (compareMode && suggestionRanges.length) {
-                      const ta = e.currentTarget
-                      const pos = ta.selectionStart
                       const hit = suggestionRanges.find((r) => pos >= r.origStart && pos <= r.origEnd)
                       setActiveSuggestion(hit ?? null)
+                    }
+                    if (latinMode && latinChars.length) {
+                      const hit = latinChars.find((c) => pos >= c.origStart && pos <= c.origStart + 1)
+                      setActiveLatinChar(hit ?? null)
                     }
                   }}
                   onKeyUp={updateCursorTag}
@@ -1602,6 +1694,8 @@ export default function Review(): React.JSX.Element {
         mark.tag-lb   { background: #d6e7df; color: #2e5a4a; }
         mark.diff-suggestion { background: transparent; text-decoration: underline wavy #dc2626; text-decoration-thickness: 1.5px; cursor: pointer; border-radius: 0; }
         mark.diff-suggestion:hover { background: rgba(220,38,38,0.08); }
+        mark.latin-char { background: transparent; text-decoration: underline wavy #2563eb; text-decoration-thickness: 1.5px; cursor: pointer; border-radius: 0; }
+        mark.latin-char:hover { background: rgba(37,99,235,0.08); }
         @keyframes spin { from { transform: rotate(0deg) } to { transform: rotate(360deg) } }
       `}</style>
     </div>

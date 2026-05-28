@@ -41,10 +41,20 @@ export default function Export(): React.JSX.Element {
   const { t } = useTranslation()
   const STEP_LABELS = [t('steps.import'), t('steps.mask'), t('steps.ocr'), t('steps.config'), t('steps.review'), t('steps.tei')]
   const { project } = useProject()
+
+  const projectDisplayName = project
+    ? (() => {
+        const { author, title } = project.metadata
+        const parts = [author?.trim(), title?.trim()].filter(Boolean)
+        return parts.length ? parts.join(' – ') : (project.name || 'project')
+      })()
+    : 'project'
+
   const [log, setLog] = useState<string[]>([])
   const [generating, setGenerating] = useState(false)
   const [saving, setSaving] = useState(false)
   const [lastOutputPath, setLastOutputPath] = useState<string | null>(null)
+  const [zipping, setZipping] = useState(false)
   const [ocrPreview, setOcrPreview] = useState<string>('')
   const [teiXml, setTeiXml] = useState<string | null>(null)
   const [activeTab, setActiveTab] = useState<Tab>('md')
@@ -93,7 +103,7 @@ export default function Export(): React.JSX.Element {
     if (!project || !teiXml) return
     setSaving(true)
     try {
-      const outputPath = await window.api.selectSaveFile(`${project.name}.xml`, 'xml')
+      const outputPath = await window.api.selectSaveFile(`${projectDisplayName}.xml`, 'xml')
       if (!outputPath) return
       await window.api.saveTEI({ xml: teiXml, outputPath })
       setLastOutputPath(outputPath)
@@ -247,6 +257,25 @@ export default function Export(): React.JSX.Element {
               {t('export.showInFolder')}
             </button>
           )}
+
+          <button
+            className="btn btn-ghost"
+            disabled={zipping || !project}
+            onClick={async () => {
+              if (!project) return
+              setZipping(true)
+              try {
+                await window.api.exportProjectZip(project.projectDir, projectDisplayName)
+              } finally {
+                setZipping(false)
+              }
+            }}
+          >
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" />
+            </svg>
+            {zipping ? t('export.zipping') : t('export.exportZip')}
+          </button>
 
           {!hasHierarchy && (
             <div className="flex items-center gap-2 px-3 py-1.5 rounded-md border" style={{ background: '#fbf2dc', borderColor: '#d9c688' }}>

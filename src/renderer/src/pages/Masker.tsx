@@ -25,7 +25,6 @@ import type * as pdfjs from 'pdfjs-dist'
 type Tool = 'pointer' | 'rect'
 
 const FILL_WHITE = '#ffffff'
-const FILL_BLACK = '#000000'
 const MAX_EXAMPLES = 3
 const CURRENT_STEP = 2
 
@@ -254,7 +253,6 @@ export default function Masker(): React.JSX.Element {
 
   const [selectedPageIdx, setSelectedPageIdx] = useState(0)
   const [tool, setTool] = useState<Tool>('rect')
-  const [fillColor, setFillColor] = useState(FILL_WHITE)
   const [zoom, setZoom] = useState(1)
   const [konvaImg, setKonvaImg] = useState<HTMLImageElement | null>(null)
   const [selectedRectId, setSelectedRectId] = useState<number | null>(null)
@@ -396,11 +394,11 @@ export default function Masker(): React.JSX.Element {
         y: Math.min(y1, y2),
         width: w,
         height: h,
-        fill: fillColor
+        fill: FILL_WHITE
       }
       updateMasks([...(page?.masks ?? []), newMask])
     },
-    [isDrawing, zoom, fillColor, page, updateMasks]
+    [isDrawing, zoom, page, updateMasks]
   )
 
   const deleteSelected = useCallback(() => {
@@ -787,19 +785,6 @@ export default function Masker(): React.JSX.Element {
 
           <div className="tool-sep" />
 
-          {/* Fill color */}
-          <span className="text-[11px] mr-1" style={{ color: 'var(--mute)' }}>{t('masker.fillLabel')}</span>
-          <button
-            className={`w-7 h-7 rounded border-2 bg-white ${fillColor === FILL_WHITE ? 'border-[color:var(--oxblood)]' : 'border-[color:var(--line-2)]'}`}
-            onClick={() => setFillColor(FILL_WHITE)}
-            title={t('masker.fillWhite')}
-          />
-          <button
-            className={`w-7 h-7 rounded border bg-[#1a1714] ${fillColor === FILL_BLACK ? 'border-[color:var(--oxblood)]' : 'border-[color:var(--line-2)]'}`}
-            onClick={() => setFillColor(FILL_BLACK)}
-            title={t('masker.fillBlack')}
-          />
-
           <div className="tool-sep" />
 
           <button
@@ -874,8 +859,8 @@ export default function Masker(): React.JSX.Element {
                     y={mask.y * zoom}
                     width={mask.width * zoom}
                     height={mask.height * zoom}
-                    fill={mask.fill}
-                    opacity={mask.fill === FILL_WHITE ? 0.8 : 0.7}
+                    fill={FILL_WHITE}
+                    opacity={0.8}
                     stroke={selectedRectId === i ? 'var(--oxblood)' : '#aaa'}
                     strokeWidth={1.5}
                     draggable={tool === 'pointer'}
@@ -906,9 +891,9 @@ export default function Masker(): React.JSX.Element {
                     y={draftRect.y * zoom}
                     width={draftRect.width * zoom}
                     height={draftRect.height * zoom}
-                    fill={fillColor}
+                    fill={FILL_WHITE}
                     opacity={0.4}
-                    stroke={fillColor === FILL_WHITE ? '#888' : '#ccc'}
+                    stroke="#888"
                     strokeWidth={1.5}
                     dash={[6, 3]}
                     listening={false}

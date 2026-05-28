@@ -140,9 +140,6 @@
     "nextOcr": "Suivant : OCR",
     "nextOcrRun": "Suivant : Lancement OCR",
     "skipPage": "Ignorer cette page",
-    "fillLabel": "Remplissage",
-    "fillWhite": "Blanc",
-    "fillBlack": "Noir",
     "toolPointer": "Pointeur",
     "toolRect": "Masque rectangulaire",
     "deleteSelected": "Supprimer la sélection",
@@ -354,7 +351,13 @@
     "compareStale": "Cliquez sur Actualiser pour lancer Kraken sur cette page",
     "suggestionAccept": "Accepter",
     "suggestionDismiss": "Ignorer",
-    "suggestionDelete": "(supprimer)"
+    "suggestionDelete": "(supprimer)",
+    "latin": "Latin",
+    "latinTitle": "Détecter les caractères latins pouvant être des confusions OCR avec le grec",
+    "latinLabel": "LATIN",
+    "latinAccept": "Remplacer",
+    "latinDismiss": "Ignorer",
+    "latinNoSuggestion": "pas d'équivalent grec"
   },
   "tour": {
     "startTour": "Visite guidée",
@@ -382,7 +385,7 @@
       },
       "masker-tools": {
         "title": "Outils de masquage",
-        "body": "L'outil Rectangle (raccourci D) dessine un nouveau masque. Choisissez Blanc pour effacer du texte, Noir pour supprimer un masque existant. Sélectionnez un rectangle puis appuyez sur Supprimer pour le retirer. Utilisez «Copier vers toutes les pages» pour un apparat toujours à la même position."
+        "body": "L'outil Rectangle (raccourci D) dessine un masque blanc sur la zone à masquer. Sélectionnez un rectangle puis appuyez sur Supprimer pour le retirer. Utilisez «Copier vers toutes les pages» pour un apparat toujours à la même position."
       },
       "masker-example": {
         "title": "Pages exemples pour l'apprentissage",
@@ -446,6 +449,8 @@
     "saveAs": "Enregistrer sous…",
     "saving": "Enregistrement…",
     "showInFolder": "Afficher dans le dossier",
+    "exportZip": "Partager le projet…",
+    "zipping": "Compression…",
     "noHierarchy": "Aucune hiérarchie définie — revenez à la configuration de la structure."
   }
 }

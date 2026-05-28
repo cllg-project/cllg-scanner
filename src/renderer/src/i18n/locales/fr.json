@@ -347,7 +347,7 @@
     "lmNoModel": "(aucun modèle défini)",
     "runReOcr": "Lancer",
     "runningReOcr": "En cours…",
-    "compare": "Comparer",
+    "compare": "2e lecture",
     "compareKraken": "KRAKEN",
     "compareRefresh": "Actualiser",
     "compareRunning": "Kraken en cours…",
@@ -417,8 +417,8 @@
         "body": "Cliquez sur un bouton numéroté (1, 2…) pour indiquer à CLLG à quel niveau appartient cette référence. Niveau 1 = division extérieure (ex. discours), niveau 2 = division suivante (ex. section). Un marqueur sans niveau (–) est conservé dans le texte mais ignoré à l'export TEI."
       },
       "review-compare": {
-        "title": "Comparer avec Kraken",
-        "body": "Lancez le moteur OCR Kraken intégré sur la page courante et comparez son résultat avec votre transcription. Les différences apparaissent en soulignement rouge ondulé — cliquez sur une pour voir la correction proposée et l'accepter ou l'ignorer."
+        "title": "2e lecture — vérification Kraken",
+        "body": "Cliquez sur «2e lecture» pour lancer le moteur OCR Kraken intégré sur la page courante. Les différences entre la lecture de Kraken et la vôtre apparaissent en soulignement rouge ondulé — cliquez sur une pour voir la correction proposée et l'accepter ou l'ignorer."
       },
       "export-generate": {
         "title": "Étape 6 · Exporter en TEI P5 XML",

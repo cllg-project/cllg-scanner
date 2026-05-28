@@ -239,6 +239,7 @@ export default function Review(): React.JSX.Element {
   })
   const splitContainerRef = useRef<HTMLDivElement>(null)
   const isDraggingRef = useRef(false)
+  const pendingScrollRef = useRef<{ left: number; top: number } | null>(null)
 
   useEffect(() => {
     if (!project?.id) return
@@ -658,12 +659,36 @@ export default function Review(): React.JSX.Element {
     const handleWheel = (e: WheelEvent): void => {
       if (!e.ctrlKey && !e.metaKey) return
       e.preventDefault()
-      const delta = e.deltaY > 0 ? -0.15 : 0.15
-      setImgZoom((prev) => Math.min(7.5,Math.max(0.2, parseFloat((prev + delta).toFixed(2)))))
+      const imgEl = el.querySelector('img')
+      if (imgEl) {
+        const r = imgEl.getBoundingClientRect()
+        const ox = e.clientX - r.left
+        const oy = e.clientY - r.top
+        setImgZoom((prev) => {
+          const next = Math.min(7.5, Math.max(0.2, parseFloat((prev + (e.deltaY > 0 ? -0.15 : 0.15)).toFixed(2))))
+          const ratio = next / prev
+          pendingScrollRef.current = {
+            left: el.scrollLeft + ox * (ratio - 1),
+            top:  el.scrollTop  + oy * (ratio - 1),
+          }
+          return next
+        })
+      } else {
+        const delta = e.deltaY > 0 ? -0.15 : 0.15
+        setImgZoom((prev) => Math.min(7.5, Math.max(0.2, parseFloat((prev + delta).toFixed(2)))))
+      }
     }
     el.addEventListener('wheel', handleWheel, { passive: false })
     return () => el.removeEventListener('wheel', handleWheel)
   }, [])
+
+  useEffect(() => {
+    const c = imageContainerRef.current
+    if (!c || !pendingScrollRef.current) return
+    c.scrollLeft = pendingScrollRef.current.left
+    c.scrollTop  = pendingScrollRef.current.top
+    pendingScrollRef.current = null
+  }, [imgZoom])
 
   const handleBetaKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>): void => {
     if (!betaMode) return

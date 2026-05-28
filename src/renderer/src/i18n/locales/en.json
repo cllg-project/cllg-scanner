@@ -351,7 +351,10 @@
     "compareKraken": "KRAKEN",
     "compareRefresh": "Refresh",
     "compareRunning": "Running Kraken…",
-    "compareStale": "Click Refresh to run Kraken on this page"
+    "compareStale": "Click Refresh to run Kraken on this page",
+    "suggestionAccept": "Accept",
+    "suggestionDismiss": "Dismiss",
+    "suggestionDelete": "(delete)"
   },
   "tour": {
     "startTour": "Take the tour",
@@ -412,6 +415,10 @@
       "review-level": {
         "title": "Assign a hierarchy level",
         "body": "Click a numbered button (1, 2…) to tell CLLG which level this reference belongs to. Level 1 = the outermost division (e.g. discourse), level 2 = the next one (e.g. section). A marker with no level (–) is kept in the text but ignored during TEI export."
+      },
+      "review-compare": {
+        "title": "Compare with Kraken",
+        "body": "Run the built-in Kraken OCR engine on the current page and compare its output with your transcription. Differences appear as wavy red underlines — click one to see the proposed correction and accept or dismiss it."
       },
       "export-generate": {
         "title": "Step 6 · Export to TEI P5 XML",

@@ -1,5 +1,8 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react'
-import { diffChars } from 'diff'
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react'
+import {
+  computeDiff, computeSuggestionRanges, acceptSuggestion,
+  type DiffTokens, type SuggestionRange,
+} from '../utils/krakenDiff'
 import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import type { Page, PageStatus, HierarchyLevel, KrakenConfig } from '@shared/types'
@@ -123,18 +126,49 @@ function highlightMarkdown(text: string, levelMap: Map<number, FlatLevel>): stri
       '<mark class="tag-lb">$1</mark>')
 }
 
-function stripXml(text: string): string {
-  return text.replace(/<[^>]+>/g, '')
-}
+// Highlight markdown with integrated wavy-underline diff suggestions.
+// Uses private-use Unicode chars as placeholders that survive HTML escaping.
+const DIFF_OPEN = '', DIFF_SEP = '', DIFF_CLOSE = ''
+const DIFF_TOKEN_RE = new RegExp(`${DIFF_OPEN}(\\d+)${DIFF_SEP}([\\s\\S]*?)${DIFF_CLOSE}`, 'g')
 
-function renderKrakenDiff(current: string, kraken: string): string {
-  const parts = diffChars(stripXml(current), kraken)
-  return parts.map((p) => {
-    const esc = p.value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-    if (p.removed) return `<del class="diff-del">${esc}</del>`
-    if (p.added)   return `<ins class="diff-ins">${esc}</ins>`
-    return esc
-  }).join('')
+function highlightMarkdownWithDiff(
+  text: string,
+  levelMap: Map<number, FlatLevel>,
+  ranges: SuggestionRange[]
+): string {
+  if (!ranges.length) return highlightMarkdown(text, levelMap)
+
+  const starts = new Map<number, number>()
+  const ends = new Set<number>()
+  for (const r of ranges) { starts.set(r.origStart, r.tokenIdx); ends.add(r.origEnd) }
+
+  let marked = '', inMark = false
+  for (let pos = 0; pos < text.length; pos++) {
+    if (ends.has(pos) && inMark) { marked += DIFF_CLOSE; inMark = false }
+    if (starts.has(pos)) { marked += `${DIFF_OPEN}${starts.get(pos)!}${DIFF_SEP}`; inMark = true }
+    marked += text[pos]
+  }
+  if (inMark) marked += DIFF_CLOSE
+
+  let html = marked.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  html = html
+    .replace(/(&lt;ref\s+level="([1-9]\d*)"&gt;)(.*?)(&lt;\/ref&gt;)/g, (_, open, n, inner, close) => {
+      const lv = levelMap.get(Number(n))
+      const { fg, bg } = lv ? levelColor(lv) : { fg: LEVEL_FG_DEFAULT, bg: '#eceff1' }
+      return `<mark style="background:${bg};color:${fg};font-weight:600">${open}${inner}${close}</mark>`
+    })
+    .replace(/(&lt;ref(?:\s+level="(?:0|)")?&gt;)(.*?)(&lt;\/ref&gt;)/g,
+      '<mark class="tag-ref-u">$1$2$3</mark>')
+    .replace(/(&lt;note&gt;)(.*?)(&lt;\/note&gt;)/g,
+      '<mark class="tag-note">$1$2$3</mark>')
+    .replace(/(&lt;(?:tab\/|pb[^&]*?)&gt;)/g,
+      '<mark class="tag-misc">$1</mark>')
+    .replace(/^(#{1,3} .+)$/gm, '<mark class="tag-head">$1</mark>')
+    .replace(/(&lt;lb[^&]*?\/&gt;)/g, '<mark class="tag-lb">$1</mark>')
+    .replace(/(\p{L}+-)(?=[\t ]|&lt;|$)/gmu, '<mark class="tag-lb">$1</mark>')
+  html = html.replace(DIFF_TOKEN_RE, (_, tokenIdx, inner) =>
+    `<mark class="diff-suggestion" data-token="${tokenIdx}">${inner}</mark>`)
+  return html
 }
 
 interface ScanInfo {
@@ -196,12 +230,17 @@ export default function Review(): React.JSX.Element {
 
   const [imgZoom, setImgZoom] = useState(1.0)
   const [imgNaturalWidth, setImgNaturalWidth] = useState<number | null>(null)
+  const [imgNaturalHeight, setImgNaturalHeight] = useState<number | null>(null)
   const imageContainerRef = useRef<HTMLDivElement>(null)
 
   const [compareMode, setCompareMode] = useState(false)
   const [krakenCompareText, setKrakenCompareText] = useState<string | null>(null)
+  const [krakenLines, setKrakenLines] = useState<{ text: string; corners: [number, number][] }[]>([])
   const [compareLoading, setCompareLoading] = useState(false)
   const [compareError, setCompareError] = useState<string | null>(null)
+  const krakenCacheRef = useRef<Map<string, { text: string; lines: { text: string; corners: [number, number][] }[] }>>(new Map())
+  const [activeSuggestion, setActiveSuggestion] = useState<SuggestionRange | null>(null)
+  const [ignoredTokens, setIgnoredTokens] = useState<Set<number>>(new Set())
 
   // UI state
   const [statusMenuOpen, setStatusMenuOpen] = useState(false)
@@ -265,7 +304,36 @@ export default function Review(): React.JSX.Element {
   const currentState = currentPage ? pages.get(currentPage.n) : undefined
   const content = currentState?.content ?? ''
 
-  useEffect(() => { autoGrow() }, [content])
+  const krakenDiffTokens = useMemo<DiffTokens>(() => {
+    if (!krakenCompareText) return []
+    return computeDiff(content, krakenCompareText)
+  }, [content, krakenCompareText])
+
+  const suggestionRanges = useMemo<SuggestionRange[]>(() => {
+    if (!compareMode || !krakenDiffTokens.length) return []
+    return computeSuggestionRanges(content, krakenDiffTokens).filter((r) => !ignoredTokens.has(r.tokenIdx))
+  }, [compareMode, krakenDiffTokens, content, ignoredTokens])
+
+  useEffect(() => { setActiveSuggestion(null); setIgnoredTokens(new Set()) }, [krakenDiffTokens])
+
+  // Find which Kraken line the active suggestion's replacement text falls in
+  const activeSuggestionLineIdx = useMemo<number | null>(() => {
+    if (!activeSuggestion || !krakenCompareText || !krakenDiffTokens.length) return null
+    let krakenPos = 0
+    for (let i = 0; i < activeSuggestion.tokenIdx; i++) {
+      const t = krakenDiffTokens[i]
+      if (!t.removed) krakenPos += t.value.length
+    }
+    const lines = krakenCompareText.split('\n')
+    let acc = 0
+    for (let i = 0; i < lines.length; i++) {
+      acc += lines[i].length + 1
+      if (krakenPos < acc) return i
+    }
+    return lines.length - 1
+  }, [activeSuggestion, krakenCompareText, krakenDiffTokens])
+
+  useEffect(() => { autoGrow() }, [content, compareMode])
 
   const setContent = (value: string): void => {
     if (!currentPage) return
@@ -554,7 +622,11 @@ export default function Review(): React.JSX.Element {
     return () => { if (sigmaTimerRef.current) clearTimeout(sigmaTimerRef.current) }
   }, [betaMode, currentPage])
 
-  useEffect(() => { setImgZoom(1.0); setImgNaturalWidth(null); setKrakenCompareText(null); setCompareError(null) }, [currentIdx])
+  useEffect(() => {
+    setImgZoom(1.0); setImgNaturalWidth(null); setImgNaturalHeight(null)
+    setCompareMode(false)
+    setKrakenCompareText(null); setKrakenLines([]); setCompareError(null); setActiveSuggestion(null)
+  }, [currentIdx])
 
   useEffect(() => {
     const el = imageContainerRef.current
@@ -635,6 +707,13 @@ export default function Review(): React.JSX.Element {
 
   const runKrakenCompare = useCallback(async () => {
     if (!project || !currentPage) return
+    const cacheKey = `${currentPage.imagePath}|${JSON.stringify(currentPage.masks)}`
+    const cached = krakenCacheRef.current.get(cacheKey)
+    if (cached) {
+      setKrakenLines(cached.lines)
+      setKrakenCompareText(cached.text)
+      return
+    }
     setCompareLoading(true); setCompareError(null); setKrakenCompareText(null)
     try {
       let imgPath: string
@@ -644,7 +723,11 @@ export default function Review(): React.JSX.Element {
         imgPath = await window.api.joinPaths(project.projectDir, currentPage.maskedImagePath ?? currentPage.imagePath)
       }
       const result = await window.api.rerunPageKraken(imgPath, krakenPaths)
-      setKrakenCompareText(result.text.normalize('NFKC'))
+      const text = result.text.normalize('NFKC')
+      const lines = result.lines ?? []
+      krakenCacheRef.current.set(cacheKey, { text, lines })
+      setKrakenLines(lines)
+      setKrakenCompareText(text)
     } catch (err: unknown) {
       setCompareError(String(err))
     } finally {
@@ -961,7 +1044,7 @@ export default function Review(): React.JSX.Element {
         )}
 
         {/* ── Editor split ── */}
-        <div className="flex-1 grid overflow-hidden" style={{ gridTemplateColumns: compareMode ? '1fr 1.2fr 1.2fr' : '1fr 1fr' }}>
+        <div className="flex-1 grid overflow-hidden" style={{ gridTemplateColumns: '1fr 1fr' }}>
 
           {/* Left: image pane */}
           <div className="flex flex-col overflow-hidden border-r" style={{ borderColor: 'var(--line)' }}>
@@ -986,27 +1069,54 @@ export default function Review(): React.JSX.Element {
               style={{ background: '#f5f2ec', justifyContent: 'safe center' }}
             >
               {imageUrl ? (
-                <img
-                  src={imageUrl}
-                  alt={`Page ${currentPage?.n}`}
-                  className="shadow-md"
-                  onLoad={(e) => {
-                    const img = e.target as HTMLImageElement
-                    const nw = img.naturalWidth
-                    setImgNaturalWidth(nw)
-                    const container = imageContainerRef.current
-                    if (container && nw > 0) {
-                      const available = container.clientWidth - 32
-                      setImgZoom(nw > available ? available / nw : 1.0)
-                    }
-                  }}
-                  style={{
-                    border: '1px solid var(--line)',
-                    flexShrink: 0,
-                    width: imgNaturalWidth ? `${Math.round(imgNaturalWidth * imgZoom)}px` : undefined,
-                    maxWidth: imgNaturalWidth ? 'none' : '100%',
-                  }}
-                />
+                <div style={{
+                  position: 'relative',
+                  display: 'inline-block',
+                  flexShrink: 0,
+                  width: imgNaturalWidth ? `${Math.round(imgNaturalWidth * imgZoom)}px` : undefined,
+                  maxWidth: imgNaturalWidth ? 'none' : '100%',
+                }}>
+                  <img
+                    src={imageUrl}
+                    alt={`Page ${currentPage?.n}`}
+                    className="shadow-md"
+                    onLoad={(e) => {
+                      const img = e.target as HTMLImageElement
+                      const nw = img.naturalWidth
+                      setImgNaturalWidth(nw)
+                      setImgNaturalHeight(img.naturalHeight)
+                      const container = imageContainerRef.current
+                      if (container && nw > 0) {
+                        const available = container.clientWidth - 32
+                        setImgZoom(nw > available ? available / nw : 1.0)
+                      }
+                    }}
+                    style={{
+                      display: 'block',
+                      border: '1px solid var(--line)',
+                      width: '100%',
+                    }}
+                  />
+                  {activeSuggestionLineIdx !== null &&
+                    krakenLines[activeSuggestionLineIdx] &&
+                    imgNaturalWidth && imgNaturalHeight && (() => {
+                      const PAD_V = 14
+                      const corners = krakenLines[activeSuggestionLineIdx].corners
+                      const cy = corners.reduce((s, c) => s + c[1], 0) / corners.length
+                      const padded = corners.map(([x, y]) => (
+                        `${x},${y + (y < cy ? -PAD_V : PAD_V)}`
+                      )).join(' ')
+                      return (
+                        <svg
+                          style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', pointerEvents: 'none' }}
+                          viewBox={`0 0 ${imgNaturalWidth} ${imgNaturalHeight}`}
+                          preserveAspectRatio="none"
+                        >
+                          <polygon points={padded} fill="rgba(220,38,38,0.18)" stroke="none" />
+                        </svg>
+                      )
+                    })()}
+                </div>
               ) : (
                 <div className="flex items-center justify-center w-full h-full text-[13px]" style={{ color: 'var(--mute)' }}>
                   {currentPage ? t('review.loadingPage') : t('review.noPageSelected')}
@@ -1107,15 +1217,16 @@ export default function Review(): React.JSX.Element {
 
               {/* Row 2: processing + view */}
               <div className="px-3 py-1.5 flex items-center gap-2 border-t" style={{ borderColor: 'var(--line)', background: '#f3ecdc' }}>
-                <button
-                  className="btn btn-quiet text-[11.5px]"
-                  style={{ padding: '4px 8px', ...(hyphenCount > 0 ? { borderColor: '#15803d', color: '#15803d' } : {}) }}
-                  onClick={replaceAllHyphens}
-                  disabled={hyphenCount === 0}
-                >
-                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M6 12h12" /><path d="M4 8v8M20 8v8" /></svg>
-                  {hyphenCount > 0 ? t('review.fixHyphensCount', { count: hyphenCount }) : t('review.fixHyphens')}
-                </button>
+                {hyphenCount > 0 && (
+                  <button
+                    className="btn btn-quiet text-[11.5px]"
+                    style={{ padding: '4px 8px', borderColor: '#15803d', color: '#15803d' }}
+                    onClick={replaceAllHyphens}
+                  >
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M6 12h12" /><path d="M4 8v8M20 8v8" /></svg>
+                    {t('review.fixHyphensCount', { count: hyphenCount })}
+                  </button>
+                )}
                 <button
                   className="btn btn-quiet text-[11.5px]"
                   style={{ padding: '4px 8px' }}
@@ -1144,16 +1255,14 @@ export default function Review(): React.JSX.Element {
 
                 {/* Betacode */}
                 <div className="flex items-center gap-1">
-                  <span className="text-[11.5px] font-semibold mr-1" style={{ color: 'var(--mute)' }}>
-                    <span style={{ fontFamily: 'serif', fontStyle: 'italic', fontSize: 15, lineHeight: 1, color: betaMode ? '#6a1b9a' : 'var(--oxblood)', fontWeight: 600 }}>β</span>{t('review.betacode')}
-                  </span>
                   <button
                     className="btn btn-quiet text-[11px]"
                     style={{ padding: '3px 7px', ...(betaMode ? { color: '#6a1b9a', borderColor: '#9c6ab0', background: '#f0eaf8' } : {}) }}
                     onClick={() => { setBetaMode((m) => !m); betaPendingRef.current.clear() }}
                     title={t('review.betacodeToggleTitle')}
                   >
-                    {betaMode ? t('review.betacodeEnabled') : t('review.betacodeEnable')}
+                    <span style={{ fontFamily: 'serif', fontStyle: 'italic', fontSize: 14, lineHeight: 1, fontWeight: 600 }}>β</span>
+                    {t('review.betacode')}
                     <span className="inline-flex gap-0.5 ml-0.5">
                       <KbdChip>⌘</KbdChip><KbdChip>K</KbdChip>
                     </span>
@@ -1161,10 +1270,11 @@ export default function Review(): React.JSX.Element {
                   {betaMode && (
                     <button
                       className="btn btn-quiet text-[11px]"
-                      style={{ padding: '3px 7px', ...(betaHelpVisible ? { color: '#6a1b9a', borderColor: '#9c6ab0', background: '#f0eaf8' } : {}) }}
+                      style={{ width: 22, height: 22, padding: 0, justifyContent: 'center', fontWeight: 600, ...(betaHelpVisible ? { color: '#6a1b9a', borderColor: '#9c6ab0', background: '#f0eaf8' } : {}) }}
                       onClick={() => setBetaHelpVisible((v) => { const next = !v; localStorage.setItem('review:betaHelp', String(next)); return next })}
+                      title={t('review.betacodeCheatsheet')}
                     >
-                      {t('review.betacodeCheatsheet')}
+                      ?
                     </button>
                   )}
                 </div>
@@ -1173,6 +1283,7 @@ export default function Review(): React.JSX.Element {
 
                 {/* Compare with Kraken */}
                 <button
+                  data-tour="review-compare"
                   className="btn btn-quiet text-[11px]"
                   style={{ padding: '3px 8px', ...(compareMode ? { color: '#0369a1', borderColor: '#0369a1', background: '#e0f2fe' } : {}) }}
                   onClick={() => {
@@ -1184,12 +1295,47 @@ export default function Review(): React.JSX.Element {
                     }
                   }}
                 >
-                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 3H5a2 2 0 0 0-2 2v4m6-6h10a2 2 0 0 1 2 2v4M9 3v18m0 0h10a2 2 0 0 0 2-2v-4M9 21H5a2 2 0 0 1-2-2v-4m0 0h18" /></svg>
+                  {compareLoading
+                    ? <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="animate-spin"><path d="M21 12a9 9 0 1 1-6.3-8.6" /></svg>
+                    : <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 3H5a2 2 0 0 0-2 2v4m6-6h10a2 2 0 0 1 2 2v4M9 3v18m0 0h10a2 2 0 0 0 2-2v-4M9 21H5a2 2 0 0 1-2-2v-4m0 0h18" /></svg>}
                   {t('review.compare')}
+                  {compareMode && suggestionRanges.length > 0 && (
+                    <span style={{ marginLeft: 3, background: '#0369a1', color: '#fff', borderRadius: 8, padding: '0 5px', fontSize: 10, fontWeight: 600, lineHeight: '16px' }}>
+                      {suggestionRanges.length}
+                    </span>
+                  )}
                 </button>
 
               </div>
             </div>
+
+            {/* Suggestion banner */}
+            {compareMode && activeSuggestion && (
+              <div className="shrink-0 border-b px-4 py-2 flex items-center gap-3 text-[12px] flex-wrap" style={{ borderColor: 'var(--line)', background: '#fff8f0' }}>
+                <span className="font-mono shrink-0" style={{ color: 'var(--mute)', fontSize: 10, textTransform: 'uppercase', letterSpacing: '.1em' }}>{t('review.compareKraken')}</span>
+                <del style={{ color: '#b91c1c', textDecoration: 'line-through', fontFamily: "'Noto Sans Mono', monospace" }}>{activeSuggestion.removedText || '(empty)'}</del>
+                <span style={{ color: 'var(--mute)' }}>→</span>
+                <ins style={{ color: '#15803d', textDecoration: 'none', fontFamily: "'Noto Sans Mono', monospace" }}>{activeSuggestion.addedText || t('review.suggestionDelete')}</ins>
+                <div className="ml-auto flex items-center gap-1.5 shrink-0">
+                  <button
+                    className="btn btn-quiet text-[11px]"
+                    style={{ padding: '3px 10px', background: '#dcfce7', borderColor: '#15803d', color: '#15803d' }}
+                    onClick={() => {
+                      setContent(acceptSuggestion(content, krakenDiffTokens, activeSuggestion.tokenIdx))
+                      setActiveSuggestion(null)
+                    }}
+                  >{t('review.suggestionAccept')}</button>
+                  <button
+                    className="btn btn-quiet text-[11px]"
+                    style={{ padding: '3px 10px' }}
+                    onClick={() => {
+                      setIgnoredTokens((prev) => new Set(prev).add(activeSuggestion.tokenIdx))
+                      setActiveSuggestion(null)
+                    }}
+                  >{t('review.suggestionDismiss')}</button>
+                </div>
+              </div>
+            )}
 
             {/* Scrollable editor */}
             <div
@@ -1203,7 +1349,9 @@ export default function Review(): React.JSX.Element {
                   aria-hidden="true"
                   className="absolute inset-0 px-4 pt-4 pb-10 overflow-hidden pointer-events-none leading-relaxed whitespace-pre-wrap break-words"
                   style={{ color: 'transparent', background: 'transparent', fontSize, fontFamily: "'Noto Sans Mono', monospace" }}
-                  dangerouslySetInnerHTML={{ __html: highlightMarkdown(content, levelMap) }}
+                  dangerouslySetInnerHTML={{ __html: compareMode && suggestionRanges.length
+                    ? highlightMarkdownWithDiff(content, levelMap, suggestionRanges)
+                    : highlightMarkdown(content, levelMap) }}
                 />
                 <textarea
                   ref={textareaRef}
@@ -1215,7 +1363,15 @@ export default function Review(): React.JSX.Element {
                     if (betaMode) scheduleSigmaFix()
                     updateCursorTag()
                   }}
-                  onClick={updateCursorTag}
+                  onClick={(e) => {
+                    updateCursorTag()
+                    if (compareMode && suggestionRanges.length) {
+                      const ta = e.currentTarget
+                      const pos = ta.selectionStart
+                      const hit = suggestionRanges.find((r) => pos >= r.origStart && pos <= r.origEnd)
+                      setActiveSuggestion(hit ?? null)
+                    }
+                  }}
                   onKeyUp={updateCursorTag}
                   onKeyDown={handleBetaKeyDown}
                   spellCheck={false}
@@ -1376,48 +1532,6 @@ export default function Review(): React.JSX.Element {
 
           </div>
 
-          {/* Kraken compare panel */}
-          {compareMode && (
-            <div className="flex flex-col overflow-hidden border-l" style={{ borderColor: 'var(--line)' }}>
-              <div className="px-3 py-1.5 border-b shrink-0 flex items-center gap-2" style={{ borderColor: 'var(--line)', background: 'var(--paper-2)' }}>
-                <span className="font-mono text-[11px] font-semibold" style={{ color: 'var(--mute)' }}>{t('review.compareKraken')}</span>
-                {!compareLoading && krakenCompareText === null && !compareError && (
-                  <span className="text-[11px]" style={{ color: 'var(--mute)' }}>{t('review.compareStale')}</span>
-                )}
-                {compareError && <span className="text-[11px] truncate" style={{ color: '#b04a3a' }}>{compareError}</span>}
-                <div className="ml-auto flex items-center gap-1.5">
-                  <button
-                    className="btn btn-quiet text-[11px]"
-                    style={{ padding: '3px 8px' }}
-                    onClick={runKrakenCompare}
-                    disabled={compareLoading}
-                  >
-                    {compareLoading
-                      ? <><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ animation: 'spin 1s linear infinite', display: 'inline-block' }}><path d="M21 12a9 9 0 1 1-6.3-8.6" /></svg>{t('review.compareRunning')}</>
-                      : <><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 12a9 9 0 1 0 3-6.7" /><path d="M3 3v6h6" /></svg>{t('review.compareRefresh')}</>}
-                  </button>
-                  <button className="tool-btn" style={{ width: 20, height: 20 }} onClick={() => setCompareMode(false)}>
-                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6 6 18M6 6l12 12" /></svg>
-                  </button>
-                </div>
-              </div>
-              <div
-                className="flex-1 overflow-auto px-4 pt-4 pb-10 leading-relaxed whitespace-pre-wrap break-words"
-                style={{ fontSize, fontFamily: "'Noto Sans Mono', monospace", background: 'white' }}
-              >
-                {compareLoading && (
-                  <div className="flex items-center gap-2 text-[12px]" style={{ color: 'var(--mute)' }}>
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ animation: 'spin 1s linear infinite', display: 'inline-block' }}><path d="M21 12a9 9 0 1 1-6.3-8.6" /></svg>
-                    {t('review.compareRunning')}
-                  </div>
-                )}
-                {!compareLoading && krakenCompareText !== null && (
-                  <div dangerouslySetInnerHTML={{ __html: renderKrakenDiff(content, krakenCompareText) }} />
-                )}
-              </div>
-            </div>
-          )}
-
         </div>
       </main>
 
@@ -1427,8 +1541,8 @@ export default function Review(): React.JSX.Element {
         mark.tag-misc { background: #e2ddc7; color: #6b5a2b; }
         mark.tag-head { background: transparent; color: #4a6f8a; font-weight: 600; }
         mark.tag-lb   { background: #d6e7df; color: #2e5a4a; }
-        del.diff-del  { background: #fde8e8; color: #b91c1c; text-decoration: line-through; font-style: normal; }
-        ins.diff-ins  { background: #dcfce7; color: #15803d; text-decoration: none; font-style: normal; }
+        mark.diff-suggestion { background: transparent; text-decoration: underline wavy #dc2626; text-decoration-thickness: 1.5px; cursor: pointer; border-radius: 0; }
+        mark.diff-suggestion:hover { background: rgba(220,38,38,0.08); }
         @keyframes spin { from { transform: rotate(0deg) } to { transform: rotate(360deg) } }
       `}</style>
     </div>

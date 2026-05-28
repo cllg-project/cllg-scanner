@@ -644,7 +644,7 @@ export default function Review(): React.JSX.Element {
         imgPath = await window.api.joinPaths(project.projectDir, currentPage.maskedImagePath ?? currentPage.imagePath)
       }
       const result = await window.api.rerunPageKraken(imgPath, krakenPaths)
-      setKrakenCompareText(result.text)
+      setKrakenCompareText(result.text.normalize('NFKC'))
     } catch (err: unknown) {
       setCompareError(String(err))
     } finally {

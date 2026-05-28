@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react'
+import { diffChars } from 'diff'
 import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import type { Page, PageStatus, HierarchyLevel, KrakenConfig } from '@shared/types'
@@ -122,6 +123,20 @@ function highlightMarkdown(text: string, levelMap: Map<number, FlatLevel>): stri
       '<mark class="tag-lb">$1</mark>')
 }
 
+function stripXml(text: string): string {
+  return text.replace(/<[^>]+>/g, '')
+}
+
+function renderKrakenDiff(current: string, kraken: string): string {
+  const parts = diffChars(stripXml(current), kraken)
+  return parts.map((p) => {
+    const esc = p.value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    if (p.removed) return `<del class="diff-del">${esc}</del>`
+    if (p.added)   return `<ins class="diff-ins">${esc}</ins>`
+    return esc
+  }).join('')
+}
+
 interface ScanInfo {
   total: number
   matched: number
@@ -182,6 +197,11 @@ export default function Review(): React.JSX.Element {
   const [imgZoom, setImgZoom] = useState(1.0)
   const [imgNaturalWidth, setImgNaturalWidth] = useState<number | null>(null)
   const imageContainerRef = useRef<HTMLDivElement>(null)
+
+  const [compareMode, setCompareMode] = useState(false)
+  const [krakenCompareText, setKrakenCompareText] = useState<string | null>(null)
+  const [compareLoading, setCompareLoading] = useState(false)
+  const [compareError, setCompareError] = useState<string | null>(null)
 
   // UI state
   const [statusMenuOpen, setStatusMenuOpen] = useState(false)
@@ -534,7 +554,7 @@ export default function Review(): React.JSX.Element {
     return () => { if (sigmaTimerRef.current) clearTimeout(sigmaTimerRef.current) }
   }, [betaMode, currentPage])
 
-  useEffect(() => { setImgZoom(1.0); setImgNaturalWidth(null) }, [currentIdx])
+  useEffect(() => { setImgZoom(1.0); setImgNaturalWidth(null); setKrakenCompareText(null); setCompareError(null) }, [currentIdx])
 
   useEffect(() => {
     const el = imageContainerRef.current
@@ -612,6 +632,25 @@ export default function Review(): React.JSX.Element {
       setReOcrRunning(false)
     }
   }, [project, currentPage, reOcrEngine, krakenPaths, saveProject]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const runKrakenCompare = useCallback(async () => {
+    if (!project || !currentPage) return
+    setCompareLoading(true); setCompareError(null); setKrakenCompareText(null)
+    try {
+      let imgPath: string
+      if (currentPage.masks.length > 0) {
+        imgPath = await window.api.joinPaths(project.projectDir, await renderMaskedPage(project.projectDir, currentPage))
+      } else {
+        imgPath = await window.api.joinPaths(project.projectDir, currentPage.maskedImagePath ?? currentPage.imagePath)
+      }
+      const result = await window.api.rerunPageKraken(imgPath, krakenPaths)
+      setKrakenCompareText(result.text)
+    } catch (err: unknown) {
+      setCompareError(String(err))
+    } finally {
+      setCompareLoading(false)
+    }
+  }, [project, currentPage, krakenPaths]) // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!project) return <div className="p-8">{t('common.noProjectOpen')}</div>
   if (activePages.length === 0) {
@@ -922,7 +961,7 @@ export default function Review(): React.JSX.Element {
         )}
 
         {/* ── Editor split ── */}
-        <div className="flex-1 grid overflow-hidden" style={{ gridTemplateColumns: '1fr 1fr' }}>
+        <div className="flex-1 grid overflow-hidden" style={{ gridTemplateColumns: compareMode ? '1fr 1.2fr 1.2fr' : '1fr 1fr' }}>
 
           {/* Left: image pane */}
           <div className="flex flex-col overflow-hidden border-r" style={{ borderColor: 'var(--line)' }}>
@@ -1130,6 +1169,25 @@ export default function Review(): React.JSX.Element {
                   )}
                 </div>
 
+                <div className="w-px h-4 ml-auto" style={{ background: 'var(--line-2)' }} />
+
+                {/* Compare with Kraken */}
+                <button
+                  className="btn btn-quiet text-[11px]"
+                  style={{ padding: '3px 8px', ...(compareMode ? { color: '#0369a1', borderColor: '#0369a1', background: '#e0f2fe' } : {}) }}
+                  onClick={() => {
+                    if (!compareMode) {
+                      setCompareMode(true)
+                      if (krakenCompareText === null && !compareLoading) runKrakenCompare()
+                    } else {
+                      setCompareMode(false)
+                    }
+                  }}
+                >
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 3H5a2 2 0 0 0-2 2v4m6-6h10a2 2 0 0 1 2 2v4M9 3v18m0 0h10a2 2 0 0 0 2-2v-4M9 21H5a2 2 0 0 1-2-2v-4m0 0h18" /></svg>
+                  {t('review.compare')}
+                </button>
+
               </div>
             </div>
 
@@ -1317,6 +1375,49 @@ export default function Review(): React.JSX.Element {
             )}
 
           </div>
+
+          {/* Kraken compare panel */}
+          {compareMode && (
+            <div className="flex flex-col overflow-hidden border-l" style={{ borderColor: 'var(--line)' }}>
+              <div className="px-3 py-1.5 border-b shrink-0 flex items-center gap-2" style={{ borderColor: 'var(--line)', background: 'var(--paper-2)' }}>
+                <span className="font-mono text-[11px] font-semibold" style={{ color: 'var(--mute)' }}>{t('review.compareKraken')}</span>
+                {!compareLoading && krakenCompareText === null && !compareError && (
+                  <span className="text-[11px]" style={{ color: 'var(--mute)' }}>{t('review.compareStale')}</span>
+                )}
+                {compareError && <span className="text-[11px] truncate" style={{ color: '#b04a3a' }}>{compareError}</span>}
+                <div className="ml-auto flex items-center gap-1.5">
+                  <button
+                    className="btn btn-quiet text-[11px]"
+                    style={{ padding: '3px 8px' }}
+                    onClick={runKrakenCompare}
+                    disabled={compareLoading}
+                  >
+                    {compareLoading
+                      ? <><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ animation: 'spin 1s linear infinite', display: 'inline-block' }}><path d="M21 12a9 9 0 1 1-6.3-8.6" /></svg>{t('review.compareRunning')}</>
+                      : <><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 12a9 9 0 1 0 3-6.7" /><path d="M3 3v6h6" /></svg>{t('review.compareRefresh')}</>}
+                  </button>
+                  <button className="tool-btn" style={{ width: 20, height: 20 }} onClick={() => setCompareMode(false)}>
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6 6 18M6 6l12 12" /></svg>
+                  </button>
+                </div>
+              </div>
+              <div
+                className="flex-1 overflow-auto px-4 pt-4 pb-10 leading-relaxed whitespace-pre-wrap break-words"
+                style={{ fontSize, fontFamily: "'Noto Sans Mono', monospace", background: 'white' }}
+              >
+                {compareLoading && (
+                  <div className="flex items-center gap-2 text-[12px]" style={{ color: 'var(--mute)' }}>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ animation: 'spin 1s linear infinite', display: 'inline-block' }}><path d="M21 12a9 9 0 1 1-6.3-8.6" /></svg>
+                    {t('review.compareRunning')}
+                  </div>
+                )}
+                {!compareLoading && krakenCompareText !== null && (
+                  <div dangerouslySetInnerHTML={{ __html: renderKrakenDiff(content, krakenCompareText) }} />
+                )}
+              </div>
+            </div>
+          )}
+
         </div>
       </main>
 
@@ -1326,6 +1427,8 @@ export default function Review(): React.JSX.Element {
         mark.tag-misc { background: #e2ddc7; color: #6b5a2b; }
         mark.tag-head { background: transparent; color: #4a6f8a; font-weight: 600; }
         mark.tag-lb   { background: #d6e7df; color: #2e5a4a; }
+        del.diff-del  { background: #fde8e8; color: #b91c1c; text-decoration: line-through; font-style: normal; }
+        ins.diff-ins  { background: #dcfce7; color: #15803d; text-decoration: none; font-style: normal; }
         @keyframes spin { from { transform: rotate(0deg) } to { transform: rotate(360deg) } }
       `}</style>
     </div>

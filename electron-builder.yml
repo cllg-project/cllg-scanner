@@ -14,6 +14,8 @@ files:
 asarUnpack:
   - node_modules/onnxruntime-node/**
   - node_modules/kraken-js/**
+  - node_modules/sharp/**
+  - node_modules/@img/**
 
 extraResources:
   - from: resources/models/

@@ -1,0 +1,9 @@
+structure:
+  name: chapter
+  format: '.*'
+  missing_first: false
+  child:
+    name: section
+    format: '\[\d+\]'
+    missing_first: true
+    is_milestone: true

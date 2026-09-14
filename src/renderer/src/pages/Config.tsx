@@ -8,15 +8,23 @@ import { useProject } from '../App'
 
 const FORMAT_OPTIONS = ['Roman', 'Arabic', 'Alpha', 'Greek', 'Stephanus']
 
+interface RefScanResult {
+  format: string
+  sample: string[]
+  count: number
+}
+
 function LevelCard({
   level,
   depth,
+  scanResults,
   onChange,
   onDelete,
   onAddChild
 }: {
   level: HierarchyLevel
   depth: number
+  scanResults: RefScanResult[]
   onChange: (updated: HierarchyLevel) => void
   onDelete: () => void
   onAddChild: () => void
@@ -100,6 +108,26 @@ function LevelCard({
                 />
               )}
             </div>
+            {(() => {
+              const match = scanResults.find((r) => r.format === level.pattern)
+              if (!match?.sample.length) return null
+              return (
+                <div className="flex flex-wrap items-center gap-1 mt-1.5">
+                  <span className="font-mono text-[9.5px] uppercase tracking-wider mr-0.5" style={{ color: 'var(--mute-2)' }}>
+                    {match.count} {t('config.matchedSamplesTitle')}
+                  </span>
+                  {match.sample.map((tok) => (
+                    <span
+                      key={tok}
+                      className="font-mono text-[10.5px] px-1.5 py-0.5 rounded"
+                      style={{ background: 'var(--paper-3)', color: 'var(--mute)', border: '1px solid var(--line-2)' }}
+                    >
+                      {tok}
+                    </span>
+                  ))}
+                </div>
+              )
+            })()}
           </div>
           <div className="col-span-2 flex items-center gap-4 pt-1">
             <label className="flex items-center gap-2 text-[12px] cursor-pointer">
@@ -139,6 +167,7 @@ function LevelCard({
               <LevelCard
                 level={child}
                 depth={depth + 1}
+                scanResults={scanResults}
                 onChange={(updated) => {
                   const children = [...level.children]
                   children[i] = updated
@@ -467,13 +496,36 @@ export default function Config(): React.JSX.Element {
   const [bibDraft, setBibDraft] = useState<BibDraft | null>(null)
   const skipSave = useRef(true)
 
+  const [previewIdx, setPreviewIdx] = useState(0)
+  const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null)
+  const [scanResults, setScanResults] = useState<RefScanResult[]>([])
+
   useEffect(() => {
     if (!project) return
     skipSave.current = true
     setMetadata(project.metadata)
     setHierarchy(project.hierarchy)
     setBibliography(project.bibliography ?? [])
+    setPreviewIdx(0)
   }, [project?.id])
+
+  useEffect(() => {
+    if (!project) return
+    window.api.scanRefs(project.projectDir).then(setScanResults).catch(() => setScanResults([]))
+  }, [project?.projectDir])
+
+  const previewPages = project?.pages ?? []
+  const previewPage = previewPages[previewIdx] ?? null
+
+  useEffect(() => {
+    if (!previewPage || !project) { setPreviewImageUrl(null); return }
+    setPreviewImageUrl(null)
+    const imgPath = previewPage.maskedImagePath ?? previewPage.imagePath
+    window.api.joinPaths(project.projectDir, imgPath)
+      .then((abs) => window.api.loadImageAsDataUrl(abs))
+      .then(setPreviewImageUrl)
+      .catch(() => setPreviewImageUrl(null))
+  }, [previewPage, project])
 
   useEffect(() => {
     if (skipSave.current) { skipSave.current = false; return }
@@ -564,10 +616,62 @@ export default function Config(): React.JSX.Element {
           </div>
         </div>
 
-        {/* Two-col body */}
-        <div className="flex-1 overflow-hidden grid divide-x" style={{ gridTemplateColumns: '1fr 360px', borderColor: 'var(--line)' }}>
+        {/* Three-col body */}
+        <div className="flex-1 overflow-hidden grid divide-x" style={{ gridTemplateColumns: '260px 1fr 360px', borderColor: 'var(--line)' }}>
 
-          {/* Left — editor */}
+          {/* Left — page-image preview */}
+          <div className="flex flex-col overflow-hidden">
+            <div
+              className="px-3 py-2.5 border-b shrink-0 flex items-center justify-between"
+              style={{ borderColor: 'var(--line)', background: 'var(--paper-3)' }}
+            >
+              <span className="font-mono text-[10.5px] tracking-wider uppercase" style={{ color: 'var(--mute)' }}>
+                {t('config.pagePreview')}
+              </span>
+            </div>
+            <div className="flex-1 overflow-y-auto flex items-start justify-center p-3" style={{ background: '#f5f2ec' }}>
+              {previewImageUrl ? (
+                <img
+                  src={previewImageUrl}
+                  alt={`Page ${previewPage?.n}`}
+                  className="shadow-md"
+                  style={{ width: '100%', border: '1px solid var(--line)' }}
+                />
+              ) : (
+                <div className="text-[12px] text-center py-10" style={{ color: 'var(--mute)' }}>
+                  {previewPages.length === 0 ? t('config.noPages') : t('config.loadingPreview')}
+                </div>
+              )}
+            </div>
+            {previewPages.length > 0 && (
+              <div
+                className="px-3 py-2 border-t shrink-0 flex items-center justify-center gap-2"
+                style={{ borderColor: 'var(--line)' }}
+              >
+                <button
+                  className="btn btn-quiet"
+                  style={{ width: 26, height: 26, padding: 0, justifyContent: 'center' }}
+                  disabled={previewIdx === 0}
+                  onClick={() => setPreviewIdx((i) => i - 1)}
+                >
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m15 6-6 6 6 6" /></svg>
+                </button>
+                <span className="font-mono text-[11.5px]" style={{ minWidth: 50, textAlign: 'center' }}>
+                  {previewPage ? previewPage.n : '–'} / {previewPages.length}
+                </span>
+                <button
+                  className="btn btn-quiet"
+                  style={{ width: 26, height: 26, padding: 0, justifyContent: 'center' }}
+                  disabled={previewIdx >= previewPages.length - 1}
+                  onClick={() => setPreviewIdx((i) => i + 1)}
+                >
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m9 6 6 6-6 6" /></svg>
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Middle — editor */}
           <div className="overflow-y-auto px-10 py-7 flex flex-col gap-8">
 
             {/* Metadata */}
@@ -640,6 +744,7 @@ export default function Config(): React.JSX.Element {
                   key={i}
                   level={level}
                   depth={0}
+                  scanResults={scanResults}
                   onChange={(updated) => {
                     const h = [...hierarchy]
                     h[i] = updated

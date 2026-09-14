@@ -173,6 +173,7 @@ function buildBody(
   const stack: number[] = []
   let pParts: string[] = []
   let inHead = false
+  let inQuote = false
 
   // div-level defs in ascending level order, excluding milestones
   const divLevels = levels.filter(l => !l.isMilestone).sort((a, b) => a.level - b.level)
@@ -181,8 +182,10 @@ function buildBody(
     const content = pParts.join('').trim()
     pParts = []
     if (!content) { return }
-    out.push(inHead ? `<head>${content}</head>` : `<p>${content}</p>`)
+    const tag = inHead ? 'head' : inQuote ? 'quote' : 'p'
+    out.push(`<${tag}>${content}</${tag}>`)
     inHead = false
+    inQuote = false
   }
 
   // Before opening a div at `targetLevel` (or before emitting top-level content),
@@ -204,8 +207,14 @@ function buildBody(
     if (s.startsWith('<pb')) { flushP(); out.push(normSelfClose(s)); continue }
 
     const isHeading = s.startsWith('#')
-    const stripped  = isHeading ? s.replace(/^#+\s*/, '') : s
+    const isQuoteLine = !isHeading && s.startsWith('<quote>') && s.endsWith('</quote>')
+    const stripped  = isHeading
+      ? s.replace(/^#+\s*/, '')
+      : isQuoteLine
+        ? s.slice('<quote>'.length, -'</quote>'.length)
+        : s
     inHead = isHeading
+    inQuote = isQuoteLine
 
     for (const tok of tokenizeLine(stripped)) {
       switch (tok.kind) {
@@ -285,7 +294,6 @@ function mergeContinuations(doc: Document): void {
 
         // Extract content without mutating the text node (nodeValue setter is unreliable in @xmldom/xmldom)
         const contText = (firstNode.nodeValue ?? '').slice(MARKER.length)
-        child.removeChild(firstNode)
 
         // Find preceding <pb>
         let pbElem: Element | null = null
@@ -294,15 +302,24 @@ function mergeContinuations(doc: Document): void {
           if (isTag(kids[k], 'pb')) { pbElem = kids[k]; pbIdx = k; break }
           break // any other elem breaks the chain
         }
-        if (!pbElem) continue
-
         // Find <p> before the <pb>
         let prevP: Element | null = null
-        for (let k = pbIdx - 1; k >= 0; k--) {
-          if (isTag(kids[k], 'p')) { prevP = kids[k]; break }
-          break
+        if (pbElem) {
+          for (let k = pbIdx - 1; k >= 0; k--) {
+            if (isTag(kids[k], 'p')) { prevP = kids[k]; break }
+            break
+          }
         }
-        if (!prevP) continue
+        // No real continuation target (e.g. this is the document's very first
+        // page/paragraph, with no preceding <p> to merge into) — this was never a
+        // continuation, just markContinuations()'s heuristic firing on ordinary
+        // opening text. Strip the internal marker but keep the paragraph's content
+        // intact rather than discarding it.
+        if (!pbElem || !prevP) {
+          child.replaceChild(doc.createTextNode(contText), firstNode)
+          continue
+        }
+        child.removeChild(firstNode)
 
         // Append trailing space to prevP's last text node so the <pb> reads as a word boundary
         const last = prevP.lastChild
@@ -627,9 +644,13 @@ export interface Md2TeiParams {
 
 export function runMd2Tei({ markdownText, yamlConfigText, bibliography = [], log }: Md2TeiParams): string {
   log('[md2tei] Parsing config')
-  const config = parseYaml(yamlConfigText) as Record<string, unknown>
+  const config = (parseYaml(yamlConfigText) as Record<string, unknown> | null) ?? {}
 
-  const levels = buildLevels(config.structure as Record<string, unknown>)
+  // A project can legitimately have no reference hierarchy configured (e.g. a quick
+  // transcription with no citation scheme) — TEI generation must still succeed, just
+  // without any <div> nesting or <citeStructure>, rather than erroring on undefined.
+  const hasStructure = !!config.structure
+  const levels = hasStructure ? buildLevels(config.structure as Record<string, unknown>) : []
   const lm = levelMap(levels)
   const ms = milestoneSet(levels)
 
@@ -670,8 +691,12 @@ ${body}
   log('[md2tei] Replacing hyphenation with <lb/>')
   replaceHyphenation(doc)
 
-  log('[md2tei] Injecting citeStructure')
-  addCiteStructure(doc, config)
+  if (hasStructure) {
+    log('[md2tei] Injecting citeStructure')
+    addCiteStructure(doc, config)
+  } else {
+    log('[md2tei] No hierarchy configured — skipping citeStructure')
+  }
 
   log('[md2tei] Serializing')
   const raw = new XMLSerializer().serializeToString(doc)

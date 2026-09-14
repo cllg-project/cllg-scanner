@@ -1,73 +1,11 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
-import type { LMConfig, KrakenConfig, OCRProgressEvent, Page } from '@shared/types'
+import type { KrakenConfig, OCRProgressEvent, Page } from '@shared/types'
 import Sidebar from '../components/Sidebar'
 import { useProject } from '../App'
 import { renderMaskedPage } from '../utils/renderMaskedPage'
 import KrakenModelPicker from '../components/KrakenModelPicker'
-
-function LearnFromExamplesToggle({
-  enabled,
-  count,
-  onChange,
-}: {
-  enabled: boolean
-  count: number
-  onChange: (v: boolean) => void
-}): React.JSX.Element {
-  const { t } = useTranslation()
-  return (
-    <button
-      onClick={() => onChange(!enabled)}
-      style={{
-        display: 'inline-flex', alignItems: 'center', gap: 6,
-        padding: '4px 10px 4px 6px',
-        borderRadius: 999,
-        border: '1px solid',
-        background: enabled ? '#fbf2dc' : 'var(--paper-3)',
-        borderColor: enabled ? '#d9c688' : 'var(--line-2)',
-        color: enabled ? '#8a6a18' : 'var(--mute)',
-        cursor: 'pointer',
-        fontSize: 12,
-        fontWeight: 500,
-      }}
-    >
-      <span style={{
-        width: 28, height: 16, borderRadius: 999,
-        background: enabled ? '#c89328' : 'var(--line-2)',
-        display: 'inline-flex', alignItems: 'center',
-        padding: 2,
-        flexShrink: 0,
-      }}>
-        <span style={{
-          width: 10, height: 10, borderRadius: '50%', background: '#fff',
-          transform: enabled ? 'translateX(12px)' : 'translateX(0)',
-          transition: 'transform .15s',
-          display: 'block',
-          boxShadow: '0 1px 2px rgba(0,0,0,.2)'
-        }} />
-      </span>
-      <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" style={{ flexShrink: 0 }}>
-        <path d="m12 2 2.6 6.5 7 .6-5.3 4.6 1.7 6.8L12 17l-6 3.5 1.7-6.8L2.4 9.1l7-.6z" />
-      </svg>
-      {t('ocr.learnFromExamples')}
-      <span style={{
-        background: enabled ? '#c89328' : 'var(--mute-2)',
-        color: '#fff',
-        borderRadius: 999,
-        fontSize: 10,
-        fontWeight: 700,
-        padding: '0 5px',
-        lineHeight: '16px',
-        minWidth: 18,
-        textAlign: 'center',
-        display: 'inline-block',
-      }}>{count}</span>
-    </button>
-  )
-}
-
 
 interface PageRow {
   page: Page
@@ -89,21 +27,9 @@ export default function OCRRun(): React.JSX.Element {
   const { project, saveProject } = useProject()
   const navigate = useNavigate()
 
-  const [lmConfig, setLMConfig] = useState<LMConfig>(
-    project?.lmConfig ?? {
-      endpoint: 'http://localhost:1234',
-      model: '',
-      contextLength: 4096,
-      temperature: 0
-    }
-  )
-  const [ocrEngine, setOcrEngine] = useState<'lm' | 'kraken'>(project?.ocrEngine ?? 'lm')
   const [krakenConfig, setKrakenConfig] = useState<KrakenConfig>(
     project?.krakenConfig ?? { segModelPath: '', recModelPath: '', builtinModels: true }
   )
-  const [connectionStatus, setConnectionStatus] = useState<'idle' | 'ok' | 'error'>('idle')
-  const [connectionLatency, setConnectionLatency] = useState<number | null>(null)
-  const [availableModels, setAvailableModels] = useState<string[]>([])
   const [running, setRunning] = useState(false)
   const [rows, setRows] = useState<PageRow[]>([])
   const [excluded, setExcluded] = useState<Set<number>>(
@@ -171,15 +97,6 @@ export default function OCRRun(): React.JSX.Element {
 
   const addLog = (line: string): void => setLog((l) => [...l, line])
 
-  const fetchModels = useCallback(async () => {
-    try {
-      const result = await window.api.testLMStudio(lmConfig.endpoint, lmConfig.apiKey)
-      if (result.models) setAvailableModels(result.models)
-    } catch { /* silent */ }
-  }, [lmConfig.endpoint, lmConfig.apiKey])
-
-  useEffect(() => { fetchModels() }, []) // eslint-disable-line react-hooks/exhaustive-deps
-
   useEffect(() => {
     if (project?.krakenConfig) return
     window.api.getKrakenBuiltinPaths().then((paths) =>
@@ -188,14 +105,6 @@ export default function OCRRun(): React.JSX.Element {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [project?.projectDir])
 
-  const updateOcrEngine = useCallback(
-    (engine: 'lm' | 'kraken') => {
-      setOcrEngine(engine)
-      if (project) void saveProject({ ...project, ocrEngine: engine })
-    },
-    [project, saveProject]
-  )
-
   const updateKrakenConfig = useCallback(
     (cfg: KrakenConfig) => {
       setKrakenConfig(cfg)
@@ -203,21 +112,6 @@ export default function OCRRun(): React.JSX.Element {
     },
     [project, saveProject]
   )
-
-  const altoPageCount = project?.pages.filter((p) => p.lineGeometry?.length).length ?? 0
-
-  const testConnection = useCallback(async () => {
-    setConnectionStatus('idle')
-    const result = await window.api.testLMStudio(lmConfig.endpoint, lmConfig.apiKey)
-    setConnectionLatency(result.latencyMs)
-    setConnectionStatus(result.ok ? 'ok' : 'error')
-    if (result.models) setAvailableModels(result.models)
-    addLog(
-      result.ok
-        ? `[info] Connected · latency=${result.latencyMs}ms · models=${result.models?.join(', ')}`
-        : `[error] Connection failed · ${result.error}`
-    )
-  }, [lmConfig.endpoint, lmConfig.apiKey])
 
   const toggleExcluded = useCallback((n: number) => {
     setExcluded((prev) => {
@@ -236,26 +130,21 @@ export default function OCRRun(): React.JSX.Element {
   const startOCR = useCallback(async () => {
     if (!project) return
     setRunning(true)
-    const cfg = { ...lmConfig }
 
     const forcedNs = new Set(rows.filter((r) => r.forceReprocess).map((r) => r.page.n))
     const pagesWithReset = project.pages.map((p) =>
       forcedNs.has(p.n) ? { ...p, status: 'pending' as const } : p
     )
-    const projectToSave = { ...project, pages: pagesWithReset, lmConfig: cfg }
-    await saveProject(projectToSave)
+    await saveProject({ ...project, pages: pagesWithReset })
 
     let pagesForOCR = pagesWithReset.filter((p) => !excluded.has(p.n))
     addLog(`[info] Starting OCR · ${pagesForOCR.filter((p) => p.status !== 'skipped').length} pages`)
     if (forcedNs.size > 0) addLog(`[info] Force-reprocessing ${forcedNs.size} page(s): ${[...forcedNs].join(', ')}`)
 
-    const excludedExamplesWithMasks = pagesWithReset.filter(
-      (p) => p.isExample && p.status === 'ocr_done' && p.masks.length > 0 && excluded.has(p.n)
-    )
-    const toMask = [...pagesForOCR.filter((p) => p.masks.length > 0), ...excludedExamplesWithMasks]
-    const maskedPaths = new Map<number, string>()
+    const toMask = pagesForOCR.filter((p) => p.masks.length > 0)
     if (toMask.length > 0) {
       addLog(`[info] Applying masks to ${toMask.length} pages…`)
+      const maskedPaths = new Map<number, string>()
       for (const p of toMask) {
         try {
           maskedPaths.set(p.n, await renderMaskedPage(project.projectDir, p))
@@ -268,31 +157,20 @@ export default function OCRRun(): React.JSX.Element {
       )
     }
 
-    const allPagesWithMasks = pagesWithReset.map((p) =>
-      maskedPaths.has(p.n) ? { ...p, maskedImagePath: maskedPaths.get(p.n) } : p
-    )
-    if (ocrEngine === 'kraken') {
-      await window.api.runKraken(project.projectDir, pagesForOCR, krakenConfig)
-    } else {
-      await window.api.runOCR(project.projectDir, pagesForOCR, cfg, allPagesWithMasks)
-    }
+    await window.api.runKraken(project.projectDir, pagesForOCR, krakenConfig)
 
     const reloaded = await window.api.reloadProject(project.projectDir)
     await saveProject(reloaded)
 
     setRunning(false)
     addLog('[info] OCR run complete')
-  }, [project, lmConfig, ocrEngine, krakenConfig, rows, excluded, saveProject])
+  }, [project, krakenConfig, rows, excluded, saveProject])
 
   const stopOCR = useCallback(async () => {
-    if (ocrEngine === 'kraken') {
-      await window.api.stopKraken()
-    } else {
-      await window.api.stopOCR()
-    }
+    await window.api.stopKraken()
     setRunning(false)
     addLog('[info] OCR stopped by user')
-  }, [ocrEngine])
+  }, [])
 
   const doneCount = rows.filter((r) => r.status === 'done').length
   const errorCount = rows.filter((r) => r.status === 'error').length
@@ -316,8 +194,6 @@ export default function OCRRun(): React.JSX.Element {
     return rem > 0 ? `~${m} min ${rem} s` : `~${m} min`
   }
 
-  const examplePageNs = project?.pages.filter((p) => p.isExample && p.status === 'ocr_done') ?? []
-
   const filteredRows = rows.filter((r) => {
     const matchesFilter =
       filter === 'all' ? true
@@ -330,8 +206,6 @@ export default function OCRRun(): React.JSX.Element {
       || r.page.imagePath.toLowerCase().includes(q)
     return matchesFilter && matchesSearch
   })
-
-  const advSummary = `temp ${lmConfig.temperature} · ctx ${lmConfig.contextLength}${lmConfig.apiKey ? ' · key set' : ' · no key'}`
 
   const basename = (p: string): string => p.split('/').pop() ?? p
 
@@ -392,13 +266,6 @@ export default function OCRRun(): React.JSX.Element {
               </div>
             </div>
             <div className="flex items-center gap-2 shrink-0">
-              {!running && ocrEngine === 'lm' && examplePageNs.length > 1 && (
-                <LearnFromExamplesToggle
-                  enabled={lmConfig.inMemoryLearning !== false}
-                  count={examplePageNs.length}
-                  onChange={(v) => setLMConfig((c) => ({ ...c, inMemoryLearning: v }))}
-                />
-              )}
               {running ? (
                 <button className="btn btn-ghost" onClick={stopOCR}>
                   <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -428,135 +295,13 @@ export default function OCRRun(): React.JSX.Element {
         {/* ── Scrollable body ── */}
         <div className="flex-1 overflow-y-auto px-8 pt-5 pb-6 space-y-5">
 
-          {/* ── Engine selection ── */}
+          {/* ── Kraken model config ── */}
           <section>
-            <div className="flex items-center gap-1 mb-2">
-              {(['lm', 'kraken'] as const).map((eng) => (
-                <button
-                  key={eng}
-                  className="btn btn-quiet text-[11px] shrink-0"
-                  style={{ padding: '3px 10px', ...(ocrEngine === eng ? { background: '#0369a1', color: '#fff', borderColor: '#0369a1' } : {}) }}
-                  onClick={() => updateOcrEngine(eng)}
-                  disabled={running}
-                >
-                  {eng === 'kraken' ? t('review.krakenEngine') : t('review.lmEngine')}
-                </button>
-              ))}
-              {altoPageCount > 0 && ocrEngine === 'kraken' && (
-                <span className="text-[11px] ml-2" style={{ color: 'var(--mute)' }}>
-                  {t('ocr.altoSkipInfo', { count: altoPageCount })}
-                </span>
-              )}
+            <div className="panel px-3 py-2.5">
+              <h3 className="font-serif text-[15px] leading-none mb-2">{t('review.krakenEngine')}</h3>
+              <KrakenModelPicker value={krakenConfig} onChange={updateKrakenConfig} />
             </div>
           </section>
-
-          {ocrEngine === 'kraken' ? (
-            <section>
-              <div className="panel px-3 py-2.5">
-                <h3 className="font-serif text-[15px] leading-none mb-2">{t('review.krakenEngine')}</h3>
-                <KrakenModelPicker value={krakenConfig} onChange={updateKrakenConfig} />
-              </div>
-            </section>
-          ) : (
-          <section>
-            <div className="panel">
-              {/* Single inline row */}
-              <div className="flex items-center gap-3 px-3 py-2.5 flex-wrap">
-                <h3 className="font-serif text-[15px] leading-none shrink-0 py-1 pr-3 mr-1 border-r" style={{ borderColor: 'var(--line)' }}>{t('ocr.lmStudio')}</h3>
-
-                <div className="flex items-center gap-2">
-                  <div className="label" style={{ letterSpacing: '.1em' }}>{t('ocr.endpoint')}</div>
-                  <input
-                    className="input font-mono text-[12px]"
-                    style={{ paddingTop: 4, paddingBottom: 4, width: 210 }}
-                    data-tour="ocr-endpoint"
-                    value={lmConfig.endpoint}
-                    onChange={(e) => setLMConfig((c) => ({ ...c, endpoint: e.target.value }))}
-                    placeholder="http://localhost:1234"
-                  />
-                </div>
-
-                <div className="flex items-center gap-2">
-                  <div className="label" style={{ letterSpacing: '.1em' }}>{t('ocr.model')}</div>
-                  <div className="relative">
-                    <input
-                      className="input font-mono text-[12px]"
-                      style={{ paddingTop: 4, paddingBottom: 4, width: 170, paddingRight: 28 }}
-                      list="model-list"
-                      value={lmConfig.model}
-                      onChange={(e) => setLMConfig((c) => ({ ...c, model: e.target.value }))}
-                      placeholder={availableModels.length ? 'click ▾ or type' : 'qwen2.5-vl-7b-instruct'}
-                    />
-                    <svg className="absolute right-2 top-1/2 -translate-y-1/2" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ color: 'var(--mute)', pointerEvents: 'none' }}><path d="m6 9 6 6 6-6" /></svg>
-                    <datalist id="model-list">
-                      {availableModels.map((m) => <option key={m} value={m} />)}
-                    </datalist>
-                  </div>
-                  <button className="btn btn-quiet" style={{ padding: 5 }} onClick={fetchModels} title={t('ocr.refreshModels')}>
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M3 12a9 9 0 1 0 3-6.7" /><path d="M3 3v6h6" /></svg>
-                  </button>
-                </div>
-
-                <button className="btn btn-ghost" style={{ paddingTop: 4, paddingBottom: 4 }} onClick={testConnection}>
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M5 12h14M12 5l7 7-7 7" /></svg>
-                  {t('ocr.test')}
-                </button>
-
-                {connectionStatus !== 'idle' && (
-                  <span className={`ml-auto inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-mono border ${connectionStatus === 'ok' ? 'bg-[color:var(--moss-bg)] border-[#b8c8a0] text-[#3b5a30]' : 'bg-[#f1d6cf] border-[#d9a0a0] text-[#7a2a23]'}`}>
-                    <span className={`dot ${connectionStatus === 'ok' ? 'dot-ok' : 'dot-err'}`} />
-                    {connectionStatus === 'ok' ? t('ocr.connected', { latency: connectionLatency }) : t('ocr.connectionError')}
-                  </span>
-                )}
-              </div>
-
-              {/* Advanced disclosure */}
-              <details className="border-t" style={{ borderColor: 'var(--line)' }}>
-                <summary className="px-3 py-2 flex items-center justify-between cursor-pointer hover:bg-[color:var(--paper-3)] transition-colors list-none [&::-webkit-details-marker]:hidden">
-                  <div className="flex items-center gap-2 text-[12px]">
-                    <svg className="details-chev transition-transform" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ color: 'var(--mute)' }}><path d="m9 6 6 6-6 6" /></svg>
-                    <span className="font-medium">{t('ocr.advancedParams')}</span>
-                    <span className="font-mono text-[11px]" style={{ color: 'var(--mute)' }}>{advSummary}</span>
-                  </div>
-                  <span className="text-[10px] tracking-[.1em] uppercase" style={{ color: 'var(--mute-2)' }}>{t('ocr.advancedDefaults')}</span>
-                </summary>
-                <div className="px-3 pb-3 pt-2 grid gap-3 border-t border-dashed" style={{ borderColor: 'var(--line)', gridTemplateColumns: '120px 160px 1fr' }}>
-                  <div>
-                    <div className="label mb-1">{t('ocr.temperature')}</div>
-                    <input
-                      className="input font-mono text-[12px]"
-                      type="number"
-                      step="0.1"
-                      min="0"
-                      max="2"
-                      value={lmConfig.temperature}
-                      onChange={(e) => setLMConfig((c) => ({ ...c, temperature: parseFloat(e.target.value) }))}
-                    />
-                  </div>
-                  <div>
-                    <div className="label mb-1">{t('ocr.contextLength')}</div>
-                    <input
-                      className="input font-mono text-[12px]"
-                      type="number"
-                      value={lmConfig.contextLength}
-                      onChange={(e) => setLMConfig((c) => ({ ...c, contextLength: parseInt(e.target.value) }))}
-                    />
-                  </div>
-                  <div>
-                    <div className="label mb-1">{t('ocr.apiKey')}</div>
-                    <input
-                      className="input font-mono text-[12px]"
-                      type="password"
-                      value={lmConfig.apiKey ?? ''}
-                      placeholder={t('ocr.apiKeyPlaceholder')}
-                      onChange={(e) => setLMConfig((c) => ({ ...c, apiKey: e.target.value || undefined }))}
-                    />
-                  </div>
-                </div>
-              </details>
-            </div>
-          </section>
-          )}
 
           {/* ── Page queue ── */}
           <section>

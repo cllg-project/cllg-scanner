@@ -39,7 +39,9 @@ jobs:
       - name: Install Node dependencies
         run: npm ci
 
-      - name: Install AppImage dependencies
+      # libfuse2 is needed for electron-builder to BUILD an AppImage on Linux
+      # (not just for end users to run one) — modern Ubuntu runners ship FUSE3 only.
+      - name: Install AppImage build dependencies
         if: matrix.eb_platform == 'linux'
         run: sudo apt-get install -y libfuse2
 
@@ -69,6 +71,8 @@ jobs:
             dist/*.exe
             dist/*.dmg
             dist/*.AppImage
+            dist/*.deb
+            dist/*.tar.gz
           retention-days: 30
 
   release:

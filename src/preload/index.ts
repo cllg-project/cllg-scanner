@@ -6,7 +6,9 @@ import type {
   OCRProgressEvent,
   TEIParams,
   TEISaveParams,
-  KrakenConfig
+  KrakenConfig,
+  AltoScanResult,
+  AltoLine
 } from '@shared/types'
 
 const api = {
@@ -90,6 +92,25 @@ const api = {
     krakenConfig: KrakenConfig
   ): Promise<{ text: string; lines: { text: string; corners: [number, number][] }[] }> =>
     ipcRenderer.invoke('kraken:rerun-page', imagePath, krakenConfig.segModelPath, krakenConfig.recModelPath),
+
+  selectKrakenModel: (kind: 'segmentation' | 'recognition'): Promise<string | null> =>
+    ipcRenderer.invoke('dialog:selectKrakenModel', kind),
+
+  runKraken: (projectDir: string, pages: Project['pages'], krakenConfig: KrakenConfig): Promise<void> =>
+    ipcRenderer.invoke('kraken:run', projectDir, pages, krakenConfig),
+
+  stopKraken: (): Promise<void> =>
+    ipcRenderer.invoke('kraken:stop'),
+
+  // ── ALTO XML import (eScriptorium) ──────────────────────────────────────
+  selectAltoDir: (): Promise<string | null> =>
+    ipcRenderer.invoke('dialog:selectAltoDir'),
+
+  scanAltoDir: (dirPath: string): Promise<AltoScanResult[]> =>
+    ipcRenderer.invoke('alto:scanDir', dirPath),
+
+  parseAltoFile: (altoPath: string): Promise<AltoLine[]> =>
+    ipcRenderer.invoke('alto:parseFile', altoPath),
 
   // ── TEI ──────────────────────────────────────────────────────────────
   generateTEI: (params: TEIParams): Promise<string> =>

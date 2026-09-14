@@ -18,13 +18,36 @@ No technical skills or build tools are required. Pre-built executables for Windo
 |---|---|
 | Windows | `CLLG-Desktop-Setup-*.exe` — run the installer |
 | macOS | `CLLG-Desktop-*.dmg` — open and drag to Applications |
-| Linux | `CLLG-Desktop-*.AppImage` — run directly |
+| Linux | `CLLG-Desktop-*.AppImage`, `.deb`, or `.tar.gz` — see below |
 
-**Linux note:** After downloading the AppImage, mark it as executable before running:
+**Linux — which file to pick:**
 
+- **`.deb`** (recommended for Debian/Ubuntu): installs via your package manager,
+  which resolves all required shared libraries automatically.
+  ```bash
+  sudo apt install ./CLLG-Desktop-*.deb
+  ```
+- **`.AppImage`**: run directly, but requires `libfuse2`, which is no longer
+  preinstalled on Ubuntu ≥ 22.04 / Debian ≥ 12 (they ship FUSE3 by default). If you see
+  an error about a missing dependency or FUSE when launching it, either install
+  `libfuse2`:
+  ```bash
+  sudo apt install libfuse2
+  chmod +x CLLG-Desktop-*.AppImage
+  ./CLLG-Desktop-*.AppImage
+  ```
+  or bypass FUSE entirely:
+  ```bash
+  chmod +x CLLG-Desktop-*.AppImage
+  ./CLLG-Desktop-*.AppImage --appimage-extract-and-run
+  ```
+- **`.tar.gz`**: works on any distribution, no packaging system required. Extract
+  and run the `cllg-desktop` binary inside.
+
+On a minimal, server, or cloud Ubuntu image, any of the three formats may also need
+a handful of Chromium/Electron runtime libraries that a desktop install already has:
 ```bash
-chmod +x CLLG-Desktop-*.AppImage
-./CLLG-Desktop-*.AppImage
+sudo apt install libnss3 libgtk-3-0 libasound2 libatk-bridge2.0-0 libgbm1 libxss1 libxtst6
 ```
 
 If the application fails to start with a sandbox error, add the `--no-sandbox` flag:

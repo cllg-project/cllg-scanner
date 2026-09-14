@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
-import type { LMConfig, OCRProgressEvent, Page } from '@shared/types'
+import type { LMConfig, KrakenConfig, OCRProgressEvent, Page } from '@shared/types'
 import Sidebar from '../components/Sidebar'
 import { useProject } from '../App'
 import { renderMaskedPage } from '../utils/renderMaskedPage'
+import KrakenModelPicker from '../components/KrakenModelPicker'
 
 function LearnFromExamplesToggle({
   enabled,
@@ -96,6 +97,10 @@ export default function OCRRun(): React.JSX.Element {
       temperature: 0
     }
   )
+  const [ocrEngine, setOcrEngine] = useState<'lm' | 'kraken'>(project?.ocrEngine ?? 'lm')
+  const [krakenConfig, setKrakenConfig] = useState<KrakenConfig>(
+    project?.krakenConfig ?? { segModelPath: '', recModelPath: '', builtinModels: true }
+  )
   const [connectionStatus, setConnectionStatus] = useState<'idle' | 'ok' | 'error'>('idle')
   const [connectionLatency, setConnectionLatency] = useState<number | null>(null)
   const [availableModels, setAvailableModels] = useState<string[]>([])
@@ -175,6 +180,32 @@ export default function OCRRun(): React.JSX.Element {
 
   useEffect(() => { fetchModels() }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
+  useEffect(() => {
+    if (project?.krakenConfig) return
+    window.api.getKrakenBuiltinPaths().then((paths) =>
+      setKrakenConfig({ segModelPath: paths.segModelPath, recModelPath: paths.recModelPath, builtinModels: true })
+    )
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [project?.projectDir])
+
+  const updateOcrEngine = useCallback(
+    (engine: 'lm' | 'kraken') => {
+      setOcrEngine(engine)
+      if (project) void saveProject({ ...project, ocrEngine: engine })
+    },
+    [project, saveProject]
+  )
+
+  const updateKrakenConfig = useCallback(
+    (cfg: KrakenConfig) => {
+      setKrakenConfig(cfg)
+      if (project) void saveProject({ ...project, krakenConfig: cfg })
+    },
+    [project, saveProject]
+  )
+
+  const altoPageCount = project?.pages.filter((p) => p.lineGeometry?.length).length ?? 0
+
   const testConnection = useCallback(async () => {
     setConnectionStatus('idle')
     const result = await window.api.testLMStudio(lmConfig.endpoint, lmConfig.apiKey)
@@ -240,20 +271,28 @@ export default function OCRRun(): React.JSX.Element {
     const allPagesWithMasks = pagesWithReset.map((p) =>
       maskedPaths.has(p.n) ? { ...p, maskedImagePath: maskedPaths.get(p.n) } : p
     )
-    await window.api.runOCR(project.projectDir, pagesForOCR, cfg, allPagesWithMasks)
+    if (ocrEngine === 'kraken') {
+      await window.api.runKraken(project.projectDir, pagesForOCR, krakenConfig)
+    } else {
+      await window.api.runOCR(project.projectDir, pagesForOCR, cfg, allPagesWithMasks)
+    }
 
     const reloaded = await window.api.reloadProject(project.projectDir)
     await saveProject(reloaded)
 
     setRunning(false)
     addLog('[info] OCR run complete')
-  }, [project, lmConfig, rows, excluded, saveProject])
+  }, [project, lmConfig, ocrEngine, krakenConfig, rows, excluded, saveProject])
 
   const stopOCR = useCallback(async () => {
-    await window.api.stopOCR()
+    if (ocrEngine === 'kraken') {
+      await window.api.stopKraken()
+    } else {
+      await window.api.stopOCR()
+    }
     setRunning(false)
     addLog('[info] OCR stopped by user')
-  }, [])
+  }, [ocrEngine])
 
   const doneCount = rows.filter((r) => r.status === 'done').length
   const errorCount = rows.filter((r) => r.status === 'error').length
@@ -353,7 +392,7 @@ export default function OCRRun(): React.JSX.Element {
               </div>
             </div>
             <div className="flex items-center gap-2 shrink-0">
-              {!running && examplePageNs.length > 1 && (
+              {!running && ocrEngine === 'lm' && examplePageNs.length > 1 && (
                 <LearnFromExamplesToggle
                   enabled={lmConfig.inMemoryLearning !== false}
                   count={examplePageNs.length}
@@ -389,7 +428,36 @@ export default function OCRRun(): React.JSX.Element {
         {/* ── Scrollable body ── */}
         <div className="flex-1 overflow-y-auto px-8 pt-5 pb-6 space-y-5">
 
-          {/* ── LM Studio ── */}
+          {/* ── Engine selection ── */}
+          <section>
+            <div className="flex items-center gap-1 mb-2">
+              {(['lm', 'kraken'] as const).map((eng) => (
+                <button
+                  key={eng}
+                  className="btn btn-quiet text-[11px] shrink-0"
+                  style={{ padding: '3px 10px', ...(ocrEngine === eng ? { background: '#0369a1', color: '#fff', borderColor: '#0369a1' } : {}) }}
+                  onClick={() => updateOcrEngine(eng)}
+                  disabled={running}
+                >
+                  {eng === 'kraken' ? t('review.krakenEngine') : t('review.lmEngine')}
+                </button>
+              ))}
+              {altoPageCount > 0 && ocrEngine === 'kraken' && (
+                <span className="text-[11px] ml-2" style={{ color: 'var(--mute)' }}>
+                  {t('ocr.altoSkipInfo', { count: altoPageCount })}
+                </span>
+              )}
+            </div>
+          </section>
+
+          {ocrEngine === 'kraken' ? (
+            <section>
+              <div className="panel px-3 py-2.5">
+                <h3 className="font-serif text-[15px] leading-none mb-2">{t('review.krakenEngine')}</h3>
+                <KrakenModelPicker value={krakenConfig} onChange={updateKrakenConfig} />
+              </div>
+            </section>
+          ) : (
           <section>
             <div className="panel">
               {/* Single inline row */}
@@ -488,6 +556,7 @@ export default function OCRRun(): React.JSX.Element {
               </details>
             </div>
           </section>
+          )}
 
           {/* ── Page queue ── */}
           <section>

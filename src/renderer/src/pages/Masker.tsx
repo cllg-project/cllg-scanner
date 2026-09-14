@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next'
 import { Stage, Layer, Image as KonvaImage, Rect, Transformer } from 'react-konva'
 import type Konva from 'konva'
 import type { Page, Mask } from '@shared/types'
+import { regionsToMasks } from '../utils/altoMasking'
 import Sidebar from '../components/Sidebar'
 import { useProject } from '../App'
 import {
@@ -784,6 +785,18 @@ export default function Masker(): React.JSX.Element {
           </button>
 
           <div className="tool-sep" />
+
+          {!!page?.lineGeometry?.length && (
+            <button
+              className="tool-btn"
+              onClick={() => updateMasks([...(page?.masks ?? []), ...regionsToMasks(page.lineGeometry!)])}
+              title={t('masker.altoAutoMask')}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+                <path d="M4 4h9l5 5v11H4z" /><path d="M13 4v5h5" /><path d="M8 13h8M8 16h5" />
+              </svg>
+            </button>
+          )}
 
           <div className="tool-sep" />
 

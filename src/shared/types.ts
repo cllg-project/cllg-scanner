@@ -8,6 +8,21 @@ export interface Mask {
   fill: string  // '#ffffff' or '#000000'
 }
 
+export type GeometrySource = 'alto' | 'kraken'
+
+export interface LineGeometry {
+  id: string                       // ALTO TextLine/@ID if present, else `${blockId}-${idx}` / `k${idx}`
+  polygon: [number, number][]      // pixel coords in the page image's space
+  baseline?: [number, number][]    // verbatim ALTO <Baseline POINTS=.../>, only ever set for source:'alto'
+  regionType?: string              // ALTO TextBlock/@TYPE, or Kraken's per-line `type` (whatever the loaded model's class_mapping defines)
+  blockId?: string                 // ALTO TextBlock/@ID; undefined for Kraken (no block concept)
+  text?: string                    // ALTO ground truth, or Kraken's first-pass recognized text — immutable once set
+  source: GeometrySource
+}
+
+// Back-compat alias — AltoLine is now a LineGeometry restricted to ALTO's shape.
+export type AltoLine = LineGeometry
+
 export interface Page {
   n: number
   imagePath: string          // relative to projectDir
@@ -19,6 +34,7 @@ export interface Page {
   isExample?: boolean        // marks this page as a few-shot OCR example (max 3)
   tokens?: number            // output tokens from last successful OCR run
   elapsedMs?: number         // wall-clock time of last successful OCR run
+  lineGeometry?: LineGeometry[]  // per-line geometry, from ALTO import or Kraken's own first segmentation pass
 }
 
 export interface LMConfig {
@@ -60,6 +76,8 @@ export interface Project {
   hierarchy: HierarchyLevel[]
   bibliography: BibEntry[]
   lmConfig: LMConfig
+  krakenConfig?: KrakenConfig   // persisted custom/builtin Kraken model paths; undefined = use builtin defaults
+  ocrEngine?: 'lm' | 'kraken'   // which engine the OCR step (Step 3) uses; default 'lm' when absent
   createdAt: string
   updatedAt: string
 }
@@ -131,4 +149,11 @@ export interface KrakenConfig {
   segModelPath: string
   recModelPath: string
   builtinModels: boolean
+}
+
+export interface AltoScanResult {
+  altoPath: string     // absolute path to the ALTO XML file
+  imagePath: string | null   // absolute path to the paired image, if found
+  lineCount: number
+  regionTypes: string[]
 }

@@ -11,6 +11,7 @@ import Sidebar from '../components/Sidebar'
 import { useProject } from '../App'
 import { convertBetaKey, finalSigmaFix } from '../utils/betaCode'
 import BetaCodeHelper from '../components/BetaCodeHelper'
+import KrakenModelPicker from '../components/KrakenModelPicker'
 import { renderMaskedPage } from '../utils/renderMaskedPage'
 
 interface FlatLevel { depth: number; name: string; pattern: string; color?: string }
@@ -288,6 +289,7 @@ export default function Review(): React.JSX.Element {
   const [compareMode, setCompareMode] = useState(false)
   const [krakenCompareText, setKrakenCompareText] = useState<string | null>(null)
   const [krakenLines, setKrakenLines] = useState<{ text: string; corners: [number, number][] }[]>([])
+  const [showGeometry, setShowGeometry] = useState(false)
   const [compareLoading, setCompareLoading] = useState(false)
   const [compareError, setCompareError] = useState<string | null>(null)
   const krakenCacheRef = useRef<Map<string, { text: string; lines: { text: string; corners: [number, number][] }[] }>>(new Map())
@@ -752,10 +754,23 @@ export default function Review(): React.JSX.Element {
   }, [betaMode, scheduleSigmaFix]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
+    if (project?.krakenConfig) {
+      setKrakenPaths(project.krakenConfig)
+      return
+    }
     window.api.getKrakenBuiltinPaths().then((paths) =>
       setKrakenPaths({ segModelPath: paths.segModelPath, recModelPath: paths.recModelPath, builtinModels: true })
     )
-  }, [])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [project?.projectDir])
+
+  const updateKrakenConfig = useCallback(
+    (cfg: KrakenConfig) => {
+      setKrakenPaths(cfg)
+      if (project) void saveProject({ ...project, krakenConfig: cfg })
+    },
+    [project, saveProject]
+  )
 
   const runReOcr = useCallback(async () => {
     if (!project || !currentPage) return
@@ -1105,11 +1120,13 @@ export default function Review(): React.JSX.Element {
                 </button>
               ))}
             </div>
-            <span className="shrink-0 font-mono text-[11px]" style={{ color: 'var(--mute)' }}>
-              {reOcrEngine === 'kraken'
-                ? t('review.krakenBuiltin')
-                : t('review.lmEndpoint', { endpoint: project.lmConfig.endpoint, model: project.lmConfig.model || t('review.lmNoModel') })}
-            </span>
+            {reOcrEngine === 'kraken' ? (
+              <KrakenModelPicker value={krakenPaths} onChange={updateKrakenConfig} />
+            ) : (
+              <span className="shrink-0 font-mono text-[11px]" style={{ color: 'var(--mute)' }}>
+                {t('review.lmEndpoint', { endpoint: project.lmConfig.endpoint, model: project.lmConfig.model || t('review.lmNoModel') })}
+              </span>
+            )}
             {reOcrError && <span className="shrink-0 text-[11px]" style={{ color: '#b04a3a' }}>{reOcrError}</span>}
             <div className="flex items-center gap-2 ml-auto shrink-0">
               <button
@@ -1136,6 +1153,16 @@ export default function Review(): React.JSX.Element {
           <div className="flex flex-col overflow-hidden" style={{ width: `${splitRatio * 100}%`, flexShrink: 0 }}>
             <div className="px-3 py-1.5 border-b shrink-0 flex items-center gap-2" style={{ borderColor: 'var(--line)', background: 'var(--paper-2)' }}>
               <span className="font-mono text-[11px]" style={{ color: 'var(--mute)' }}>{t('review.source')}</span>
+              {!!currentPage?.lineGeometry?.length && (
+                <button
+                  className="btn btn-quiet text-[11px] shrink-0"
+                  style={{ padding: '2px 8px', ...(showGeometry ? { background: '#0369a1', color: '#fff', borderColor: '#0369a1' } : {}) }}
+                  onClick={() => setShowGeometry((v) => !v)}
+                  title={t('review.showGeometry')}
+                >
+                  {t('review.showGeometry')} ({currentPage.lineGeometry.length})
+                </button>
+              )}
               <div className="ml-auto flex items-center gap-0.5">
                 <button className="tool-btn" style={{ width: 22, height: 22, fontSize: 12 }}
                   onClick={() => setImgZoom((z) => Math.max(0.2, parseFloat((z - 0.15).toFixed(2))))}>−</button>
@@ -1183,6 +1210,23 @@ export default function Review(): React.JSX.Element {
                       width: '100%',
                     }}
                   />
+                  {showGeometry && currentPage?.lineGeometry?.length && imgNaturalWidth && imgNaturalHeight && (
+                    <svg
+                      style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', pointerEvents: 'none' }}
+                      viewBox={`0 0 ${imgNaturalWidth} ${imgNaturalHeight}`}
+                      preserveAspectRatio="none"
+                    >
+                      {currentPage.lineGeometry.map((line) => (
+                        <polygon
+                          key={line.id}
+                          points={line.polygon.map(([x, y]) => `${x},${y}`).join(' ')}
+                          fill="rgba(3,105,161,0.10)"
+                          stroke="rgba(3,105,161,0.85)"
+                          strokeWidth={imgNaturalWidth / 600}
+                        />
+                      ))}
+                    </svg>
+                  )}
                   {activeSuggestionLineIdx !== null &&
                     krakenLines[activeSuggestionLineIdx] &&
                     imgNaturalWidth && imgNaturalHeight && (() => {

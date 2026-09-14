@@ -43,7 +43,7 @@ function timeAgo(iso: string, locale: string): string {
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
-type ImportMode = 'pdf' | 'djvu' | 'images'
+type ImportMode = 'pdf' | 'djvu' | 'images' | 'alto'
 
 interface PendingImport {
   mode: ImportMode
@@ -54,6 +54,7 @@ interface PendingImport {
   imagePaths: string[]
   totalPages: number
   rangeText: string   // e.g. "1-5,7,9"
+  altoPaths?: (string | null)[]  // parallel to imagePaths, ALTO mode only
 }
 
 // ── Component ────────────────────────────────────────────────────────────────
@@ -246,7 +247,7 @@ export default function Home(): React.JSX.Element {
   const handleConfirmImport = useCallback(async () => {
     if (!pendingImport) return
     if (pendingImport.sourcePath === '__tour_demo__') return
-    const { mode, sourcePath, doc, imagePaths, totalPages, rangeText } = pendingImport
+    const { mode, sourcePath, doc, imagePaths, totalPages, rangeText, altoPaths } = pendingImport
     const pageNums = parseRange(rangeText, totalPages)
     if (!pageNums.length) return
 
@@ -267,6 +268,19 @@ export default function Home(): React.JSX.Element {
       } else {
         const selectedPaths = pageNums.map((n) => imagePaths[n - 1])
         updated = await importImagePages(selectedPaths, project, (cur, total) => setImportProgress({ cur, total }))
+
+        if (mode === 'alto' && altoPaths) {
+          const selectedAltoPaths = pageNums.map((n) => altoPaths[n - 1] ?? null)
+          const startIdx = updated.pages.length - selectedAltoPaths.length
+          const pages = [...updated.pages]
+          for (let i = 0; i < selectedAltoPaths.length; i++) {
+            const altoPath = selectedAltoPaths[i]
+            if (!altoPath) continue
+            const lines = await window.api.parseAltoFile(altoPath)
+            pages[startIdx + i] = { ...pages[startIdx + i], lineGeometry: lines }
+          }
+          updated = { ...updated, pages }
+        }
       }
 
       setImportStep(t('home.savingProject'))
@@ -278,6 +292,33 @@ export default function Home(): React.JSX.Element {
       setImportProgress(null)
     }
   }, [pendingImport, saveProject, setProject, navigate])
+
+  const handleNewProjectFromAlto = useCallback(async () => {
+    const dirPath = await window.api.selectAltoDir()
+    if (!dirPath) return
+
+    setImportStep(t('home.scanningAlto'))
+    try {
+      const results = await window.api.scanAltoDir(dirPath)
+      const paired = results.filter((r) => r.imagePath)
+      if (!paired.length) {
+        setImportStep(t('home.noAltoFound'))
+        await new Promise((r) => setTimeout(r, 2000))
+        return
+      }
+      setPendingImport({
+        mode: 'alto',
+        sourcePath: dirPath,
+        doc: null,
+        imagePaths: paired.map((r) => r.imagePath as string),
+        altoPaths: paired.map((r) => r.altoPath),
+        totalPages: paired.length,
+        rangeText: ''
+      })
+    } finally {
+      setImportStep(null)
+    }
+  }, [])
 
   const handleOpenProject = useCallback(async () => {
     const p = await window.api.openProject()
@@ -336,6 +377,12 @@ export default function Home(): React.JSX.Element {
                   </svg>
                   {t('home.imageFolder')}
                 </button>
+                <button className="btn btn-ghost" onClick={handleNewProjectFromAlto} disabled={busy || !!pendingImport}>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+                    <path d="M4 4h9l5 5v11H4z" /><path d="M13 4v5h5" /><path d="M8 13h8M8 16h5" />
+                  </svg>
+                  {t('home.altoFolder')}
+                </button>
               </div>
               <button className="btn btn-ghost" onClick={handleOpenProject} disabled={busy || !!pendingImport}>
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
@@ -362,9 +409,11 @@ export default function Home(): React.JSX.Element {
                   <div className="font-mono text-[11px] mt-0.5" style={{ color: 'var(--mute)' }}>
                     {pendingImport.mode === 'images'
                       ? t('home.folderContains')
+                      : pendingImport.mode === 'alto'
+                      ? t('home.altoContains')
                       : t('home.pdfHas', { format: pendingImport.mode.toUpperCase() })}{' '}
                     <span style={{ color: 'var(--ink)' }}>{pendingImport.totalPages}</span>
-                    {' '}{pendingImport.mode === 'images' ? t('home.images') : t('common.pages')} {t('home.total')}
+                    {' '}{pendingImport.mode === 'images' || pendingImport.mode === 'alto' ? t('home.images') : t('common.pages')} {t('home.total')}
                   </div>
                 </div>
                 <button className="btn btn-quiet !py-1 !px-2 !text-[12px]" onClick={() => setPendingImport(null)}>

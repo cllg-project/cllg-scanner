@@ -2,30 +2,11 @@ import { ipcMain, BrowserWindow } from 'electron'
 import { readFile, writeFile, appendFile, unlink } from 'fs/promises'
 import { mkdirSync, existsSync } from 'fs'
 import { join, isAbsolute } from 'path'
-import type { Page, LMConfig, OCRProgressEvent, Project } from '@shared/types'
+import type { Page, LMConfig, OCRProgressEvent } from '@shared/types'
 import { normalizeOcrText } from './normalizeOcr'
+import { persistPageStatus } from '../pageStatus'
 
 const IMAGE_TOKEN_OVERHEAD = 1500  // estimated tokens per vision-model image input
-
-async function persistPageStatus(
-  projectDir: string,
-  pageN: number,
-  status: 'ocr_done' | 'error',
-  stats?: { tokens?: number; elapsedMs?: number }
-): Promise<void> {
-  const projectFile = join(projectDir, 'project.cllg.json')
-  try {
-    const raw = await readFile(projectFile, 'utf-8')
-    const project: Project = JSON.parse(raw)
-    const page = project.pages.find((p) => p.n === pageN)
-    if (page) {
-      page.status = status
-      if (stats?.tokens != null) page.tokens = stats.tokens
-      if (stats?.elapsedMs != null) page.elapsedMs = stats.elapsedMs
-    }
-    await writeFile(projectFile, JSON.stringify(project, null, 2), 'utf-8')
-  } catch { /* non-fatal */ }
-}
 
 // Ported verbatim from cllg_pipeline.py
 const OCR_PROMPT = `You are an OCR system for ancient Greek and Latin printed scholarly texts.

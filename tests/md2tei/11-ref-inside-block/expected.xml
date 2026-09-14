@@ -35,16 +35,8 @@
       <div>
         <pb n="1"/>
         <div type="book" n="I">
-          <head>LIBER PRIMUS
-          </head>
-          <div type="chapter" n="1">
-            <p>Textus cum nota <note>Haec est nota marginalis.</note> et continuatio textus.
-            </p>
-          </div>
-          <div type="chapter" n="2">
-            <p>Textus cum <note>ref sine gradu</note> ut nota et <note>ref sine attributo</note> quoque.
-            </p>
-          </div>
+          <p><lb n="k0"/>Text before <note>1</note> a div-level ref that cannot open a div here.
+          </p>
         </div>
       </div>
     </body>

@@ -190,6 +190,12 @@ export function registerKrakenHandlers(): void {
           const pageMarkdown = krakenLinesToPageMarkdown(page.n, lines)
           await writeFile(cachePath, pageMarkdown, 'utf-8')
           await appendFile(mdPath, pageMarkdown, 'utf-8')
+
+          // Archive the first successful machine transcription, write-once — a later
+          // re-OCR or hand-correction of the editable cache above never touches this,
+          // so it stays available for training-corpus exports (Sequence 6).
+          const origPath = join(cacheDir, `page_${String(page.n).padStart(4, '0')}.orig.md`)
+          if (!existsSync(origPath)) await writeFile(origPath, pageMarkdown, 'utf-8')
           const elapsedMs = Date.now() - t0
           await persistPageStatus(projectDir, page.n, 'ocr_done', { elapsedMs })
           win?.webContents.send('ocr:progress', { pageNum: page.n, status: 'done', elapsedMs } satisfies OCRProgressEvent)

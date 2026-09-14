@@ -23,6 +23,17 @@ export interface LineGeometry {
 // Back-compat alias — AltoLine is now a LineGeometry restricted to ALTO's shape.
 export type AltoLine = LineGeometry
 
+// A user-drawn image-space grouping of lines used to manually recover paragraph/quote/
+// heading/continuation structure on pages with no LADaS zone typing at all (plain-Kraken
+// output). `lineIds` is captured once at draw time (LineGeometry ids whose polygon
+// centroid fell inside `rect`), not live-recomputed.
+export interface ManualZoneGroup {
+  id: string
+  role: 'p' | 'quote' | 'head' | 'continuation'
+  rect: { x: number; y: number; width: number; height: number }   // page-image pixel space
+  lineIds: string[]
+}
+
 export interface Page {
   n: number
   imagePath: string          // relative to projectDir
@@ -35,6 +46,7 @@ export interface Page {
   tokens?: number            // output tokens from last successful OCR run
   elapsedMs?: number         // wall-clock time of last successful OCR run
   lineGeometry?: LineGeometry[]  // per-line geometry, from ALTO import or Kraken's own first segmentation pass
+  manualZones?: ManualZoneGroup[]
 }
 
 export interface LMConfig {
@@ -150,6 +162,8 @@ export interface KrakenConfig {
   recModelPath: string
   builtinModels: boolean
 }
+
+export type PageExportFormat = 'plain' | 'plain-ladas' | 'alto' | 'pretei'
 
 export interface AltoScanResult {
   altoPath: string     // absolute path to the ALTO XML file

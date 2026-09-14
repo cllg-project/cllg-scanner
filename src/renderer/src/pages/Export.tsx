@@ -3,10 +3,18 @@ import { useTranslation } from 'react-i18next'
 import Sidebar from '../components/Sidebar'
 import { useProject } from '../App'
 import { hierarchyToYAML } from './Config'
+import type { PageExportFormat } from '@shared/types'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-type Tab = 'md' | 'tei'
+type Tab = 'md' | 'tei' | 'page'
+
+const PAGE_FORMATS: { value: PageExportFormat; labelKey: string; ext: string }[] = [
+  { value: 'plain', labelKey: 'export.formatPlain', ext: 'txt' },
+  { value: 'plain-ladas', labelKey: 'export.formatPlainLadas', ext: 'txt' },
+  { value: 'alto', labelKey: 'export.formatAlto', ext: 'xml' },
+  { value: 'pretei', labelKey: 'export.formatPreTei', ext: 'md' },
+]
 
 // ── Sub-components ────────────────────────────────────────────────────────────
 
@@ -59,6 +67,25 @@ export default function Export(): React.JSX.Element {
   const [teiXml, setTeiXml] = useState<string | null>(null)
   const [activeTab, setActiveTab] = useState<Tab>('md')
   const logRef = useRef<HTMLDivElement>(null)
+
+  // Per-page export panel (Sequence 6.3)
+  const [pageIdx, setPageIdx] = useState(0)
+  const [pageFormat, setPageFormat] = useState<PageExportFormat>('plain')
+  const [pagePreview, setPagePreview] = useState('')
+  const [pagePreviewLoading, setPagePreviewLoading] = useState(false)
+  const [pageSaving, setPageSaving] = useState(false)
+  const [exportingAll, setExportingAll] = useState(false)
+
+  const pages = project?.pages ?? []
+  const currentExportPage = pages[pageIdx] ?? null
+
+  useEffect(() => {
+    if (activeTab !== 'page' || !project || !currentExportPage) return
+    setPagePreviewLoading(true)
+    window.api.exportPageFormat(project.projectDir, currentExportPage, pageFormat)
+      .then(setPagePreview)
+      .finally(() => setPagePreviewLoading(false))
+  }, [activeTab, project, currentExportPage, pageFormat])
 
   useEffect(() => {
     if (!project) return
@@ -113,6 +140,30 @@ export default function Export(): React.JSX.Element {
       setSaving(false)
     }
   }, [project, teiXml])
+
+  const savePageExport = useCallback(async () => {
+    if (!project || !currentExportPage) return
+    setPageSaving(true)
+    try {
+      const fmt = PAGE_FORMATS.find((f) => f.value === pageFormat)!
+      const defaultName = `page_${String(currentExportPage.n).padStart(4, '0')}.${fmt.ext}`
+      const outputPath = await window.api.selectSaveFile(defaultName, fmt.ext)
+      if (!outputPath) return
+      await window.api.saveTEI({ xml: pagePreview, outputPath })
+    } finally {
+      setPageSaving(false)
+    }
+  }, [project, currentExportPage, pageFormat, pagePreview])
+
+  const exportAllPages = useCallback(async () => {
+    if (!project) return
+    setExportingAll(true)
+    try {
+      await window.api.exportAllPagesFormat(project.projectDir, project.pages, pageFormat)
+    } finally {
+      setExportingAll(false)
+    }
+  }, [project, pageFormat])
 
   if (!project) return <div className="p-8">{t('common.noProjectOpen')}</div>
 
@@ -193,6 +244,7 @@ export default function Export(): React.JSX.Element {
         <div className="px-10 pt-5 pb-0 border-b flex items-end gap-1 shrink-0" style={{ borderColor: 'var(--line)' }}>
           {tabBtn('md', 'ocr_output.md')}
           {tabBtn('tei', 'output.xml', !!teiXml)}
+          {tabBtn('page', t('export.perPageTab'), pages.length > 0)}
           <div className="ml-auto pb-1 text-[11.5px] font-mono" style={{ color: 'var(--mute)' }}>
             {activeTab === 'md' && t('export.pagesDone', { count: (ocrPreview.match(/<pb n="/g) ?? []).length })}
             {activeTab === 'tei' && teiXml && t('export.lines', { count: teiXml.split('\n').length })}
@@ -203,6 +255,54 @@ export default function Export(): React.JSX.Element {
             </div>
           )}
         </div>
+
+        {/* Per-page export toolbar */}
+        {activeTab === 'page' && (
+          <div className="px-10 py-3 border-b flex items-center gap-4 flex-wrap shrink-0" style={{ borderColor: 'var(--line)' }}>
+            <div className="flex items-center gap-1.5">
+              <span className="text-[11px] font-mono" style={{ color: 'var(--mute)' }}>{t('export.perPagePicker')}</span>
+              <button
+                className="btn btn-quiet" style={{ width: 26, height: 26, padding: 0, justifyContent: 'center' }}
+                disabled={pageIdx === 0} onClick={() => setPageIdx((i) => i - 1)}
+              >
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m15 6-6 6 6 6" /></svg>
+              </button>
+              <span className="font-mono text-[12.5px] px-2" style={{ minWidth: 60, textAlign: 'center' }}>
+                {currentExportPage ? currentExportPage.n : '–'} / {pages.length}
+              </span>
+              <button
+                className="btn btn-quiet" style={{ width: 26, height: 26, padding: 0, justifyContent: 'center' }}
+                disabled={pageIdx >= pages.length - 1} onClick={() => setPageIdx((i) => i + 1)}
+              >
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m9 6 6 6-6 6" /></svg>
+              </button>
+            </div>
+
+            <div className="w-px h-5" style={{ background: 'var(--line-2)' }} />
+
+            <div className="flex items-center gap-1">
+              {PAGE_FORMATS.map((f) => (
+                <button
+                  key={f.value}
+                  className="btn btn-quiet text-[11.5px]"
+                  style={{ padding: '4px 10px', ...(pageFormat === f.value ? { background: 'var(--oxblood)', color: '#fbf3e3', borderColor: 'var(--oxblood-2)' } : {}) }}
+                  onClick={() => setPageFormat(f.value)}
+                >
+                  {t(f.labelKey)}
+                </button>
+              ))}
+            </div>
+
+            <div className="ml-auto flex items-center gap-2">
+              <button className="btn btn-ghost text-[11.5px]" disabled={pageSaving || !currentExportPage} onClick={savePageExport}>
+                {t('export.perPageSave')}
+              </button>
+              <button className="btn btn-ghost text-[11.5px]" disabled={exportingAll || pages.length === 0} onClick={exportAllPages}>
+                {exportingAll ? t('export.perPageExportingAll') : t('export.perPageExportAll')}
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Content area */}
         <div className="flex-1 flex flex-col overflow-hidden">
@@ -216,6 +316,19 @@ export default function Export(): React.JSX.Element {
               <pre className="code text-[12px] leading-relaxed" style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
                 {teiXml ? <XmlHighlight xml={teiXml} /> : null}
               </pre>
+            )}
+            {activeTab === 'page' && (
+              pageFormat === 'alto'
+                ? (
+                  <pre className="code text-[12px] leading-relaxed" style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all', color: pagePreview ? 'var(--ink)' : 'var(--mute)' }}>
+                    {pagePreviewLoading ? '…' : (pagePreview ? <XmlHighlight xml={pagePreview} /> : t('export.perPageEmptyPlaceholder'))}
+                  </pre>
+                )
+                : (
+                  <div className="code text-[12px] leading-relaxed whitespace-pre-wrap" style={{ color: pagePreview ? 'var(--ink)' : 'var(--mute)' }}>
+                    {pagePreviewLoading ? '…' : (pagePreview || t('export.perPageEmptyPlaceholder'))}
+                  </div>
+                )
             )}
           </div>
 

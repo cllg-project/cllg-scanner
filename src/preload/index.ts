@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type {
   Project,
+  Page,
   LMConfig,
   LMTestResult,
   OCRProgressEvent,
@@ -8,7 +9,8 @@ import type {
   TEISaveParams,
   KrakenConfig,
   AltoScanResult,
-  AltoLine
+  AltoLine,
+  PageExportFormat
 } from '@shared/types'
 
 const api = {
@@ -112,8 +114,8 @@ const api = {
   parseAltoFile: (altoPath: string): Promise<AltoLine[]> =>
     ipcRenderer.invoke('alto:parseFile', altoPath),
 
-  importAltoPageText: (projectDir: string, pageN: number, lines: AltoLine[]): Promise<void> =>
-    ipcRenderer.invoke('alto:importPageText', projectDir, pageN, lines),
+  importAltoPageText: (projectDir: string, pageN: number, lines: AltoLine[], sourceAltoPath?: string): Promise<void> =>
+    ipcRenderer.invoke('alto:importPageText', projectDir, pageN, lines, sourceAltoPath),
 
   // ── TEI ──────────────────────────────────────────────────────────────
   generateTEI: (params: TEIParams): Promise<string> =>
@@ -139,6 +141,12 @@ const api = {
 
   exportProjectZip: (projectDir: string, projectName: string): Promise<string | null> =>
     ipcRenderer.invoke('project:exportZip', projectDir, projectName),
+
+  exportPageFormat: (projectDir: string, page: Page, format: PageExportFormat): Promise<string> =>
+    ipcRenderer.invoke('page:exportFormat', projectDir, page, format),
+
+  exportAllPagesFormat: (projectDir: string, pages: Page[], format: PageExportFormat): Promise<string | null> =>
+    ipcRenderer.invoke('page:exportAllFormat', projectDir, pages, format),
 
   loadOCROutput: (projectDir: string): Promise<string> =>
     ipcRenderer.invoke('ocr:loadOutput', projectDir),

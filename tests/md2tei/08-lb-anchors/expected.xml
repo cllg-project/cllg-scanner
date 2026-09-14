@@ -38,11 +38,7 @@
           <head>LIBER PRIMUS
           </head>
           <div type="chapter" n="1">
-            <p>Textus cum nota <note>Haec est nota marginalis.</note> et continuatio textus.
-            </p>
-          </div>
-          <div type="chapter" n="2">
-            <p>Textus cum <note>ref sine gradu</note> ut nota et <note>ref sine attributo</note> quoque.
+            <p><lb n="k0"/>Initium capituli primi<lb n="k1"/>quod continuatur.
             </p>
           </div>
         </div>

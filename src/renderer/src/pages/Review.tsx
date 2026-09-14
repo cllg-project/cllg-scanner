@@ -6,13 +6,15 @@ import {
 } from '../utils/krakenDiff'
 import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
-import type { Page, PageStatus, HierarchyLevel, KrakenConfig } from '@shared/types'
+import type { Page, PageStatus, HierarchyLevel, KrakenConfig, ManualZoneGroup } from '@shared/types'
 import Sidebar from '../components/Sidebar'
 import { useProject } from '../App'
 import { convertBetaKey, finalSigmaFix } from '../utils/betaCode'
 import BetaCodeHelper from '../components/BetaCodeHelper'
 import KrakenModelPicker from '../components/KrakenModelPicker'
 import { renderMaskedPage } from '../utils/renderMaskedPage'
+import { linesInRect, blockTagForRole } from '../utils/manualZones'
+import { findAnchorAt, spanForLineIds } from '../utils/lbAnchors'
 
 interface FlatLevel { depth: number; name: string; pattern: string; color?: string }
 
@@ -45,6 +47,26 @@ function levelColor(level: FlatLevel): { bg: string; fg: string } {
   const rgb = hexToRgb(fg)
   const bg = rgb ? `rgba(${rgb.r},${rgb.g},${rgb.b},0.10)` : '#eceff1'
   return { fg, bg }
+}
+
+type ManualZoneRole = 'p' | 'quote' | 'head' | 'continuation'
+
+function groupRoleLabel(role: ManualZoneRole, t: (key: string) => string): string {
+  switch (role) {
+    case 'quote': return t('review.groupRoleQuote')
+    case 'head': return t('review.groupRoleHead')
+    case 'continuation': return t('review.groupRoleContinuation')
+    default: return t('review.groupRoleP')
+  }
+}
+
+function manualZoneColor(role: ManualZoneRole): { bg: string; fg: string } {
+  switch (role) {
+    case 'quote': return { bg: 'rgba(122,79,174,0.10)', fg: '#7a4fae' }
+    case 'head': return { bg: 'rgba(176,74,58,0.10)', fg: '#b04a3a' }
+    case 'continuation': return { bg: 'rgba(184,140,40,0.10)', fg: '#c89328' }
+    default: return { bg: 'rgba(90,140,63,0.08)', fg: '#5a8c3f' }
+  }
 }
 
 const FORMAT_RE: Record<string, RegExp> = {
@@ -290,6 +312,11 @@ export default function Review(): React.JSX.Element {
   const [krakenCompareText, setKrakenCompareText] = useState<string | null>(null)
   const [krakenLines, setKrakenLines] = useState<{ text: string; corners: [number, number][] }[]>([])
   const [showGeometry, setShowGeometry] = useState(false)
+  const [activeLbLineId, setActiveLbLineId] = useState<string | null>(null)
+  const [groupMode, setGroupMode] = useState(false)
+  const [groupRole, setGroupRole] = useState<'p' | 'quote' | 'head' | 'continuation'>('p')
+  const [drawingRect, setDrawingRect] = useState<{ x0: number; y0: number; x1: number; y1: number } | null>(null)
+  const drawingRef = useRef<{ x0: number; y0: number } | null>(null)
   const [compareLoading, setCompareLoading] = useState(false)
   const [compareError, setCompareError] = useState<string | null>(null)
   const krakenCacheRef = useRef<Map<string, { text: string; lines: { text: string; corners: [number, number][] }[] }>>(new Map())
@@ -487,6 +514,53 @@ export default function Review(): React.JSX.Element {
     await saveProject({ ...project, pages: updatedPages })
   }, [project, currentPage, saveProject])
 
+  // Manual region-grouping (Sequence 5.2): a hand-drawn image rect groups the
+  // LineGeometry whose centroid falls inside it, persisted for round-tripping (see
+  // Sequence 6), and directly rewrites the markdown. buildBody() in md2tei.ts now
+  // understands real, genuinely multi-line `<p>`/`<quote>`/`<head>`/`<continued>` block
+  // containers, so grouping no longer needs to collapse the matched lines onto one
+  // markdown line — it just wraps the multi-line span covering their `<lb n>` anchors
+  // with the block's open/close tags on their own lines, leaving every physical line and
+  // its anchor exactly where it was.
+  const applyManualGroup = useCallback(
+    (rect: { x: number; y: number; width: number; height: number }, role: 'p' | 'quote' | 'head' | 'continuation') => {
+      if (!project || !currentPage) return
+      const lineIds = linesInRect(rect, currentPage.lineGeometry ?? [])
+      const group: ManualZoneGroup = {
+        id: `mz-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        role,
+        rect,
+        lineIds,
+      }
+      const updatedPages = project.pages.map((p) =>
+        p.n === currentPage.n ? { ...p, manualZones: [...(p.manualZones ?? []), group] } : p
+      )
+      void saveProject({ ...project, pages: updatedPages })
+
+      if (lineIds.length) {
+        const span = spanForLineIds(content, lineIds)
+        if (span) {
+          const inner = content.slice(span.start, span.end)
+          const tag = blockTagForRole(role)
+          const wrapped = `<${tag}>\n${inner}\n</${tag}>`
+          setContent(content.slice(0, span.start) + wrapped + content.slice(span.end))
+        }
+      }
+    },
+    [project, currentPage, content, saveProject] // eslint-disable-line react-hooks/exhaustive-deps
+  )
+
+  const deleteManualZone = useCallback(
+    (id: string) => {
+      if (!project || !currentPage) return
+      const updatedPages = project.pages.map((p) =>
+        p.n === currentPage.n ? { ...p, manualZones: (p.manualZones ?? []).filter((z) => z.id !== id) } : p
+      )
+      void saveProject({ ...project, pages: updatedPages })
+    },
+    [project, currentPage, saveProject]
+  )
+
   const saveCurrent = useCallback(async () => {
     if (!project || !currentPage || !currentState?.dirty) return
     setSaving(true)
@@ -508,6 +582,7 @@ export default function Review(): React.JSX.Element {
     const ta = textareaRef.current
     if (!ta) return
     setCursorTag(detectCursorTag(ta.value, ta.selectionStart))
+    setActiveLbLineId(findAnchorAt(ta.value, ta.selectionStart))
   }
 
   const closePopover = (): void => setCursorTag(null)
@@ -517,11 +592,7 @@ export default function Review(): React.JSX.Element {
     const refText = content.slice(cursorTag.start, cursorTag.end)
     const before = content.slice(0, cursorTag.start)
     const after = content.slice(cursorTag.end)
-    const tabMatches = [...before.matchAll(/<tab\/>/g)]
-    const lastTab = tabMatches[tabMatches.length - 1]
-    const insertAt = lastTab
-      ? lastTab.index! + '<tab/>'.length
-      : (before.lastIndexOf('\n') + 1)
+    const insertAt = before.lastIndexOf('\n') + 1
     const newBefore = content.slice(0, insertAt)
     const between = content.slice(insertAt, cursorTag.start)
     setContent(newBefore + refText + between + after)
@@ -585,6 +656,31 @@ export default function Review(): React.JSX.Element {
     }, 0)
   }
 
+  // Wraps a block container (<p>/<head>/<quote>/<continued>) around the whole lines
+  // covering the current selection (or just the current line, with no selection) —
+  // snapping to line boundaries, with the open/close tags on their own lines, is what
+  // makes buildBody() in md2tei.ts recognize this as one real (possibly multi-line)
+  // block; a raw mid-line insertTag() wrap would split across lines that individually
+  // match neither the single-line nor multi-line block forms.
+  const insertBlockTag = (kind: 'p' | 'head' | 'quote' | 'continued'): void => {
+    const ta = textareaRef.current
+    if (!ta) return
+    const start = ta.selectionStart
+    const end = ta.selectionEnd
+    const lineStart = content.lastIndexOf('\n', start - 1) + 1
+    const nl = content.indexOf('\n', end)
+    const lineEnd = nl === -1 ? content.length : nl
+    const inner = content.slice(lineStart, lineEnd)
+    const openTag = `<${kind}>\n`
+    const wrapped = `${openTag}${inner}\n</${kind}>`
+    setContent(content.slice(0, lineStart) + wrapped + content.slice(lineEnd))
+    setTimeout(() => {
+      ta.selectionStart = lineStart + openTag.length
+      ta.selectionEnd = ta.selectionStart + inner.length
+      ta.focus()
+    }, 0)
+  }
+
   useEffect(() => {
     if (!currentState?.dirty) return
     const t = setTimeout(() => saveCurrent(), 1500)
@@ -640,11 +736,6 @@ export default function Review(): React.JSX.Element {
 
       if (!inTextarea) return
 
-      if (e.key === 'Tab') {
-        e.preventDefault()
-        insertTag('<tab/>', '')
-        return
-      }
       if ((e.ctrlKey || e.metaKey) && e.key === 'r') {
         e.preventDefault()
         insertTag('<ref level="">', '</ref>')
@@ -653,6 +744,11 @@ export default function Review(): React.JSX.Element {
       if ((e.ctrlKey || e.metaKey) && e.key === 'm') {
         e.preventDefault()
         insertTag('<note>', '</note>')
+        return
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key === 'q') {
+        e.preventDefault()
+        insertBlockTag('quote')
         return
       }
     }
@@ -690,6 +786,7 @@ export default function Review(): React.JSX.Element {
     setCompareMode(false)
     setKrakenCompareText(null); setKrakenLines([]); setCompareError(null); setActiveSuggestion(null)
     setActiveLatinChar(null); setIgnoredLatinPositions(new Set())
+    setActiveLbLineId(null); setGroupMode(false); setDrawingRect(null); drawingRef.current = null
   }, [currentIdx])
 
   useEffect(() => {
@@ -704,7 +801,7 @@ export default function Review(): React.JSX.Element {
         const ox = e.clientX - r.left
         const oy = e.clientY - r.top
         setImgZoom((prev) => {
-          const next = Math.min(7.5, Math.max(0.2, parseFloat((prev + (e.deltaY > 0 ? -0.15 : 0.15)).toFixed(2))))
+          const next = Math.min(7.5, Math.max(0.05, parseFloat((prev + (e.deltaY > 0 ? -0.05 : 0.05)).toFixed(2))))
           const ratio = next / prev
           pendingScrollRef.current = {
             left: el.scrollLeft + ox * (ratio - 1),
@@ -713,8 +810,8 @@ export default function Review(): React.JSX.Element {
           return next
         })
       } else {
-        const delta = e.deltaY > 0 ? -0.15 : 0.15
-        setImgZoom((prev) => Math.min(7.5, Math.max(0.2, parseFloat((prev + delta).toFixed(2)))))
+        const delta = e.deltaY > 0 ? -0.05 : 0.05
+        setImgZoom((prev) => Math.min(7.5, Math.max(0.05, parseFloat((prev + delta).toFixed(2)))))
       }
     }
     el.addEventListener('wheel', handleWheel, { passive: false })
@@ -1163,9 +1260,38 @@ export default function Review(): React.JSX.Element {
                   {t('review.showGeometry')} ({currentPage.lineGeometry.length})
                 </button>
               )}
+              {!!currentPage?.lineGeometry?.length && (
+                <button
+                  className="btn btn-quiet text-[11px] shrink-0"
+                  style={{ padding: '2px 8px', ...(groupMode ? { background: '#7a4fae', color: '#fff', borderColor: '#7a4fae' } : {}) }}
+                  onClick={() => { setGroupMode((v) => !v); setDrawingRect(null); drawingRef.current = null }}
+                  title={t('review.groupToolTitle')}
+                >
+                  {t('review.groupTool')}
+                  {!!currentPage.manualZones?.length && (
+                    <span style={{ marginLeft: 3, background: groupMode ? 'rgba(255,255,255,.25)' : '#7a4fae', color: '#fff', borderRadius: 8, padding: '0 5px', fontSize: 10, fontWeight: 600, lineHeight: '16px' }}>
+                      {currentPage.manualZones.length}
+                    </span>
+                  )}
+                </button>
+              )}
+              {groupMode && (
+                <div className="flex items-center gap-0.5 shrink-0">
+                  {(['p', 'quote', 'head', 'continuation'] as const).map((r) => (
+                    <button
+                      key={r}
+                      className="btn btn-quiet text-[10.5px] shrink-0"
+                      style={{ padding: '2px 6px', ...(groupRole === r ? { background: '#7a4fae', color: '#fff', borderColor: '#7a4fae' } : {}) }}
+                      onClick={() => setGroupRole(r)}
+                    >
+                      {groupRoleLabel(r, t)}
+                    </button>
+                  ))}
+                </div>
+              )}
               <div className="ml-auto flex items-center gap-0.5">
                 <button className="tool-btn" style={{ width: 22, height: 22, fontSize: 12 }}
-                  onClick={() => setImgZoom((z) => Math.max(0.2, parseFloat((z - 0.15).toFixed(2))))}>−</button>
+                  onClick={() => setImgZoom((z) => Math.max(0.05, parseFloat((z - 0.05).toFixed(2))))}>−</button>
                 <button
                   className="font-mono text-[11px] tabular-nums px-1 rounded"
                   style={{ minWidth: 38, textAlign: 'center', color: imgZoom !== 1 ? 'var(--oxblood)' : 'var(--mute)', cursor: 'pointer', background: 'transparent', border: 'none' }}
@@ -1173,9 +1299,30 @@ export default function Review(): React.JSX.Element {
                   title={t('review.resetZoom')}
                 >{Math.round(imgZoom * 100)}%</button>
                 <button className="tool-btn" style={{ width: 22, height: 22, fontSize: 12 }}
-                  onClick={() => setImgZoom((z) => Math.min(7.5,parseFloat((z + 0.15).toFixed(2))))}>+</button>
+                  onClick={() => setImgZoom((z) => Math.min(7.5,parseFloat((z + 0.05).toFixed(2))))}>+</button>
               </div>
             </div>
+            {!!currentPage?.manualZones?.length && (
+              <div className="px-3 py-1.5 border-b shrink-0 flex items-center gap-1.5 flex-wrap" style={{ borderColor: 'var(--line)', background: '#f6f2fb' }}>
+                <span className="text-[10px] uppercase tracking-[.12em] font-semibold shrink-0" style={{ color: 'var(--mute)' }}>{t('review.manualZonesTitle')}</span>
+                {currentPage.manualZones.map((z) => (
+                  <span key={z.id} className="inline-flex items-center gap-1 rounded" style={{ padding: '2px 6px', fontSize: 11, background: '#e0dff0', border: '1px solid #b8b5dc', color: '#3f3a7a' }}>
+                    {groupRoleLabel(z.role, t)}
+                    <span style={{ opacity: 0.7 }}>
+                      {z.lineIds.length ? t('review.manualZoneLinesCount', { count: z.lineIds.length }) : t('review.manualZoneNoLines')}
+                    </span>
+                    <button
+                      className="tool-btn"
+                      style={{ width: 18, height: 18, padding: 0, justifyContent: 'center' }}
+                      title={t('review.delete')}
+                      onClick={() => deleteManualZone(z.id)}
+                    >
+                      <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M18 6 6 18M6 6l12 12" /></svg>
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
             <div
               ref={imageContainerRef}
               className="flex-1 overflow-auto flex items-start p-4"
@@ -1246,6 +1393,90 @@ export default function Review(): React.JSX.Element {
                         </svg>
                       )
                     })()}
+                  {activeLbLineId && currentPage?.lineGeometry && imgNaturalWidth && imgNaturalHeight && (() => {
+                    const line = currentPage.lineGeometry.find((l) => l.id === activeLbLineId)
+                    if (!line) return null
+                    return (
+                      <svg
+                        style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', pointerEvents: 'none' }}
+                        viewBox={`0 0 ${imgNaturalWidth} ${imgNaturalHeight}`}
+                        preserveAspectRatio="none"
+                      >
+                        <polygon points={line.polygon.map(([x, y]) => `${x},${y}`).join(' ')} fill="rgba(234,88,12,0.22)" stroke="rgba(234,88,12,0.9)" strokeWidth={imgNaturalWidth / 500} />
+                      </svg>
+                    )
+                  })()}
+                  {!!currentPage?.manualZones?.length && imgNaturalWidth && imgNaturalHeight && (
+                    <svg
+                      style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', pointerEvents: 'none' }}
+                      viewBox={`0 0 ${imgNaturalWidth} ${imgNaturalHeight}`}
+                      preserveAspectRatio="none"
+                    >
+                      {currentPage.manualZones.map((z) => (
+                        <rect
+                          key={z.id}
+                          x={z.rect.x} y={z.rect.y} width={z.rect.width} height={z.rect.height}
+                          fill={manualZoneColor(z.role).bg}
+                          stroke={manualZoneColor(z.role).fg}
+                          strokeWidth={imgNaturalWidth / 500}
+                          strokeDasharray={`${imgNaturalWidth / 150} ${imgNaturalWidth / 300}`}
+                        />
+                      ))}
+                    </svg>
+                  )}
+                  {groupMode && imgNaturalWidth && imgNaturalHeight && (
+                    <div
+                      style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', cursor: 'crosshair' }}
+                      onMouseDown={(e) => {
+                        const r = e.currentTarget.getBoundingClientRect()
+                        const scale = imgNaturalWidth / r.width
+                        const x = (e.clientX - r.left) * scale
+                        const y = (e.clientY - r.top) * scale
+                        drawingRef.current = { x0: x, y0: y }
+                        setDrawingRect({ x0: x, y0: y, x1: x, y1: y })
+                      }}
+                      onMouseMove={(e) => {
+                        if (!drawingRef.current) return
+                        const r = e.currentTarget.getBoundingClientRect()
+                        const scale = imgNaturalWidth / r.width
+                        const x = (e.clientX - r.left) * scale
+                        const y = (e.clientY - r.top) * scale
+                        setDrawingRect({ x0: drawingRef.current.x0, y0: drawingRef.current.y0, x1: x, y1: y })
+                      }}
+                      onMouseUp={() => {
+                        const start = drawingRef.current
+                        drawingRef.current = null
+                        if (!start || !drawingRect) { setDrawingRect(null); return }
+                        const rect = {
+                          x: Math.min(drawingRect.x0, drawingRect.x1),
+                          y: Math.min(drawingRect.y0, drawingRect.y1),
+                          width: Math.abs(drawingRect.x1 - drawingRect.x0),
+                          height: Math.abs(drawingRect.y1 - drawingRect.y0),
+                        }
+                        setDrawingRect(null)
+                        if (rect.width > 3 && rect.height > 3) applyManualGroup(rect, groupRole)
+                      }}
+                      onMouseLeave={() => { drawingRef.current = null; setDrawingRect(null) }}
+                    >
+                      {drawingRect && (
+                        <svg
+                          style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', pointerEvents: 'none' }}
+                          viewBox={`0 0 ${imgNaturalWidth} ${imgNaturalHeight}`}
+                          preserveAspectRatio="none"
+                        >
+                          <rect
+                            x={Math.min(drawingRect.x0, drawingRect.x1)}
+                            y={Math.min(drawingRect.y0, drawingRect.y1)}
+                            width={Math.abs(drawingRect.x1 - drawingRect.x0)}
+                            height={Math.abs(drawingRect.y1 - drawingRect.y0)}
+                            fill={manualZoneColor(groupRole).bg}
+                            stroke={manualZoneColor(groupRole).fg}
+                            strokeWidth={imgNaturalWidth / 500}
+                          />
+                        </svg>
+                      )}
+                    </div>
+                  )}
                 </div>
               ) : (
                 <div className="flex items-center justify-center w-full h-full text-[13px]" style={{ color: 'var(--mute)' }}>
@@ -1299,16 +1530,6 @@ export default function Review(): React.JSX.Element {
                     <span style={{ fontFamily: 'ui-monospace', fontSize: 9, padding: '1px 4px', borderRadius: 3, background: 'rgba(0,0,0,.08)', border: '1px solid rgba(0,0,0,.12)', color: 'inherit' }}>M</span>
                   </span>
                 </button>
-                {/* <tab/> */}
-                <button
-                  className="inline-flex items-center gap-1.5 border rounded"
-                  style={{ padding: '4px 8px', fontFamily: 'ui-monospace, monospace', fontSize: 11.5, fontWeight: 500, background: '#e2ddc7', borderColor: '#d4ca9c', color: '#6b5a2b', lineHeight: 1 }}
-                  onClick={() => insertTag('<tab/>', '')}
-                  title={t('review.tagTab')}
-                >
-                  &lt;tab/&gt;
-                  <span style={{ fontFamily: 'ui-monospace', fontSize: 9, padding: '1px 4px', borderRadius: 3, background: 'rgba(0,0,0,.08)', border: '1px solid rgba(0,0,0,.12)', color: 'inherit' }}>Tab</span>
-                </button>
                 {/* <lb/> */}
                 <button
                   className="inline-flex items-center border rounded"
@@ -1317,6 +1538,19 @@ export default function Review(): React.JSX.Element {
                   title={t('review.tagLb')}
                 >
                   &lt;lb/&gt;
+                </button>
+                {/* <quote> */}
+                <button
+                  className="inline-flex items-center gap-1.5 border rounded"
+                  style={{ padding: '4px 8px', fontFamily: 'ui-monospace, monospace', fontSize: 11.5, fontWeight: 500, background: '#e0dff0', borderColor: '#b8b5dc', color: '#3f3a7a', lineHeight: 1 }}
+                  onClick={() => insertBlockTag('quote')}
+                  title={t('review.tagQuote')}
+                >
+                  &lt;quote&gt;
+                  <span className="inline-flex items-center gap-0.5">
+                    <span style={{ fontFamily: 'ui-monospace', fontSize: 9, padding: '1px 4px', borderRadius: 3, background: 'rgba(0,0,0,.08)', border: '1px solid rgba(0,0,0,.12)', color: 'inherit' }}>⌘</span>
+                    <span style={{ fontFamily: 'ui-monospace', fontSize: 9, padding: '1px 4px', borderRadius: 3, background: 'rgba(0,0,0,.08)', border: '1px solid rgba(0,0,0,.12)', color: 'inherit' }}>Q</span>
+                  </span>
                 </button>
 
                 {/* More menu — right-aligned */}

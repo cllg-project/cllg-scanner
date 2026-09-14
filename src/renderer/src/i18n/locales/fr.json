@@ -79,6 +79,8 @@
     "selectPages": "Sélectionner les pages à importer",
     "folderContains": "Le dossier contient",
     "altoContains": "Le dossier ALTO contient",
+    "altoLadasYes": "{{count}}/{{total}} fichiers sont typés LADaS — les paragraphes seront détectés automatiquement",
+    "altoLadasNo": "Aucun typage LADaS détecté — les paragraphes devront être balisés manuellement après l'OCR",
     "pdfHas": "Le {{format}} contient",
     "images": "images",
     "noAltoFound": "Aucune paire ALTO/image trouvée dans ce dossier",

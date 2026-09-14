@@ -284,7 +284,7 @@ export default function Home(): React.JSX.Element {
             // transcription, so Review has something to show right after import
             // instead of requiring a Step 3 OCR run first.
             if (lines.some((l) => l.text)) {
-              await window.api.importAltoPageText(updated.projectDir, page.n, lines)
+              await window.api.importAltoPageText(updated.projectDir, page.n, lines, altoPath)
               pages[startIdx + i] = { ...pages[startIdx + i], status: 'ocr_done' }
             }
           }

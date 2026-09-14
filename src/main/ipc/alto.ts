@@ -1,6 +1,6 @@
 import { ipcMain, dialog } from 'electron'
 import { readFile, readdir, writeFile, appendFile } from 'fs/promises'
-import { mkdirSync } from 'fs'
+import { mkdirSync, existsSync } from 'fs'
 import { join, extname, basename } from 'path'
 import type { AltoScanResult, AltoLine } from '@shared/types'
 import { parseAlto } from '../altoImport'
@@ -80,7 +80,7 @@ export function registerAltoHandlers(): void {
   // failing the whole page.
   ipcMain.handle(
     'alto:importPageText',
-    async (_event, projectDir: string, pageN: number, lines: AltoLine[]): Promise<void> => {
+    async (_event, projectDir: string, pageN: number, lines: AltoLine[], sourceAltoPath?: string): Promise<void> => {
       const cacheDir = join(projectDir, 'pages')
       mkdirSync(cacheDir, { recursive: true })
       const cachePath = join(cacheDir, `page_${String(pageN).padStart(4, '0')}.md`)
@@ -90,6 +90,16 @@ export function registerAltoHandlers(): void {
       )
       await writeFile(cachePath, pageMarkdown, 'utf-8')
       await appendFile(join(projectDir, 'ocr_output.md'), pageMarkdown, 'utf-8')
+
+      // Archive a verbatim copy of the source ALTO file, write-once — 100% fidelity
+      // (baseline included) independent of any later correction (Sequence 6).
+      if (sourceAltoPath) {
+        const archivePath = join(cacheDir, `page_${String(pageN).padStart(4, '0')}.alto.xml`)
+        if (!existsSync(archivePath)) {
+          const xmlText = await readFile(sourceAltoPath, 'utf-8')
+          await writeFile(archivePath, xmlText, 'utf-8')
+        }
+      }
     }
   )
 }

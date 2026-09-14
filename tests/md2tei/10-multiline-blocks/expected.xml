@@ -35,15 +35,17 @@
       <div>
         <pb n="1"/>
         <div type="book" n="I">
-          <head>LIBER PRIMUS
+          <head><lb n="k0"/>LIBER PRIMUS
           </head>
           <div type="chapter" n="1">
-            <p>Textus cum nota <note>Haec est nota marginalis.</note> et continuatio textus.
+            <p><lb n="k1"/>First physical line of the paragraph
+<lb n="k2"/>second physical line
+<lb n="k3"/>third physical line.
             </p>
-          </div>
-          <div type="chapter" n="2">
-            <p>Textus cum <note>ref sine gradu</note> ut nota et <note>ref sine attributo</note> quoque.
-            </p>
+            <quote>
+              <lb n="k4"/>A quoted passage spanning
+              <lb n="k5"/>two physical lines.
+            </quote>
           </div>
         </div>
       </div>

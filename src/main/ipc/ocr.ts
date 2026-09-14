@@ -18,8 +18,7 @@ RULES:
 - Do NOT normalize, correct, or translate.
 - Follow visual reading order.
 - Each paragraph = ONE line.
-- Add <tab/> at the start of paragraphs that clearly begin on this page.
-- Do NOT add <tab/> if the paragraph continues from a previous page.
+- If a paragraph continues one from the previous page, wrap that first line in <continued>...</continued>.
 - Join words split by line-break hyphens.
 - Wrap section markers as <ref>X</ref>.
 - Major headers: # <ref>X</ref> or # <ref>X</ref> TITLE

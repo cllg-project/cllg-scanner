@@ -101,22 +101,9 @@ function startValue(format: string): string {
   }
 }
 
-// ── Continuation marking ──────────────────────────────────────────────────────
-
-function markContinuations(md: string): string {
-  const lines = md.split('\n')
-  const out = [...lines]
-  for (let i = 0; i < lines.length; i++) {
-    if (!lines[i].trim().startsWith('<pb')) continue
-    let j = i + 1
-    while (j < lines.length && !lines[j].trim()) j++
-    if (j >= lines.length) continue
-    const nxt = lines[j].trim()
-    if (nxt.startsWith('#') || nxt.startsWith('<tab/>') || nxt.startsWith('<ref>')) continue
-    out[j] = '__CONTINUATION__' + lines[j]
-  }
-  return out.join('\n')
-}
+// Internal-only token md2tei inserts/consumes in memory during TEI generation to mark a
+// <continued> block's merge target — never written to the persisted per-page markdown.
+const MARKER = '__CONTINUATION__'
 
 // ── Line tokeniser ────────────────────────────────────────────────────────────
 
@@ -128,14 +115,13 @@ type LineToken =
 
 function tokenizeLine(s: string): LineToken[] {
   const tokens: LineToken[] = []
-  const re = /(<lb[^>]*\/>|<ref[^>]*>.*?<\/ref>|<note>.*?<\/note>|<tab\/>)/gs
+  const re = /(<lb[^>]*\/>|<ref[^>]*>.*?<\/ref>|<note>.*?<\/note>)/gs
   let last = 0
   let m: RegExpExecArray | null
   while ((m = re.exec(s)) !== null) {
     if (m.index > last) tokens.push({ kind: 'text', value: s.slice(last, m.index) })
     const tag = m[0]
     if (tag.startsWith('<lb'))   tokens.push({ kind: 'lb', raw: normSelfClose(tag) })
-    else if (tag.startsWith('<tab')) { /* structural indent — drop */ }
     else if (tag.startsWith('<ref')) {
       const am = /^<ref([^>]*)>(.*?)<\/ref>$/s.exec(tag)
       if (am) tokens.push({ kind: 'ref', attrStr: am[1], inner: am[2] })
@@ -151,17 +137,41 @@ function tokenizeLine(s: string): LineToken[] {
 
 // ── Build div/milestone/p body ────────────────────────────────────────────────
 //
-// Rules:
+// Two coexisting conventions, so LM Studio's existing "one line = one paragraph"
+// output stays byte-for-byte unaffected while Kraken/ALTO's zone-aware markdown (and
+// Review's manual-tagging tools) get real, genuinely-multi-line TEI containers:
+//
+//   • Explicit block tags — `<p>`/`<head>`/`<quote>`/`<continued>`, either spanning
+//     several raw lines (open tag alone on its own line ... close tag alone on its own
+//     line) or a single line (`<p>...</p>` all on one line). Everything between open
+//     and close becomes that element's content verbatim (lines joined with `\n`); a
+//     `<ref level="N">` for a div-level found *inside* a block degrades to `<note>`
+//     (TEI can't open a `<div>` mid-`<p>`) rather than being dropped or crashing.
+//   • Implicit bare lines (no block currently open) — unchanged from before: each
+//     non-empty line is its own `<p>` (or `<head>` via the `#` shorthand), and
+//     `<ref level="N">` for a div-level closes/opens `<div>`s exactly as it always has.
+//
+// `<continued>` doesn't become its own element: it's md2tei's cue that this block is
+// the continuation of the immediately preceding page's still-open paragraph, so it's
+// emitted as a MARKER-prefixed `<p>` and spliced into that preceding `<p>`/`<quote>` by
+// mergeContinuations() below — the same mechanism as before, just triggered by an
+// explicit tag (page authors decide) instead of a fragile "first content after a <pb>"
+// position heuristic.
+//
+// Other rules, unchanged:
 //   • <ref level="N"> where N is a div-level  → close current <p>, close deeper
 //     divs, open <div type="…" n="…">; if any ancestor div-level with
 //     missing_first=true hasn't been opened yet, auto-open it first
 //   • <ref level="N"> where N is a milestone  → inline within current <p>;
 //     outside only if no paragraph is open yet
-//   • Heading lines (#…): text after the first div-ref goes into <head>, not <p>
-//   • All other text / <note> / <lb/>          → inline content of current <p>
 //   • Unclassified <ref> (no level or level 0) → treated as <note>
 //   • Plain text before any div is open + a div-level with missing_first=true
 //     → auto-open that div with its format's start value
+
+type BlockKind = 'p' | 'head' | 'quote' | 'continued'
+const BLOCK_OPEN_RE = /^<(p|head|quote|continued)>$/
+const BLOCK_CLOSE_RE = /^<\/(p|head|quote|continued)>$/
+const BLOCK_INLINE_RE = /^<(p|head|quote|continued)>([\s\S]*)<\/\1>$/
 
 function buildBody(
   md: string,
@@ -173,7 +183,8 @@ function buildBody(
   const stack: number[] = []
   let pParts: string[] = []
   let inHead = false
-  let inQuote = false
+  let block: BlockKind | null = null
+  let blockLines: string[] = []
 
   // div-level defs in ascending level order, excluding milestones
   const divLevels = levels.filter(l => !l.isMilestone).sort((a, b) => a.level - b.level)
@@ -182,10 +193,8 @@ function buildBody(
     const content = pParts.join('').trim()
     pParts = []
     if (!content) { return }
-    const tag = inHead ? 'head' : inQuote ? 'quote' : 'p'
-    out.push(`<${tag}>${content}</${tag}>`)
+    out.push(inHead ? `<head>${content}</head>` : `<p>${content}</p>`)
     inHead = false
-    inQuote = false
   }
 
   // Before opening a div at `targetLevel` (or before emitting top-level content),
@@ -200,21 +209,84 @@ function buildBody(
     }
   }
 
+  // Inline tokenizer used *inside* an explicit block: same lb/note/text handling as the
+  // bare-line path, but a div-level ref can't open a <div> mid-block, so it degrades to
+  // a <note> instead.
+  function tokenizeBlockLine(s: string): string {
+    const parts: string[] = []
+    for (const tok of tokenizeLine(s)) {
+      switch (tok.kind) {
+        case 'text': {
+          const t = tok.value.replace(/\s+/g, ' ')
+          if (t) parts.push(esc(t))
+          break
+        }
+        case 'lb':
+          parts.push(tok.raw)
+          break
+        case 'note':
+          parts.push(`<note>${esc(tok.inner.trim())}</note>`)
+          break
+        case 'ref': {
+          const lvlStr = parseAttrStr(tok.attrStr, 'level')
+          const lvl = lvlStr !== null ? (parseInt(lvlStr, 10) || null) : null
+          const val = tok.inner.trim()
+          if (lvl && ms.has(lvl)) {
+            parts.push(`<milestone unit="${escAttr(lm[lvl] ?? `level${lvl}`)}" n="${escAttr(val)}"/>`)
+          } else {
+            parts.push(`<note>${esc(val)}</note>`)
+          }
+          break
+        }
+      }
+    }
+    return parts.join('')
+  }
+
+  function emitBlock(kind: BlockKind, lines: string[]): void {
+    const content = lines.join('\n').trim()
+    if (!content) return
+    if (kind === 'continued') {
+      out.push(`<p>${MARKER}${content}</p>`)
+    } else {
+      if (stack.length === 0) autoOpenAncestors(Infinity)
+      out.push(`<${kind}>${content}</${kind}>`)
+    }
+  }
+
   for (const rawLine of md.split('\n')) {
     const s = rawLine.trim()
+
+    if (block) {
+      const closeMatch = BLOCK_CLOSE_RE.exec(s)
+      if (closeMatch && closeMatch[1] === block) {
+        emitBlock(block, blockLines)
+        block = null
+        blockLines = []
+        continue
+      }
+      if (!s) continue
+      blockLines.push(tokenizeBlockLine(s))
+      continue
+    }
+
     if (!s) continue
 
     if (s.startsWith('<pb')) { flushP(); out.push(normSelfClose(s)); continue }
 
+    const openMatch = BLOCK_OPEN_RE.exec(s)
+    if (openMatch) { flushP(); block = openMatch[1] as BlockKind; blockLines = []; continue }
+
+    const inlineMatch = BLOCK_INLINE_RE.exec(s)
+    if (inlineMatch) {
+      flushP()
+      emitBlock(inlineMatch[1] as BlockKind, [tokenizeBlockLine(inlineMatch[2])])
+      continue
+    }
+
     const isHeading = s.startsWith('#')
-    const isQuoteLine = !isHeading && s.startsWith('<quote>') && s.endsWith('</quote>')
-    const stripped  = isHeading
-      ? s.replace(/^#+\s*/, '')
-      : isQuoteLine
-        ? s.slice('<quote>'.length, -'</quote>'.length)
-        : s
+    const stripped  = isHeading ? s.replace(/^#+\s*/, '') : s
     inHead = isHeading
-    inQuote = isQuoteLine
 
     for (const tok of tokenizeLine(stripped)) {
       switch (tok.kind) {
@@ -264,18 +336,18 @@ function buildBody(
     flushP()
   }
 
+  // An explicit block left unclosed at EOF (malformed input) — flush best-effort rather
+  // than silently dropping its content.
+  if (block) emitBlock(block, blockLines)
+
   while (stack.length) { out.push('</div>'); stack.pop() }
   return out.join('\n')
 }
 
 // ── Merge continuation paragraphs ─────────────────────────────────────────────
 
-const MARKER = '__CONTINUATION__'
-
 function mergeContinuations(doc: Document): void {
-  // Collect all parent elements that may contain <p> children
-  const parents = allElems(doc, '*').filter(el => childElems(el).some(c => isTag(c, 'p')))
-  // Also walk actual doc root
+  // Walk actual doc root
   const candidates = [doc.documentElement, ...allElems(doc.documentElement, 'div'), ...allElems(doc.documentElement, 'body')]
 
   for (const parent of candidates) {
@@ -310,11 +382,10 @@ function mergeContinuations(doc: Document): void {
             break
           }
         }
-        // No real continuation target (e.g. this is the document's very first
-        // page/paragraph, with no preceding <p> to merge into) — this was never a
-        // continuation, just markContinuations()'s heuristic firing on ordinary
-        // opening text. Strip the internal marker but keep the paragraph's content
-        // intact rather than discarding it.
+        // No real continuation target (e.g. this <continued> block is on the
+        // document's very first page, with no preceding <p> to merge into) — strip
+        // the internal marker but keep the block's content intact as its own <p>
+        // rather than discarding it.
         if (!pbElem || !prevP) {
           child.replaceChild(doc.createTextNode(contText), firstNode)
           continue
@@ -372,21 +443,33 @@ function replaceHyphenation(doc: Document): void {
 
       // Replace text node via replaceChild (nodeValue setter is unreliable in @xmldom/xmldom)
       p.replaceChild(doc.createTextNode(m[1]), node)
-      const lb = doc.createElementNS(NS, 'lb')
-      lb.setAttribute('break', 'no')
-      p.insertBefore(lb, p.childNodes[i + 1] ?? null)
+
+      // If a real <lb n="id"/> anchor already sits right where the join happens (the
+      // common case for Kraken/ALTO's per-physical-line anchors), mark that one
+      // break="no" instead of inserting a redundant synthetic <lb/>.
+      const nextNode = p.childNodes[i + 1]
+      let lbIdx: number
+      if (nextNode?.nodeType === ELEM && (nextNode as Element).localName === 'lb') {
+        ;(nextNode as Element).setAttribute('break', 'no')
+        lbIdx = i + 1
+      } else {
+        const lb = doc.createElementNS(NS, 'lb')
+        lb.setAttribute('break', 'no')
+        p.insertBefore(lb, nextNode ?? null)
+        lbIdx = i + 1
+      }
 
       // If the element after lb is a <pb>, mark it break="no" and strip its leading space
-      const afterLb = p.childNodes[i + 2]
+      const afterLb = p.childNodes[lbIdx + 1]
       if (afterLb?.nodeType === ELEM && (afterLb as Element).localName === 'pb') {
         ;(afterLb as Element).setAttribute('break', 'no')
-        const afterPb = p.childNodes[i + 3]
+        const afterPb = p.childNodes[lbIdx + 2]
         if (afterPb?.nodeType === TEXT) {
           const v = afterPb.nodeValue ?? ''
           if (v.startsWith(' ')) p.replaceChild(doc.createTextNode(v.slice(1)), afterPb)
         }
       }
-      i += 2
+      i = lbIdx + 1
     }
   }
 }
@@ -654,11 +737,8 @@ export function runMd2Tei({ markdownText, yamlConfigText, bibliography = [], log
   const lm = levelMap(levels)
   const ms = milestoneSet(levels)
 
-  log('[md2tei] Marking continuations')
-  const md = markContinuations(markdownText)
-
   log('[md2tei] Building TEI body')
-  const body = buildBody(md, lm, ms, levels)
+  const body = buildBody(markdownText, lm, ms, levels)
 
   const teiStr = `<?xml version="1.0" encoding="UTF-8"?>
 <TEI xmlns="http://www.tei-c.org/ns/1.0">

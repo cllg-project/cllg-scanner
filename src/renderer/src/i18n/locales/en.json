@@ -79,6 +79,8 @@
     "selectPages": "Select pages to import",
     "folderContains": "Folder contains",
     "altoContains": "ALTO folder contains",
+    "altoLadasYes": "{{count}}/{{total}} files are LADaS zone-typed — paragraphs will be auto-detected",
+    "altoLadasNo": "No LADaS zone typing detected — paragraphs will need manual tagging after OCR",
     "pdfHas": "{{format}} has",
     "images": "images",
     "noAltoFound": "No ALTO/image pairs found in that folder",

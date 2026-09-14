@@ -112,6 +112,9 @@ const api = {
   parseAltoFile: (altoPath: string): Promise<AltoLine[]> =>
     ipcRenderer.invoke('alto:parseFile', altoPath),
 
+  importAltoPageText: (projectDir: string, pageN: number, lines: AltoLine[]): Promise<void> =>
+    ipcRenderer.invoke('alto:importPageText', projectDir, pageN, lines),
+
   // ── TEI ──────────────────────────────────────────────────────────────
   generateTEI: (params: TEIParams): Promise<string> =>
     ipcRenderer.invoke('tei:generate', params),

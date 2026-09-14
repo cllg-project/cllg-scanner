@@ -55,6 +55,7 @@ interface PendingImport {
   totalPages: number
   rangeText: string   // e.g. "1-5,7,9"
   altoPaths?: (string | null)[]  // parallel to imagePaths, ALTO mode only
+  altoLadasCount?: number        // how many paired ALTO files are LADaS zone-typed, ALTO mode only
 }
 
 // ── Component ────────────────────────────────────────────────────────────────
@@ -277,7 +278,15 @@ export default function Home(): React.JSX.Element {
             const altoPath = selectedAltoPaths[i]
             if (!altoPath) continue
             const lines = await window.api.parseAltoFile(altoPath)
-            pages[startIdx + i] = { ...pages[startIdx + i], lineGeometry: lines }
+            const page = pages[startIdx + i]
+            pages[startIdx + i] = { ...page, lineGeometry: lines }
+            // Write the ALTO file's own ground-truth text as the page's initial
+            // transcription, so Review has something to show right after import
+            // instead of requiring a Step 3 OCR run first.
+            if (lines.some((l) => l.text)) {
+              await window.api.importAltoPageText(updated.projectDir, page.n, lines)
+              pages[startIdx + i] = { ...pages[startIdx + i], status: 'ocr_done' }
+            }
           }
           updated = { ...updated, pages }
         }
@@ -312,6 +321,7 @@ export default function Home(): React.JSX.Element {
         doc: null,
         imagePaths: paired.map((r) => r.imagePath as string),
         altoPaths: paired.map((r) => r.altoPath),
+        altoLadasCount: paired.filter((r) => r.ladasCompatible).length,
         totalPages: paired.length,
         rangeText: ''
       })
@@ -415,6 +425,13 @@ export default function Home(): React.JSX.Element {
                     <span style={{ color: 'var(--ink)' }}>{pendingImport.totalPages}</span>
                     {' '}{pendingImport.mode === 'images' || pendingImport.mode === 'alto' ? t('home.images') : t('common.pages')} {t('home.total')}
                   </div>
+                  {pendingImport.mode === 'alto' && (
+                    <div className="text-[11px] mt-1" style={{ color: (pendingImport.altoLadasCount ?? 0) > 0 ? 'var(--moss)' : 'var(--mute)' }}>
+                      {(pendingImport.altoLadasCount ?? 0) > 0
+                        ? t('home.altoLadasYes', { count: pendingImport.altoLadasCount, total: pendingImport.totalPages })
+                        : t('home.altoLadasNo')}
+                    </div>
+                  )}
                 </div>
                 <button className="btn btn-quiet !py-1 !px-2 !text-[12px]" onClick={() => setPendingImport(null)}>
                   {t('common.cancel')}

@@ -1,8 +1,11 @@
 import { ipcMain, dialog } from 'electron'
-import { readFile, readdir } from 'fs/promises'
+import { readFile, readdir, writeFile, appendFile } from 'fs/promises'
+import { mkdirSync } from 'fs'
 import { join, extname, basename } from 'path'
 import type { AltoScanResult, AltoLine } from '@shared/types'
 import { parseAlto } from '../altoImport'
+import { isLadasCompatible } from '../ladas'
+import { krakenLinesToPageMarkdown } from '../krakenMarkdown'
 
 const IMAGE_EXTS = new Set(['.jpg', '.jpeg', '.png', '.tif', '.tiff', '.bmp', '.webp'])
 
@@ -33,11 +36,13 @@ export function registerAltoHandlers(): void {
       let imagePath: string | null = null
       let lineCount = 0
       let regionTypes: string[] = []
+      let ladasCompatible = false
       try {
         const xmlText = await readFile(altoPath, 'utf-8')
         const parsed = parseAlto(xmlText)
         lineCount = parsed.lines.length
         regionTypes = [...new Set(parsed.lines.map((l) => l.regionType).filter((t): t is string => !!t))]
+        ladasCompatible = isLadasCompatible(parsed.lines)
 
         // 1) explicit <sourceImageInformation><fileName>, resolved relative to dirPath
         if (parsed.imageFileName) {
@@ -54,7 +59,7 @@ export function registerAltoHandlers(): void {
         // unreadable/unparsable ALTO file — still list it with no geometry
       }
 
-      results.push({ altoPath, imagePath, lineCount, regionTypes })
+      results.push({ altoPath, imagePath, lineCount, regionTypes, ladasCompatible })
     }
 
     return results
@@ -66,4 +71,25 @@ export function registerAltoHandlers(): void {
     const xmlText = await readFile(altoPath, 'utf-8')
     return parseAlto(xmlText).lines
   })
+
+  // Write the ALTO file's own ground-truth CONTENT as the page's initial
+  // transcription, at import time — reuses the exact same zone-aware/anchored
+  // markdown builder Kraken uses, since AltoLine already carries id/blockId/
+  // regionType/text in the same shape. Lines with no CONTENT (rare — a purely
+  // geometric ALTO export) fall back to an empty string for that line rather than
+  // failing the whole page.
+  ipcMain.handle(
+    'alto:importPageText',
+    async (_event, projectDir: string, pageN: number, lines: AltoLine[]): Promise<void> => {
+      const cacheDir = join(projectDir, 'pages')
+      mkdirSync(cacheDir, { recursive: true })
+      const cachePath = join(cacheDir, `page_${String(pageN).padStart(4, '0')}.md`)
+      const pageMarkdown = krakenLinesToPageMarkdown(
+        pageN,
+        lines.map((l) => ({ text: l.text ?? '', id: l.id, blockId: l.blockId, regionType: l.regionType }))
+      )
+      await writeFile(cachePath, pageMarkdown, 'utf-8')
+      await appendFile(join(projectDir, 'ocr_output.md'), pageMarkdown, 'utf-8')
+    }
+  )
 }

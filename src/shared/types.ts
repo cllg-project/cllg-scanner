@@ -156,4 +156,5 @@ export interface AltoScanResult {
   imagePath: string | null   // absolute path to the paired image, if found
   lineCount: number
   regionTypes: string[]
+  ladasCompatible: boolean   // true if any regionType matches the LADaS MainZone:* convention
 }

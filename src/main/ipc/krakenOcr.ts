@@ -174,7 +174,7 @@ export function registerKrakenHandlers(): void {
         const t0 = Date.now()
         try {
           const raw = await pipeline.process(imgPath)
-          const lines = raw.map((l) => ({ text: l.text }))
+          const lines = raw.map((l, i) => ({ text: l.text, id: `k${i}`, regionType: l.type }))
           if (!page.lineGeometry?.length) {
             const lineHeight = estimateLineHeight(raw)
             const newGeometry: LineGeometry[] = raw.map((l, i) => ({

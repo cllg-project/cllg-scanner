@@ -8,7 +8,7 @@ import { persistPageStatus, persistPageGeometry } from '../pageStatus'
 import { krakenLinesToPageMarkdown } from '../krakenMarkdown'
 
 const BUILTIN_SEG = 'segmentation.js_mlmodel'
-const BUILTIN_REC = 'model_best.js_mlmodel'
+const BUILTIN_REC = 'ppocr_v6_tau090.js_mlmodel'
 
 function modelsDir(): string {
   return is.dev

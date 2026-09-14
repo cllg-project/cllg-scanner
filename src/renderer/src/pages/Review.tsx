@@ -316,7 +316,7 @@ export default function Review(): React.JSX.Element {
   const [groupMode, setGroupMode] = useState(false)
   const [groupRole, setGroupRole] = useState<'p' | 'quote' | 'head' | 'continuation'>('p')
   const [drawingRect, setDrawingRect] = useState<{ x0: number; y0: number; x1: number; y1: number } | null>(null)
-  const drawingRef = useRef<{ x0: number; y0: number } | null>(null)
+  const drawingRef = useRef<{ x0: number; y0: number; x1: number; y1: number } | null>(null)
   const [compareLoading, setCompareLoading] = useState(false)
   const [compareError, setCompareError] = useState<string | null>(null)
   const krakenCacheRef = useRef<Map<string, { text: string; lines: { text: string; corners: [number, number][] }[] }>>(new Map())
@@ -1430,33 +1430,44 @@ export default function Review(): React.JSX.Element {
                       onMouseDown={(e) => {
                         const r = e.currentTarget.getBoundingClientRect()
                         const scale = imgNaturalWidth / r.width
-                        const x = (e.clientX - r.left) * scale
-                        const y = (e.clientY - r.top) * scale
-                        drawingRef.current = { x0: x, y0: y }
-                        setDrawingRect({ x0: x, y0: y, x1: x, y1: y })
-                      }}
-                      onMouseMove={(e) => {
-                        if (!drawingRef.current) return
-                        const r = e.currentTarget.getBoundingClientRect()
-                        const scale = imgNaturalWidth / r.width
-                        const x = (e.clientX - r.left) * scale
-                        const y = (e.clientY - r.top) * scale
-                        setDrawingRect({ x0: drawingRef.current.x0, y0: drawingRef.current.y0, x1: x, y1: y })
-                      }}
-                      onMouseUp={() => {
-                        const start = drawingRef.current
-                        drawingRef.current = null
-                        if (!start || !drawingRect) { setDrawingRect(null); return }
-                        const rect = {
-                          x: Math.min(drawingRect.x0, drawingRect.x1),
-                          y: Math.min(drawingRect.y0, drawingRect.y1),
-                          width: Math.abs(drawingRect.x1 - drawingRect.x0),
-                          height: Math.abs(drawingRect.y1 - drawingRect.y0),
+                        const clamp = (cx: number, cy: number): [number, number] => [
+                          Math.max(0, Math.min(imgNaturalWidth, (cx - r.left) * scale)),
+                          Math.max(0, Math.min(imgNaturalHeight, (cy - r.top) * scale)),
+                        ]
+                        const [x0, y0] = clamp(e.clientX, e.clientY)
+                        const current = { x0, y0, x1: x0, y1: y0 }
+                        drawingRef.current = current
+                        setDrawingRect(current)
+
+                        // Track the drag on `window`, not this element: once the pointer
+                        // leaves the image (common when drawing a rect near an edge),
+                        // this div's own mousemove/mouseup stop firing entirely — window
+                        // listeners keep the drag alive, clamped to the image bounds,
+                        // instead of the draw silently aborting.
+                        const onMove = (ev: MouseEvent): void => {
+                          const [x1, y1] = clamp(ev.clientX, ev.clientY)
+                          const next = { x0, y0, x1, y1 }
+                          drawingRef.current = next
+                          setDrawingRect(next)
                         }
-                        setDrawingRect(null)
-                        if (rect.width > 3 && rect.height > 3) applyManualGroup(rect, groupRole)
+                        const onUp = (): void => {
+                          window.removeEventListener('mousemove', onMove)
+                          window.removeEventListener('mouseup', onUp)
+                          const final = drawingRef.current
+                          drawingRef.current = null
+                          setDrawingRect(null)
+                          if (!final) return
+                          const rect = {
+                            x: Math.min(final.x0, final.x1),
+                            y: Math.min(final.y0, final.y1),
+                            width: Math.abs(final.x1 - final.x0),
+                            height: Math.abs(final.y1 - final.y0),
+                          }
+                          if (rect.width > 3 && rect.height > 3) applyManualGroup(rect, groupRole)
+                        }
+                        window.addEventListener('mousemove', onMove)
+                        window.addEventListener('mouseup', onUp)
                       }}
-                      onMouseLeave={() => { drawingRef.current = null; setDrawingRect(null) }}
                     >
                       {drawingRect && (
                         <svg

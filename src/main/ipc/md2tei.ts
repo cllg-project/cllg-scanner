@@ -145,7 +145,11 @@ function tokenizeLine(s: string): LineToken[] {
 //     several raw lines (open tag alone on its own line ... close tag alone on its own
 //     line) or a single line (`<p>...</p>` all on one line). Everything between open
 //     and close becomes that element's content verbatim (lines joined with `\n`); a
-//     `<ref level="N">` for a div-level found *inside* a block degrades to `<note>`
+//     `<ref level="N">` for a div-level found as the very first real content of a block
+//     (only `<lb n>` anchors before it) opens a `<div>` there instead — the block
+//     resumes as that div's first paragraph — since OCR/import puts the ref right at
+//     the start of the physical line it was recognized on, not necessarily outside the
+//     `<p>` wrapper. Anywhere else inside a block, a div-level ref degrades to `<note>`
 //     (TEI can't open a `<div>` mid-`<p>`) rather than being dropped or crashing.
 //   • Implicit bare lines (no block currently open) — unchanged from before: each
 //     non-empty line is its own `<p>` (or `<head>` via the `#` shorthand), and
@@ -209,9 +213,34 @@ function buildBody(
     }
   }
 
+  // Closes divs down to `lvl`, auto-opens any missing_first ancestors, then opens the
+  // new div — shared by the bare-line ref path and the inside-block first-ref path
+  // below. If no div is open yet at all (stack was empty), the new div also reclaims an
+  // immediately-preceding, still-unclaimed run of `<head>` elements (a title that
+  // appeared before any explicit ref existed conceptually belongs to the division that
+  // follows it) by splicing the open tag in before them, rather than after.
+  function openDiv(lvl: number, val: string): void {
+    while (stack.length && stack[stack.length - 1] >= lvl) { out.push('</div>'); stack.pop() }
+    autoOpenAncestors(lvl)
+    const divTag = `<div type="${escAttr(lm[lvl] ?? `level${lvl}`)}" n="${escAttr(val)}">`
+    if (stack.length === 0) {
+      let insertAt = out.length
+      while (insertAt > 0 && /^<head>[\s\S]*<\/head>$/.test(out[insertAt - 1])) insertAt--
+      out.splice(insertAt, 0, divTag)
+    } else {
+      out.push(divTag)
+    }
+    stack.push(lvl)
+  }
+
   // Inline tokenizer used *inside* an explicit block: same lb/note/text handling as the
-  // bare-line path, but a div-level ref can't open a <div> mid-block, so it degrades to
-  // a <note> instead.
+  // bare-line path. A div-level ref can't open a <div> mid-<p> in general, so it
+  // degrades to a <note> — UNLESS it's the very first real content this block has seen
+  // (only `<lb n>` anchors before it, nothing else) — an OCR-line artifact of where the
+  // ref token physically landed, not a genuine mid-paragraph structural marker. In that
+  // case treat it as the block's real division boundary: open the <div> (via openDiv(),
+  // which also reclaims a still-unclaimed preceding <head>) and let this block resume
+  // as that div's first paragraph, exactly like the bare-line path already does.
   function tokenizeBlockLine(s: string): string {
     const parts: string[] = []
     for (const tok of tokenizeLine(s)) {
@@ -231,8 +260,12 @@ function buildBody(
           const lvlStr = parseAttrStr(tok.attrStr, 'level')
           const lvl = lvlStr !== null ? (parseInt(lvlStr, 10) || null) : null
           const val = tok.inner.trim()
-          if (lvl && ms.has(lvl)) {
+          if (!lvl) {
+            parts.push(`<note>${esc(val)}</note>`)
+          } else if (ms.has(lvl)) {
             parts.push(`<milestone unit="${escAttr(lm[lvl] ?? `level${lvl}`)}" n="${escAttr(val)}"/>`)
+          } else if (blockLines.length === 0 && parts.every((p) => p.startsWith('<lb '))) {
+            openDiv(lvl, val)
           } else {
             parts.push(`<note>${esc(val)}</note>`)
           }
@@ -323,10 +356,7 @@ function buildBody(
             }
           } else {
             flushP()
-            while (stack.length && stack[stack.length - 1] >= lvl) { out.push('</div>'); stack.pop() }
-            autoOpenAncestors(lvl)
-            out.push(`<div type="${escAttr(lm[lvl] ?? `level${lvl}`)}" n="${escAttr(val)}">`)
-            stack.push(lvl)
+            openDiv(lvl, val)
           }
           break
         }

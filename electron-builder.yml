@@ -54,3 +54,6 @@ linux:
   icon: cllg.png
   category: Utility
   maintainer: "Thibault Clérice <leponteineptique@gmail.com>"
+
+deb:
+  afterInstall: scripts/deb-after-install.sh

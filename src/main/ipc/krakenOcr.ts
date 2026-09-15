@@ -1,4 +1,4 @@
-import { ipcMain, app, dialog, BrowserWindow } from 'electron'
+import { ipcMain, app, dialog, BrowserWindow, type IpcMainInvokeEvent } from 'electron'
 import { is } from '@electron-toolkit/utils'
 import { join, isAbsolute } from 'path'
 import { readFile, writeFile, appendFile, unlink } from 'fs/promises'
@@ -18,45 +18,14 @@ function modelsDir(): string {
 
 type Obb = { cx: number; cy: number; w: number; h: number; angle: number; corners: [number, number][] }
 type KrakenPipelineT = {
-  process: (img: string) => Promise<{ text: string; obb: Obb; type: string }[]>
+  process: (img: string) => Promise<{ text: string; obb: Obb; polygon: [number, number][]; type: string }[]>
 }
 
-// Kraken's raw OBB is just the ~1-2px baseline strip (see kraken-js's own README:
-// "the model predicts thin baselines ... obb.h reflects the baseline width, not the
-// full text height"). KrakenPipeline expands this internally before cropping for
-// recognition, using the inter-line spacing on the page — this reproduces that same
-// expansion so persisted/displayed line geometry actually covers the visual line
-// instead of a barely-visible sliver. Mirrors kraken-js's pipeline.js estimateLineHeight
-// + extractLineCrop corner math.
-function estimateLineHeight(lines: { obb: Obb }[]): number {
-  if (lines.length < 2) return 20
-  const gaps: number[] = []
-  for (let i = 1; i < lines.length; i++) {
-    const g = lines[i].obb.cy - lines[i - 1].obb.cy
-    if (g > 2) gaps.push(g)
-  }
-  if (!gaps.length) return 20
-  gaps.sort((a, b) => a - b)
-  return gaps[Math.floor(gaps.length / 2)]
-}
-
-function expandedLinePolygon(obb: Obb, lineHeight: number): [number, number][] {
-  const { cx, cy, angle, w } = obb
-  const upRatio = 0.85, downRatio = 0.35 // baseline-at-bottom convention (topline: false)
-  const expandUp = lineHeight * upRatio
-  const expandDown = lineHeight * downRatio
-  const cosA = Math.cos(angle), sinA = Math.sin(angle)
-  const vx = sinA, vy = -cosA // perpendicular "above baseline" direction
-  const hw = w / 2
-  return [
-    [cx - hw * cosA + expandUp * vx, cy - hw * sinA + expandUp * vy],
-    [cx + hw * cosA + expandUp * vx, cy + hw * sinA + expandUp * vy],
-    [cx + hw * cosA - expandDown * vx, cy + hw * sinA - expandDown * vy],
-    [cx - hw * cosA - expandDown * vx, cy - hw * sinA - expandDown * vy],
-  ]
-}
-
-// Cache the pipeline so ONNX models are not reloaded on every call.
+// Cache the pipeline *promise*, not the resolved value — two concurrent callers
+// (kraken:run and kraken:rerun-page, or a re-run right after kraken:stop) must see
+// the same in-flight create() rather than each awaiting a stale null cache and
+// building their own ONNX sessions, with the first set silently dropped while its
+// runs may still be in flight.
 //
 // IMPORTANT: only ever create a Kraken segmenter/recognizer via KrakenPipeline.create()
 // (which creates both together) and only ever recognize through pipeline.process()
@@ -71,7 +40,7 @@ function expandedLinePolygon(obb: Obb, lineHeight: number): [number, number][] {
 // the page (no "skip segmentation, reuse existing geometry" shortcut). Geometry is
 // still persisted (see persistPageGeometry below) for other uses — archival, future
 // LADaS/zone tooling, exports — just not to skip segmentation on a later pass.
-let cachedPipeline: { segPath: string; recPath: string; pipeline: KrakenPipelineT } | null = null
+let cachedPipeline: { segPath: string; recPath: string; promise: Promise<KrakenPipelineT> } | null = null
 
 async function getPipeline(segModelPath: string, recModelPath: string): Promise<KrakenPipelineT> {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -79,13 +48,19 @@ async function getPipeline(segModelPath: string, recModelPath: string): Promise<
     KrakenPipeline: { create: (s: string, r: string) => Promise<KrakenPipelineT> }
   }
   if (!cachedPipeline || cachedPipeline.segPath !== segModelPath || cachedPipeline.recPath !== recModelPath) {
-    cachedPipeline = {
+    const entry: { segPath: string; recPath: string; promise: Promise<KrakenPipelineT> } = {
       segPath: segModelPath,
       recPath: recModelPath,
-      pipeline: await KrakenPipeline.create(segModelPath, recModelPath),
+      promise: KrakenPipeline.create(segModelPath, recModelPath),
     }
+    // A failed create() (bad model path, etc.) must not poison the cache for later
+    // retries with the same paths.
+    entry.promise.catch(() => {
+      if (cachedPipeline === entry) cachedPipeline = null
+    })
+    cachedPipeline = entry
   }
-  return cachedPipeline.pipeline
+  return cachedPipeline.promise
 }
 
 export function registerKrakenHandlers(): void {
@@ -123,92 +98,115 @@ export function registerKrakenHandlers(): void {
   )
 
   let abortKraken = false
+  // The currently in-flight kraken:run loop, if any. kraken:stop awaits this so the
+  // loop has actually exited before returning, and kraken:run awaits any previous
+  // loop before starting a new one — otherwise a stop immediately followed by a
+  // rerun could leave two loops appending to the same ocr_output.md concurrently.
+  let runningLoop: Promise<void> | null = null
 
   ipcMain.handle('kraken:stop', async () => {
     abortKraken = true
+    await runningLoop
   })
 
   ipcMain.handle(
     'kraken:run',
     async (event, projectDir: string, pages: Page[], krakenConfig: KrakenConfig): Promise<void> => {
+      await runningLoop
       abortKraken = false
-      const win = BrowserWindow.fromWebContents(event.sender)
-      const mdPath = join(projectDir, 'ocr_output.md')
-      const cacheDir = join(projectDir, 'pages')
-      mkdirSync(cacheDir, { recursive: true })
-
-      const pipeline = await getPipeline(krakenConfig.segModelPath, krakenConfig.recModelPath)
-
-      for (const page of pages) {
-        if (abortKraken) break
-        if (page.status === 'skipped') {
-          win?.webContents.send('ocr:progress', { pageNum: page.n, status: 'skipped' } satisfies OCRProgressEvent)
-          continue
-        }
-
-        const cachePath = join(cacheDir, `page_${String(page.n).padStart(4, '0')}.md`)
-        if (existsSync(cachePath)) {
-          if (page.status === 'ocr_done') {
-            const cached = await readFile(cachePath, 'utf-8')
-            await appendFile(mdPath, cached, 'utf-8')
-            win?.webContents.send('ocr:progress', { pageNum: page.n, status: 'done', fromCache: true } satisfies OCRProgressEvent)
-            continue
-          } else {
-            try { await unlink(cachePath) } catch { /* ignore */ }
-          }
-        }
-
-        const resolve = (p: string): string => (isAbsolute(p) ? p : join(projectDir, p))
-        const imgPath = page.maskedImagePath ? resolve(page.maskedImagePath) : resolve(page.imagePath)
-
-        if (!existsSync(imgPath)) {
-          win?.webContents.send('ocr:progress', {
-            pageNum: page.n,
-            status: 'error',
-            errorMessage: `Image not found: ${imgPath}`,
-          } satisfies OCRProgressEvent)
-          continue
-        }
-
-        win?.webContents.send('ocr:progress', { pageNum: page.n, status: 'started' } satisfies OCRProgressEvent)
-        const t0 = Date.now()
-        try {
-          const raw = await pipeline.process(imgPath)
-          const lines = raw.map((l, i) => ({ text: l.text, id: `k${i}`, regionType: l.type }))
-          if (!page.lineGeometry?.length) {
-            const lineHeight = estimateLineHeight(raw)
-            const newGeometry: LineGeometry[] = raw.map((l, i) => ({
-              id: `k${i}`,
-              polygon: expandedLinePolygon(l.obb, lineHeight),
-              regionType: l.type,
-              source: 'kraken',
-              text: l.text,
-            }))
-            await persistPageGeometry(projectDir, page.n, newGeometry)
-          }
-
-          const pageMarkdown = krakenLinesToPageMarkdown(page.n, lines)
-          await writeFile(cachePath, pageMarkdown, 'utf-8')
-          await appendFile(mdPath, pageMarkdown, 'utf-8')
-
-          // Archive the first successful machine transcription, write-once — a later
-          // re-OCR or hand-correction of the editable cache above never touches this,
-          // so it stays available for training-corpus exports (Sequence 6).
-          const origPath = join(cacheDir, `page_${String(page.n).padStart(4, '0')}.orig.md`)
-          if (!existsSync(origPath)) await writeFile(origPath, pageMarkdown, 'utf-8')
-          const elapsedMs = Date.now() - t0
-          await persistPageStatus(projectDir, page.n, 'ocr_done', { elapsedMs })
-          win?.webContents.send('ocr:progress', { pageNum: page.n, status: 'done', elapsedMs } satisfies OCRProgressEvent)
-        } catch (err: unknown) {
-          await persistPageStatus(projectDir, page.n, 'error')
-          win?.webContents.send('ocr:progress', {
-            pageNum: page.n,
-            status: 'error',
-            elapsedMs: Date.now() - t0,
-            errorMessage: String(err),
-          } satisfies OCRProgressEvent)
-        }
-      }
+      const loop = runKrakenLoop(event, projectDir, pages, krakenConfig, () => abortKraken)
+      runningLoop = loop.finally(() => {
+        if (runningLoop === loop) runningLoop = null
+      })
+      return runningLoop
     }
   )
+}
+
+async function runKrakenLoop(
+  event: IpcMainInvokeEvent,
+  projectDir: string,
+  pages: Page[],
+  krakenConfig: KrakenConfig,
+  isAborted: () => boolean
+): Promise<void> {
+  const win = BrowserWindow.fromWebContents(event.sender)
+  const mdPath = join(projectDir, 'ocr_output.md')
+  const cacheDir = join(projectDir, 'pages')
+  mkdirSync(cacheDir, { recursive: true })
+
+  const pipeline = await getPipeline(krakenConfig.segModelPath, krakenConfig.recModelPath)
+
+  for (const page of pages) {
+    if (isAborted()) break
+    if (page.status === 'skipped') {
+      win?.webContents.send('ocr:progress', { pageNum: page.n, status: 'skipped' } satisfies OCRProgressEvent)
+      continue
+    }
+
+    const cachePath = join(cacheDir, `page_${String(page.n).padStart(4, '0')}.md`)
+    if (existsSync(cachePath)) {
+      if (page.status === 'ocr_done') {
+        const cached = await readFile(cachePath, 'utf-8')
+        await appendFile(mdPath, cached, 'utf-8')
+        win?.webContents.send('ocr:progress', { pageNum: page.n, status: 'done', fromCache: true } satisfies OCRProgressEvent)
+        continue
+      } else {
+        try { await unlink(cachePath) } catch { /* ignore */ }
+      }
+    }
+
+    const resolve = (p: string): string => (isAbsolute(p) ? p : join(projectDir, p))
+    const imgPath = page.maskedImagePath ? resolve(page.maskedImagePath) : resolve(page.imagePath)
+
+    if (!existsSync(imgPath)) {
+      win?.webContents.send('ocr:progress', {
+        pageNum: page.n,
+        status: 'error',
+        errorMessage: `Image not found: ${imgPath}`,
+      } satisfies OCRProgressEvent)
+      continue
+    }
+
+    win?.webContents.send('ocr:progress', { pageNum: page.n, status: 'started' } satisfies OCRProgressEvent)
+    const t0 = Date.now()
+    try {
+      const raw = await pipeline.process(imgPath)
+      const lines = raw.map((l, i) => ({ text: l.text, id: `k${i}`, regionType: l.type }))
+      if (!page.lineGeometry?.length) {
+        // `polygon` is the same expanded above/below-baseline quadrilateral
+        // kraken-js actually cropped for recognition (see pipeline.js), so
+        // persisted geometry can't drift from what was recognized.
+        const newGeometry: LineGeometry[] = raw.map((l, i) => ({
+          id: `k${i}`,
+          polygon: l.polygon,
+          regionType: l.type,
+          source: 'kraken',
+          text: l.text,
+        }))
+        await persistPageGeometry(projectDir, page.n, newGeometry)
+      }
+
+      const pageMarkdown = krakenLinesToPageMarkdown(page.n, lines)
+      await writeFile(cachePath, pageMarkdown, 'utf-8')
+      await appendFile(mdPath, pageMarkdown, 'utf-8')
+
+      // Archive the first successful machine transcription, write-once — a later
+      // re-OCR or hand-correction of the editable cache above never touches this,
+      // so it stays available for training-corpus exports (Sequence 6).
+      const origPath = join(cacheDir, `page_${String(page.n).padStart(4, '0')}.orig.md`)
+      if (!existsSync(origPath)) await writeFile(origPath, pageMarkdown, 'utf-8')
+      const elapsedMs = Date.now() - t0
+      await persistPageStatus(projectDir, page.n, 'ocr_done', { elapsedMs })
+      win?.webContents.send('ocr:progress', { pageNum: page.n, status: 'done', elapsedMs } satisfies OCRProgressEvent)
+    } catch (err: unknown) {
+      await persistPageStatus(projectDir, page.n, 'error')
+      win?.webContents.send('ocr:progress', {
+        pageNum: page.n,
+        status: 'error',
+        elapsedMs: Date.now() - t0,
+        errorMessage: String(err),
+      } satisfies OCRProgressEvent)
+    }
+  }
 }

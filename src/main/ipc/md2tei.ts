@@ -287,7 +287,15 @@ function buildBody(
     }
   }
 
-  for (const rawLine of md.split('\n')) {
+  // A block-close tag or <pb/> glued directly onto the next tag with no newline
+  // between them (e.g. `</continued><pb n="3"/>`) can't be told apart from ordinary
+  // text by the line-based parser below and would otherwise be escaped verbatim —
+  // this has happened in practice when two page cache files got concatenated without
+  // a newline in between. Split them back onto separate lines before parsing; this is
+  // a no-op for any already-well-formed input.
+  const normalizedMd = md.replace(/(<\/(?:p|head|quote|continued)>|<pb[^>]*\/?>)(?=<)/g, '$1\n')
+
+  for (const rawLine of normalizedMd.split('\n')) {
     const s = rawLine.trim()
 
     if (block) {

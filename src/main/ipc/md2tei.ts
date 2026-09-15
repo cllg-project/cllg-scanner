@@ -189,7 +189,8 @@ function buildBody(
   md: string,
   lm: Record<number, string>,
   ms: Set<number>,
-  levels: LevelDef[]
+  levels: LevelDef[],
+  warn: (msg: string) => void
 ): string {
   const out: string[] = []
   const stack: number[] = []
@@ -197,6 +198,14 @@ function buildBody(
   let inHead = false
   let block: BlockKind | null = null
   let blockLines: string[] = []
+  // True right after a <continued> block closes, until either the next <pb> or
+  // another explicit block tag is seen. A bare (untagged) line with real text in
+  // that gap is almost always OCR noise (a catchword, signature mark, running
+  // header…) that got left outside the <continued> wrapper by mistake — it silently
+  // becomes its own <p> and steals the *next* page's <continued> merge target
+  // (mergeContinuations() just grabs the nearest preceding <p>), splitting what
+  // should be one running sentence across two paragraphs with no visible error.
+  let justClosedContinued = false
 
   // div-level defs in ascending level order, excluding milestones
   const divLevels = levels.filter(l => !l.isMilestone).sort((a, b) => a.level - b.level)
@@ -316,6 +325,7 @@ function buildBody(
       const closeMatch = BLOCK_CLOSE_RE.exec(s)
       if (closeMatch && closeMatch[1] === block) {
         emitBlock(block, blockLines)
+        justClosedContinued = block === 'continued'
         block = null
         blockLines = []
         continue
@@ -327,16 +337,22 @@ function buildBody(
 
     if (!s) continue
 
-    if (s.startsWith('<pb')) { flushP(); out.push(normSelfClose(s)); continue }
+    if (s.startsWith('<pb')) { flushP(); out.push(normSelfClose(s)); justClosedContinued = false; continue }
 
     const openMatch = BLOCK_OPEN_RE.exec(s)
-    if (openMatch) { flushP(); block = openMatch[1] as BlockKind; blockLines = []; continue }
+    if (openMatch) { flushP(); block = openMatch[1] as BlockKind; blockLines = []; justClosedContinued = false; continue }
 
     const inlineMatch = BLOCK_INLINE_RE.exec(s)
     if (inlineMatch) {
       flushP()
       emitBlock(inlineMatch[1] as BlockKind, [tokenizeBlockLine(inlineMatch[2])])
+      justClosedContinued = inlineMatch[1] === 'continued'
       continue
+    }
+
+    if (justClosedContinued) {
+      warn(`[md2tei] WARNING: orphan text between </continued> and the next <pb> — it will be treated as a new paragraph and may steal the following page's continuation merge: "${s}"`)
+      justClosedContinued = false
     }
 
     const isHeading = s.startsWith('#')
@@ -796,7 +812,7 @@ export function runMd2Tei({ markdownText, yamlConfigText, bibliography = [], log
   const ms = milestoneSet(levels)
 
   log('[md2tei] Building TEI body')
-  const body = buildBody(markdownText, lm, ms, levels)
+  const body = buildBody(markdownText, lm, ms, levels, log)
 
   const teiStr = `<?xml version="1.0" encoding="UTF-8"?>
 <TEI xmlns="http://www.tei-c.org/ns/1.0">

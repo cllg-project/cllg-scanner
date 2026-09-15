@@ -751,6 +751,16 @@ export default function Review(): React.JSX.Element {
         insertBlockTag('quote')
         return
       }
+      if ((e.ctrlKey || e.metaKey) && e.key === 'i') {
+        e.preventDefault()
+        insertTag('<cit>', '</cit>')
+        return
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key === 'b') {
+        e.preventDefault()
+        insertTag('<bibl>', '</bibl>')
+        return
+      }
     }
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
@@ -1561,6 +1571,32 @@ export default function Review(): React.JSX.Element {
                   <span className="inline-flex items-center gap-0.5">
                     <span style={{ fontFamily: 'ui-monospace', fontSize: 9, padding: '1px 4px', borderRadius: 3, background: 'rgba(0,0,0,.08)', border: '1px solid rgba(0,0,0,.12)', color: 'inherit' }}>⌘</span>
                     <span style={{ fontFamily: 'ui-monospace', fontSize: 9, padding: '1px 4px', borderRadius: 3, background: 'rgba(0,0,0,.08)', border: '1px solid rgba(0,0,0,.12)', color: 'inherit' }}>Q</span>
+                  </span>
+                </button>
+                {/* <cit> */}
+                <button
+                  className="inline-flex items-center gap-1.5 border rounded"
+                  style={{ padding: '4px 8px', fontFamily: 'ui-monospace, monospace', fontSize: 11.5, fontWeight: 500, background: '#f0e0d8', borderColor: '#dcb8a5', color: '#7a4a2e', lineHeight: 1 }}
+                  onClick={() => insertTag('<cit>', '</cit>')}
+                  title={t('review.tagCit')}
+                >
+                  &lt;cit&gt;
+                  <span className="inline-flex items-center gap-0.5">
+                    <span style={{ fontFamily: 'ui-monospace', fontSize: 9, padding: '1px 4px', borderRadius: 3, background: 'rgba(0,0,0,.08)', border: '1px solid rgba(0,0,0,.12)', color: 'inherit' }}>⌘</span>
+                    <span style={{ fontFamily: 'ui-monospace', fontSize: 9, padding: '1px 4px', borderRadius: 3, background: 'rgba(0,0,0,.08)', border: '1px solid rgba(0,0,0,.12)', color: 'inherit' }}>I</span>
+                  </span>
+                </button>
+                {/* <bibl> */}
+                <button
+                  className="inline-flex items-center gap-1.5 border rounded"
+                  style={{ padding: '4px 8px', fontFamily: 'ui-monospace, monospace', fontSize: 11.5, fontWeight: 500, background: '#dce4ee', borderColor: '#aec0d8', color: '#2e4a7a', lineHeight: 1 }}
+                  onClick={() => insertTag('<bibl>', '</bibl>')}
+                  title={t('review.tagBibl')}
+                >
+                  &lt;bibl&gt;
+                  <span className="inline-flex items-center gap-0.5">
+                    <span style={{ fontFamily: 'ui-monospace', fontSize: 9, padding: '1px 4px', borderRadius: 3, background: 'rgba(0,0,0,.08)', border: '1px solid rgba(0,0,0,.12)', color: 'inherit' }}>⌘</span>
+                    <span style={{ fontFamily: 'ui-monospace', fontSize: 9, padding: '1px 4px', borderRadius: 3, background: 'rgba(0,0,0,.08)', border: '1px solid rgba(0,0,0,.12)', color: 'inherit' }}>B</span>
                   </span>
                 </button>
 

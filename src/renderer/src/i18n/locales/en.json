@@ -308,6 +308,8 @@
     "tagNote": "Wrap selection in <note> (⌘M)",
     "tagLb": "Insert <lb/> line break",
     "tagQuote": "Wrap selection in <quote> (⌘Q)",
+    "tagCit": "Wrap selection in <cit> (⌘I)",
+    "tagBibl": "Wrap selection in <bibl> (⌘B)",
     "fixHyphens": "Fix hyphens",
     "fixHyphensCount": "Fix hyphens ({{count}})",
     "scanRefs": "Scan refs",

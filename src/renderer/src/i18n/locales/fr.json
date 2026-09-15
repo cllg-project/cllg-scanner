@@ -308,6 +308,8 @@
     "tagNote": "Entourer la sélection dans <note> (⌘M)",
     "tagLb": "Insérer un saut de ligne <lb/>",
     "tagQuote": "Entourer la sélection dans <quote> (⌘Q)",
+    "tagCit": "Entourer la sélection dans <cit> (⌘I)",
+    "tagBibl": "Entourer la sélection dans <bibl> (⌘B)",
     "fixHyphens": "Corriger les tirets",
     "fixHyphensCount": "Corriger les tirets ({{count}})",
     "scanRefs": "Scanner les réf.",

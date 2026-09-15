@@ -111,11 +111,13 @@ type LineToken =
   | { kind: 'text'; value: string }
   | { kind: 'ref';  attrStr: string; inner: string }
   | { kind: 'note'; inner: string }
+  | { kind: 'cit';  inner: string }
+  | { kind: 'bibl'; inner: string }
   | { kind: 'lb';   raw: string }
 
 function tokenizeLine(s: string): LineToken[] {
   const tokens: LineToken[] = []
-  const re = /(<lb[^>]*\/>|<ref[^>]*>.*?<\/ref>|<note>.*?<\/note>)/gs
+  const re = /(<lb[^>]*\/>|<ref[^>]*>.*?<\/ref>|<note>.*?<\/note>|<cit>.*?<\/cit>|<bibl>.*?<\/bibl>)/gs
   let last = 0
   let m: RegExpExecArray | null
   while ((m = re.exec(s)) !== null) {
@@ -128,6 +130,12 @@ function tokenizeLine(s: string): LineToken[] {
     } else if (tag.startsWith('<note')) {
       const nm = /^<note>(.*?)<\/note>$/s.exec(tag)
       if (nm) tokens.push({ kind: 'note', inner: nm[1] })
+    } else if (tag.startsWith('<cit')) {
+      const cm = /^<cit>(.*?)<\/cit>$/s.exec(tag)
+      if (cm) tokens.push({ kind: 'cit', inner: cm[1] })
+    } else if (tag.startsWith('<bibl')) {
+      const bm = /^<bibl>(.*?)<\/bibl>$/s.exec(tag)
+      if (bm) tokens.push({ kind: 'bibl', inner: bm[1] })
     }
     last = m.index + m[0].length
   }
@@ -256,6 +264,12 @@ function buildBody(
         case 'note':
           parts.push(`<note>${esc(tok.inner.trim())}</note>`)
           break
+        case 'cit':
+          parts.push(`<cit>${esc(tok.inner.trim())}</cit>`)
+          break
+        case 'bibl':
+          parts.push(`<bibl>${esc(tok.inner.trim())}</bibl>`)
+          break
         case 'ref': {
           const lvlStr = parseAttrStr(tok.attrStr, 'level')
           const lvl = lvlStr !== null ? (parseInt(lvlStr, 10) || null) : null
@@ -347,6 +361,12 @@ function buildBody(
           break
         case 'note':
           pParts.push(`<note>${esc(tok.inner.trim())}</note>`)
+          break
+        case 'cit':
+          pParts.push(`<cit>${esc(tok.inner.trim())}</cit>`)
+          break
+        case 'bibl':
+          pParts.push(`<bibl>${esc(tok.inner.trim())}</bibl>`)
           break
         case 'ref': {
           const lvlStr = parseAttrStr(tok.attrStr, 'level')

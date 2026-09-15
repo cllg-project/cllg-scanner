@@ -382,8 +382,15 @@ export default function Review(): React.JSX.Element {
     const ta = textareaRef.current
     const sc = scrollContainerRef.current
     if (!ta || !sc) return
+    // Collapsing to 'auto' first shrinks the textarea (and so sc's scrollHeight) down to
+    // its intrinsic minimum, which forces the browser to clamp sc.scrollTop to fit —
+    // usually to ~0. Growing it back right after doesn't restore that scrollTop, so every
+    // content edit (typing, tag shortcuts, …) silently snapped the editor back to the top.
+    // Round-tripping scrollTop through the resize keeps the view where the user left it.
+    const scrollTop = sc.scrollTop
     ta.style.height = 'auto'
     ta.style.height = `${Math.max(ta.scrollHeight, sc.clientHeight)}px`
+    sc.scrollTop = scrollTop
   }, [])
 
   const currentState = currentPage ? pages.get(currentPage.n) : undefined
@@ -668,7 +675,12 @@ export default function Review(): React.JSX.Element {
 
   const replaceTag = (start: number, end: number, replacement: string): void => {
     setContent(content.slice(0, start) + replacement + content.slice(end))
-    setTimeout(() => textareaRef.current?.focus(), 0)
+    setTimeout(() => {
+      const el = textareaRef.current
+      if (!el) return
+      el.selectionStart = el.selectionEnd = start + replacement.length
+      el.focus()
+    }, 0)
   }
 
   const insertTag = (open: string, close: string): void => {

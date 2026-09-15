@@ -6,6 +6,10 @@ import type { Project } from '@shared/types'
 
 const IMAGE_EXTS = new Set(['.jpg', '.jpeg', '.png', '.tif', '.tiff', '.bmp', '.webp'])
 
+function withTrailingNewline(content: string): string {
+  return content.length === 0 || content.endsWith('\n') ? content : content + '\n'
+}
+
 export function registerPDFHandlers(): void {
   // Save a page image (PNG ArrayBuffer from renderer canvas render)
   ipcMain.handle(
@@ -124,7 +128,13 @@ export function registerPDFHandlers(): void {
   // Write per-page markdown cache and rebuild ocr_output.md
   ipcMain.handle('page:saveMarkdown', async (_event, projectDir: string, pageN: number, content: string) => {
     const cachePath = join(projectDir, 'pages', `page_${String(pageN).padStart(4, '0')}.md`)
-    await writeFile(cachePath, content, 'utf-8')
+    // A page cache file must end with a newline: the combined ocr_output.md is built
+    // by concatenating these files in order, so a missing trailing newline glues this
+    // page's last line onto the next page's first (e.g. </continued><pb n="3"/> on one
+    // line, which md2tei then can't recognize as a block close and emits as escaped
+    // text). The renderer's textarea commonly hands back content with no trailing
+    // newline after a manual edit, so this can't be assumed upstream.
+    await writeFile(cachePath, withTrailingNewline(content), 'utf-8')
     // Rebuild combined output from all cache files in page order
     const entries = await readdir(join(projectDir, 'pages'))
     const mdFiles = entries
@@ -132,7 +142,7 @@ export function registerPDFHandlers(): void {
       .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
     const parts: string[] = []
     for (const f of mdFiles) {
-      try { parts.push(await readFile(join(projectDir, 'pages', f), 'utf-8')) } catch { /* skip */ }
+      try { parts.push(withTrailingNewline(await readFile(join(projectDir, 'pages', f), 'utf-8'))) } catch { /* skip */ }
     }
     await writeFile(join(projectDir, 'ocr_output.md'), parts.join(''), 'utf-8')
   })

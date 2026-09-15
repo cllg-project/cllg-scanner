@@ -44,6 +44,8 @@ function installSharpWasm(version) {
   try {
     execFileSync('npm', ['pack', `@img/sharp-wasm32@${version}`, '--pack-destination', tmpDir], {
       stdio: 'inherit',
+      // On Windows, `npm` resolves to `npm.cmd`, which execFileSync only finds via a shell.
+      shell: process.platform === 'win32',
     });
     const tgz = fs.readdirSync(tmpDir).find((f) => f.endsWith('.tgz'));
     if (!tgz) throw new Error('npm pack did not produce a .tgz');

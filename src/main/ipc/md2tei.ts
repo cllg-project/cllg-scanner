@@ -621,8 +621,8 @@ function buildCiteStructure(doc: Document, structNode: Record<string, unknown>, 
   const name = String(structNode.name)
   const isMilestone = !!structNode.is_milestone
   const match = isRoot
-    ? `/TEI/text/body/div[@type='${name}']`
-    : isMilestone ? `milestone[@unit='${name}']` : `div[@type='${name}']`
+    ? (isMilestone ? `/TEI/text/body/milestone[@unit='${name}']` : `/TEI/text/body/div[@type='${name}']`)
+    : (isMilestone ? `milestone[@unit='${name}']` : `div[@type='${name}']`)
 
   const el = doc.createElementNS(NS, 'citeStructure')
   el.setAttribute('match', match)

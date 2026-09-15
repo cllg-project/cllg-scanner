@@ -14,7 +14,7 @@ import BetaCodeHelper from '../components/BetaCodeHelper'
 import KrakenModelPicker from '../components/KrakenModelPicker'
 import { renderMaskedPage } from '../utils/renderMaskedPage'
 import { linesInRect, blockTagForRole } from '../utils/manualZones'
-import { findAnchorAt, spanForLineIds } from '../utils/lbAnchors'
+import { findAnchorAt, findAnchors, spanForLineIds } from '../utils/lbAnchors'
 
 interface FlatLevel { depth: number; name: string; pattern: string; color?: string }
 
@@ -586,6 +586,36 @@ export default function Review(): React.JSX.Element {
   }
 
   const closePopover = (): void => setCursorTag(null)
+
+  // Click a line's box on the page image (left) → move the caret to that line's
+  // <lb n="id"/> anchor in the editor (right) and select its text.
+  //
+  // The textarea itself never scrolls (autoGrow keeps its height equal to its full
+  // content height; the actual viewport clipping happens on scrollContainerRef, an
+  // ancestor). Because of that, the browser's native "scroll the caret into view"
+  // behaviour — which only walks up to the focused element's own scroll box — never
+  // fires here, so the outer container has to be scrolled by hand. Line height is
+  // computed from the textarea's own font, and the target line's offset assumes each
+  // markdown line renders as one row, true for this editor's page-line-per-row content.
+  const jumpToLine = useCallback((lineId: string): void => {
+    const ta = textareaRef.current
+    const sc = scrollContainerRef.current
+    if (!ta || !sc) return
+    const anchor = findAnchors(content).find((a) => a.id === lineId)
+    if (!anchor) return
+    const nl = content.indexOf('\n', anchor.end)
+    const lineTextEnd = nl === -1 ? content.length : nl
+    ta.focus()
+    ta.setSelectionRange(anchor.start, lineTextEnd)
+    setActiveLbLineId(lineId)
+
+    const lineIndex = (content.slice(0, anchor.start).match(/\n/g) ?? []).length
+    const cs = getComputedStyle(ta)
+    const lineHeight = parseFloat(cs.lineHeight) || parseFloat(cs.fontSize) * 1.5
+    const paddingTop = parseFloat(cs.paddingTop) || 0
+    const targetY = paddingTop + lineIndex * lineHeight
+    sc.scrollTop = Math.max(0, targetY - sc.clientHeight / 2)
+  }, [content])
 
   const snapRefToSegment = useCallback((): void => {
     if (!currentPage || !cursorTag || cursorTag.kind !== 'ref') return
@@ -1377,10 +1407,14 @@ export default function Review(): React.JSX.Element {
                         <polygon
                           key={line.id}
                           points={line.polygon.map(([x, y]) => `${x},${y}`).join(' ')}
-                          fill="rgba(3,105,161,0.10)"
-                          stroke="rgba(3,105,161,0.85)"
+                          fill={activeLbLineId === line.id ? 'rgba(220,38,38,0.18)' : 'rgba(3,105,161,0.10)'}
+                          stroke={activeLbLineId === line.id ? 'rgba(220,38,38,0.85)' : 'rgba(3,105,161,0.85)'}
                           strokeWidth={imgNaturalWidth / 600}
-                        />
+                          style={{ pointerEvents: 'auto', cursor: 'pointer' }}
+                          onClick={(e) => { e.stopPropagation(); jumpToLine(line.id) }}
+                        >
+                          <title>{line.text}</title>
+                        </polygon>
                       ))}
                     </svg>
                   )}

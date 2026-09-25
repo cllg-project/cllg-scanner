@@ -148,6 +148,9 @@ const api = {
   exportAllPagesFormat: (projectDir: string, pages: Page[], format: PageExportFormat): Promise<string | null> =>
     ipcRenderer.invoke('page:exportAllFormat', projectDir, pages, format),
 
+  exportSearchablePdf: (projectDir: string, pages: Page[], projectName: string): Promise<string | null> =>
+    ipcRenderer.invoke('project:exportSearchablePdf', projectDir, pages, projectName),
+
   loadOCROutput: (projectDir: string): Promise<string> =>
     ipcRenderer.invoke('ocr:loadOutput', projectDir),
 

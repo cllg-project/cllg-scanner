@@ -469,6 +469,8 @@
     "showInFolder": "Show in folder",
     "exportZip": "Share project…",
     "zipping": "Zipping…",
+    "exportPdf": "Export searchable PDF…",
+    "pdfExporting": "Building PDF…",
     "noHierarchy": "No hierarchy defined — go back to Structure configuration.",
     "perPageTab": "Per-page",
     "perPagePicker": "Page",

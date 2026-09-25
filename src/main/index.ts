@@ -10,6 +10,7 @@ import { registerKrakenHandlers } from './ipc/krakenOcr'
 import { registerProjectExportHandlers } from './ipc/projectExport'
 import { registerAltoHandlers } from './ipc/alto'
 import { registerPageExportHandlers } from './ipc/pageExport'
+import { registerSearchablePdfExportHandlers } from './ipc/searchablePdfExport'
 
 // Durable crash log — survives even if nobody is watching the terminal or DevTools
 // at the moment something goes wrong. Lives outside the app bundle so it's easy to
@@ -79,6 +80,7 @@ app.whenReady().then(() => {
   registerProjectExportHandlers()
   registerAltoHandlers()
   registerPageExportHandlers()
+  registerSearchablePdfExportHandlers()
 
   createWindow()
 

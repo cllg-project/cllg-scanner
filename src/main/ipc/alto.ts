@@ -6,6 +6,7 @@ import type { AltoScanResult, AltoLine } from '@shared/types'
 import { parseAlto } from '../altoImport'
 import { isLadasCompatible } from '../ladas'
 import { krakenLinesToPageMarkdown } from '../krakenMarkdown'
+import { parseMetsFileOrder, applyMetsOrder } from '../metsImport'
 
 const IMAGE_EXTS = new Set(['.jpg', '.jpeg', '.png', '.tif', '.tiff', '.bmp', '.webp'])
 
@@ -20,10 +21,24 @@ export function registerAltoHandlers(): void {
 
   ipcMain.handle('alto:scanDir', async (_event, dirPath: string): Promise<AltoScanResult[]> => {
     const entries = await readdir(dirPath, { withFileTypes: true })
-    const xmlFiles = entries
-      .filter((e) => e.isFile() && extname(e.name).toLowerCase() === '.xml')
+    const metsEntry = entries.find((e) => e.isFile() && /mets\.xml$/i.test(e.name))
+    let xmlFiles = entries
+      .filter((e) => e.isFile() && extname(e.name).toLowerCase() === '.xml' && e.name !== metsEntry?.name)
       .map((e) => e.name)
       .sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }))
+
+    // eScriptorium (and other archival tools) name exported ALTO files by internal ID,
+    // not page number — filename sort alone isn't reliable reading order. When a METS
+    // manifest is present, its structMap's page sequence takes precedence.
+    if (metsEntry) {
+      try {
+        const metsText = await readFile(join(dirPath, metsEntry.name), 'utf-8')
+        const metsOrder = parseMetsFileOrder(metsText)
+        xmlFiles = applyMetsOrder(xmlFiles, metsOrder)
+      } catch {
+        // unreadable/unparsable METS — keep the filename-sorted order
+      }
+    }
 
     const imageFiles = entries
       .filter((e) => e.isFile() && IMAGE_EXTS.has(extname(e.name).toLowerCase()))

@@ -15,7 +15,7 @@ const EXT: Record<PageExportFormat, string> = {
   pretei: 'md',
 }
 
-async function loadPageMarkdown(projectDir: string, page: Page): Promise<string> {
+export async function loadPageMarkdown(projectDir: string, page: Page): Promise<string> {
   const cachePath = join(projectDir, 'pages', `page_${String(page.n).padStart(4, '0')}.md`)
   if (existsSync(cachePath)) return readFile(cachePath, 'utf-8')
   return page.markdown ?? ''

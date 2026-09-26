@@ -241,13 +241,21 @@ export default function TourOverlay({ tour }: { tour: TourState }): React.JSX.El
       >
         {/* Illustration */}
         {step.illustration && (
-          <div style={{ background: 'var(--paper-3)', borderBottom: '1px solid var(--line-2)', maxHeight: 180, overflow: 'hidden', flexShrink: 0 }}>
-            <img
-              src={step.illustration}
-              alt=""
-              style={{ width: '100%', objectFit: 'cover', objectPosition: 'top', display: 'block' }}
-            />
-          </div>
+          // Framed with CSS only: the page image itself is shown unmodified.
+          <div
+            role="img"
+            aria-label=""
+            style={{
+              height: 180,
+              flexShrink: 0,
+              borderBottom: '1px solid var(--line-2)',
+              backgroundColor: 'white',
+              backgroundImage: `url(${step.illustration})`,
+              backgroundRepeat: 'no-repeat',
+              backgroundSize: `${(step.illustrationView?.zoom ?? 1) * 100}% auto`,
+              backgroundPosition: step.illustrationView?.position ?? '50% 0%',
+            }}
+          />
         )}
 
         {/* Body */}

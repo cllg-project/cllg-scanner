@@ -4,9 +4,9 @@
 
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 
-A desktop application for OCR processing of ancient Greek and Latin scholarly texts. It converts scanned documents — PDFs, DjVu files, or image folders — into structured TEI XML through a guided five-step workflow.
+A desktop application that turns scans of ancient Greek and Latin scholarly editions — PDFs, DjVu files, image folders, or ALTO exports — into structured TEI XML, through a guided six-step workflow.
 
-Inference is delegated to a local [LM Studio](https://lmstudio.ai/) server running a vision model (Qwen2.5-VL or compatible). No data leaves your machine.
+Text recognition runs locally with [Kraken](https://kraken.re/) models (through [kraken-js](https://github.com/cllg-project/kraken-js) and ONNX Runtime). Nothing to install besides the application, and no data leaves your machine.
 
 ---
 
@@ -60,74 +60,68 @@ If the application fails to start with a sandbox error, add the `--no-sandbox` f
 
 ## Requirements
 
-### LM Studio (required)
+- A scanned document: PDF, DjVu, a folder of page images (PNG, JPEG, TIFF…), or ALTO XML files with their images (e.g. exported from eScriptorium)
+- Nothing else: built-in Ancient Greek segmentation and recognition models are bundled. Your own Kraken models (`.js_mlmodel`) can be loaded instead.
 
-Download and install [LM Studio](https://lmstudio.ai/) separately. CLLG Desktop does not bundle an inference engine — it sends pages to a local LM Studio server running on your machine.
-
-1. Open LM Studio and download a vision-capable model (Qwen2.5-VL 7B or compatible).
-2. Start the local server from the "Local Server" tab (default port: 1234).
-3. Keep LM Studio running while using CLLG Desktop.
-
-### Documents and configuration
-
-- A scanned document: PDF, DjVu, or a folder of page images (JPEG, PNG, TIFF)
-- A YAML configuration file describing the document's reference hierarchy (see below)
+A guided tour (home screen or sidebar) walks through every step on a demo project.
 
 ---
 
 ## Workflow
 
-The application guides work through five sequential steps.
-
 ### 1. Import
 
-Open an existing project or create a new one by loading a PDF, DjVu file, or a folder of images. Each page is rendered as a PNG and stored in the project directory under `pages/`.
+Create a project from a PDF or DjVu (choose the pages: ranges, «Skip covers», odd/even pages…), from a folder of images, or from ALTO files with their images. Each page is stored as a PNG under `pages/`. ALTO import keeps every line's geometry; when the ALTO carries LADaS zone types, paragraphs, quotes and headings are recognised automatically.
 
 ### 2. Mask
 
-Draw rectangular masks over regions that should be hidden from the OCR model — critical apparatus, footnotes, marginal annotations you wish to exclude. Masks are stored per page in the project file and applied automatically when OCR runs.
+Draw white rectangles over what should not be read — running heads, line numbers, footnotes, critical apparatus, marginalia. Masked regions are whited out before recognition. Masks can be copied to all pages, generated from ALTO regions, or exported as COCO JSON. Pages can be skipped (e.g. a cover page) from the thumbnail list.
 
-White masks blank out the region; black masks can be used for contrast correction. Masked images are generated at OCR time.
+Shortcuts: **D** draw, **S** select, **Delete** remove.
 
 ### 3. OCR
 
-Configure the LM Studio endpoint, model identifier, and context length, then run OCR. Each page is sent to the model with a transcription prompt; the response is normalised and cached to `pages/page_NNNN.md`.
+Kraken segments each page into lines and recognises them, one page at a time. Results are cached per page (`pages/page_NNNN.md`; the first pass is also kept, untouched, in `page_NNNN.orig.md`), so runs can be stopped and resumed; «Force reprocess» redoes chosen pages. Every line is anchored with `<lb n="…"/>`, which keeps the text linked to its position on the image.
 
-Progress is displayed live with per-page status, token counts, elapsed time, and an estimated time remaining once at least one page has completed. OCR can be stopped and resumed; completed pages are skipped on re-run.
+The **CPU threads** setting (saved per computer) controls how much of the machine OCR may use.
 
-### 4. Review
+### 4. Structure
 
-A side-by-side editor showing the page image alongside the OCR output. Changes are saved back to the per-page cache files and the combined `ocr_output.md` is rebuilt automatically.
+Describe the document's metadata, its reference hierarchy (e.g. book → chapter → section) and its bibliography (TEI `sourceDesc`). Each level has a numbering format — Roman, Arabic, Alpha, Greek, Stephanus, or a custom regular expression — and options: `missing_first` (the first number is not printed), `allow_gaps`, and `milestone` (a marker inside the text rather than a division).
 
-Toolbar shortcuts:
+### 5. Review
+
+The page image and the transcription side by side (the image pane can be hidden). Edits are saved per page with Ctrl/Cmd S; the combined `ocr_output.md` is rebuilt on every save.
+
+- **Structure tags:** `<ref>` for reference numbers (with their hierarchy level; level 1 directly when only one level is declared), `<note>`, `<quote>`, `<cit>`, `<bibl>`, `<lb/>`. Click inside a tag to edit or convert it.
+- **Zones:** «Draw Zone» groups lines into Paragraph, Quote, Heading or Continued (a paragraph continuing from the previous page); zones can be moved, resized, retyped or deleted, and their tags follow.
+- **Lines:** «Show line boxes» outlines every line — click one to jump to it. A selected line can be redrawn (**R**) and re-read on its own («Re-OCR line»).
+- **Checking:** «2nd read» (Kraken re-read with differences underlined), «Line» (image of the current line above the caret), in-page search, detection of Latin letters inside Greek, «Fix hyphens», «Scan refs».
+- **Greek typing:** a betacode keyboard (diacritics before the letter: `)/a` → ἄ), with `:` → · (ano teleia), `?` → ; (Greek question mark) and `<` `>` → ⟨ ⟩ (Leiden brackets).
 
 | Action | Shortcut |
 |---|---|
 | Save page | Ctrl/Cmd S |
-| Wrap in `<ref level="">` | Ctrl/Cmd R |
-| Wrap in `<note>` | Ctrl/Cmd M |
-| Insert `<tab/>` | Tab |
-| Undo | Ctrl/Cmd Z |
-| Redo | Ctrl/Cmd Y or Ctrl Shift Z |
+| Undo / Redo | Ctrl/Cmd Z / Ctrl/Cmd Y or Ctrl/Cmd Shift Z |
+| Previous / next page | Ctrl ↑ / Ctrl ↓ |
+| Find in page | Ctrl/Cmd F |
+| Betacode keyboard on/off | Ctrl/Cmd K |
+| Wrap in `<ref>` / `<note>` / `<quote>` / `<cit>` / `<bibl>` | Ctrl/Cmd R / M / Q / I / B |
+| Draw Zone mode on/off *(pointer over the image)* | G |
+| Zone type *(in Draw Zone mode)* | P, Q, H, C |
+| Redraw the selected line *(pointer over the image)* | R |
+| Delete the selected zone | Delete |
 
-Syntax highlighting distinguishes classified references (`<ref level="N">`), unclassified references (`<ref>`), notes, line-break markers, and structural tags. Clicking inside any tag opens a context bar for editing or converting it in place. Unclassified `<ref>` tags can be assigned a level using the buttons drawn from the TEI hierarchy configuration.
+### 6. TEI Export
 
-Trailing hyphens at the end of a line are highlighted in green: they will be converted to `<lb break="no"/>` automatically during TEI export.
+«Generate» builds one TEI P5 file for the whole document; the converter runs inside the application, with no external tools or network access. The output includes:
 
-### 5. TEI Export
+- nested `<div>` elements following the reference hierarchy, and `<milestone>` elements for milestone levels
+- `<head>`, `<p>` and `<quote>` from zones and tags; Continued zones merged into the paragraph they continue, across the page break
+- `<pb>` page breaks, `<lb n="…"/>` line anchors, and `<lb break="no"/>` for words split at the line end
+- `<note>`, `<cit>`, `<bibl>`, and `<citeStructure>` in the header for machine-readable citation paths
 
-Define the document hierarchy (book, chapter, section, etc.) with the pattern type for each level's reference markers. Supported formats: Roman numerals, Arabic numerals, Greek numerals, Latin alphabet, Stephanus pagination, or a custom regular expression.
-
-The hierarchy is compiled to a YAML configuration which drives the converter. Click "Generate TEI XML" to produce the output file. The converter runs entirely within the application — no external tools or network access required.
-
-The generated TEI XML includes:
-
-- Nested `<div>` elements structured according to the reference hierarchy
-- `<milestone>` elements for non-hierarchical reference levels (e.g. Stephanus pages)
-- Inline `<note>` elements for margin notes
-- `<lb break="no"/>` for line-break hyphens
-- `<pb>` page-break markers
-- `<citeStructure>` in the TEI header for machine-readable citation paths
+The text is normalised to Unicode NFC. The Per-page tab exports plain text, text with LADaS tags, ALTO or pre-TEI; a searchable PDF and a zip of the whole project can also be exported.
 
 ---
 
@@ -137,30 +131,29 @@ Each project is a directory containing:
 
 ```
 my_project/
-  project.cllg.json     project metadata, page list, masks, LM config, hierarchy
+  project.cllg.json      metadata, pages (masks, status, line geometry, zones), hierarchy, bibliography
   pages/
-    page_0001.png        original page image
-    page_0001_masked.png masked version (created when masks are present)
-    page_0001.md         per-page OCR output
+    page_0001.png         original page image
+    page_0001_masked.png  masked version (when the page has masks)
+    page_0001.md          reviewed transcription
+    page_0001.orig.md     first OCR pass, kept untouched for reference
     ...
-  ocr_output.md          combined OCR output, rebuilt on every page save
-  output.xml             TEI XML (written by the export step)
+  ocr_output.md           all pages combined, rebuilt on every save
 ```
 
-The project file is plain JSON and can be version-controlled or shared.
+The TEI file is saved wherever you choose. The project file is plain JSON and can be version-controlled or shared. Per-computer settings (such as CPU threads) live in the application's user-data folder, not in the project.
 
 ---
 
 ## Hierarchy configuration
 
-The reference hierarchy is defined in the Export step and stored inside `project.cllg.json`. It can also be written by hand as YAML for use with the command-line tools:
+The hierarchy is defined in the Structure step and stored in `project.cllg.json`; it is compiled to YAML for the converter:
 
 ```yaml
 metadata:
   title: "Commentarii"
   author: "Caesar"
-  edition: "Teubner 1900"
-  language: "lat"
+  source: "Teubner 1900"
 
 structure:
   name: book
@@ -172,12 +165,8 @@ structure:
     child:
       name: section
       format: Arabic
-      is_milestone: false
+      is_milestone: true  # <milestone> instead of <div>
 ```
-
-`format` values: `Roman` (uppercase), `roman` (lowercase), `Arabic`, `Greek`, `greek`, `Alpha` (uppercase), `alpha` (lowercase), `Stephanus`, or any regular expression anchored to the full token.
-
-Setting `is_milestone: true` on a level produces `<milestone>` elements instead of `<div>` elements.
 
 ---
 
@@ -189,6 +178,7 @@ npm install
 npm run dev        # development mode with hot reload
 npm run build      # compile
 npm run package    # compile + electron-builder -> dist/
+npm test           # unit tests (vitest)
 ```
 
 Requires Node 20+ and npm 10+.
@@ -197,9 +187,7 @@ Requires Node 20+ and npm 10+.
 
 ## Architecture notes
 
-The application is built with Electron 31, React 18, and TypeScript. PDF rendering uses pdfjs-dist in the renderer process. Canvas masking uses Konva. TEI conversion runs in the main process using a pure TypeScript implementation with no external tools or native dependencies.
-
-LM Studio is called via its native HTTP API at `{endpoint}/api/v1/chat`. The application also accepts the OpenAI-compatible response format as a fallback.
+Electron 31, React 18 and TypeScript. PDF pages are rendered with pdfjs-dist (DjVu with djvu.js) in the renderer; masking uses Konva. Recognition runs in the main process with kraken-js on ONNX Runtime; each run uses only the full-page pipeline (segmentation + recognition), including single-line re-reads, which isolate the line on a blank page. TEI conversion is a pure TypeScript implementation with no native dependencies.
 
 ---
 
@@ -226,10 +214,18 @@ The project *« Corpus Liberatum Linguae Graecae »* was supported by the French
 |---|---|---|
 | [Electron](https://github.com/electron/electron) | OpenJS Foundation | MIT |
 | [React](https://github.com/facebook/react) | Meta Platforms | MIT |
+| [kraken-js](https://github.com/cllg-project/kraken-js) | CLLG project | Apache 2.0 |
+| [ONNX Runtime](https://github.com/microsoft/onnxruntime) | Microsoft | MIT |
+| [sharp](https://github.com/lovell/sharp) | Lovell Fuller | Apache 2.0 |
 | [PDF.js](https://github.com/mozilla/pdf.js) | Mozilla Foundation | Apache 2.0 |
+| [pdf-lib](https://github.com/Hopding/pdf-lib) | Andrew Dillon | MIT |
 | [Konva](https://github.com/konvajs/konva) | Anton Lavrenov | MIT |
 | [@xmldom/xmldom](https://github.com/xmldom/xmldom) | xmldom contributors | MIT |
 | [yaml](https://github.com/eemeli/yaml) | Eemeli Aro | ISC |
+| [i18next](https://github.com/i18next/i18next) / [react-i18next](https://github.com/i18next/react-i18next) | Jan Mühlemann | MIT |
+| [archiver](https://github.com/archiverjs/node-archiver) | Chris Talkington | MIT |
 | [react-router](https://github.com/remix-run/react-router) | Remix Software | MIT |
 | [Tailwind CSS](https://github.com/tailwindlabs/tailwindcss) | Tailwind Labs | MIT |
 | [electron-vite](https://github.com/alex8088/electron-vite) | Alex Wei | MIT |
+
+The guided tour's demo pages come from V. Boudon-Millot & A. Pietrobelli, « Galien ressuscité : édition princeps du texte grec du *De propriis placitis* », *Revue des Études Grecques* 118 (2005), p. 168-213 ([doi:10.3406/reg.2005.4610](https://doi.org/10.3406/reg.2005.4610)), distributed by [Persée](https://www.persee.fr/doc/reg_0035-2039_2005_num_118_1_4610) under CC BY-NC-ND; they are included unmodified.

@@ -492,7 +492,10 @@ function mergeContinuations(doc: Document): void {
 
 // ── Replace trailing hyphens with <lb break="no"/> ────────────────────────────
 
-const HYPHEN_RE = /^(.*\p{L}+)-\s*$/su
+// A word broken at the line end: letter(s) — possibly carrying combining diacritics
+// that have no precomposed form (e.g. ο + U+0342) — then a hyphen: ASCII '-', U+2010
+// HYPHEN, U+2011 NON-BREAKING HYPHEN or U+00AD SOFT HYPHEN, all of which OCR produces.
+const HYPHEN_RE = /^(.*\p{L}[\p{L}\p{M}]*)[-\u2010\u2011\u00AD]\s*$/su
 
 function replaceHyphenation(doc: Document): void {
   const pElems = allElems(doc.documentElement, 'p')
@@ -813,7 +816,10 @@ export function runMd2Tei({ markdownText, yamlConfigText, bibliography = [], log
   const ms = milestoneSet(levels)
 
   log('[md2tei] Building TEI body')
-  const body = buildBody(markdownText, lm, ms, levels, log)
+  // The output is declared NFC (Export shows "UTF-8 (NFC)"), and Kraken can emit
+  // decomposed accents (α + U+0301): normalize once here so every rule — hyphenation
+  // joins in particular — sees composed letters.
+  const body = buildBody(markdownText.normalize('NFC'), lm, ms, levels, log)
 
   const teiStr = `<?xml version="1.0" encoding="UTF-8"?>
 <TEI xmlns="http://www.tei-c.org/ns/1.0">

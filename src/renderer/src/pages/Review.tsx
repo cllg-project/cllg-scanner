@@ -13,8 +13,9 @@ import { convertBetaKey, finalSigmaFix } from '../utils/betaCode'
 import BetaCodeHelper from '../components/BetaCodeHelper'
 import KrakenModelPicker from '../components/KrakenModelPicker'
 import { renderMaskedPage } from '../utils/renderMaskedPage'
+import { TOUR_DEMO_ID } from '../data/tourDemoProject'
 import { linesInRect, blockTagForRole } from '../utils/manualZones'
-import { findAnchorAt, findAnchors, spanForLineIds, unwrapZone, unwrapLegacyZone, unwrapOrphanZones } from '../utils/lbAnchors'
+import { findAnchorAt, findAnchors, spanForLineIds, unwrapZone, unwrapLegacyZone, unwrapOrphanZones, lineTextSpan } from '../utils/lbAnchors'
 
 interface FlatLevel { depth: number; name: string; pattern: string; color?: string }
 
@@ -357,7 +358,13 @@ export default function Review(): React.JSX.Element {
     return saved ? parseInt(saved, 10) : 13
   })
   const [betaMode, setBetaMode] = useState(false)
-  const [betaHelpVisible, setBetaHelpVisible] = useState(() => localStorage.getItem('review:betaHelp') !== 'false')
+  const [betaHelpVisible, setBetaHelpVisibleState] = useState(() => {
+    try { return localStorage.getItem('review:betaHelp') !== 'false' } catch { return true }
+  })
+  const setBetaHelpVisible = (visible: boolean): void => {
+    setBetaHelpVisibleState(visible)
+    try { localStorage.setItem('review:betaHelp', String(visible)) } catch { /* ignore */ }
+  }
   const betaPendingRef = useRef<Set<string>>(new Set())
   const sigmaTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -372,12 +379,25 @@ export default function Review(): React.JSX.Element {
   })
   const splitContainerRef = useRef<HTMLDivElement>(null)
   const isDraggingRef = useRef(false)
+  // The image pane can be hidden completely (editor at full width), remembered per
+  // project. It stays mounted, only `display: none`, so the page image still loads and
+  // the Line preview above the caret keeps working.
+  const [imagePaneHidden, setImagePaneHidden] = useState(() => {
+    try { return !!project?.id && localStorage.getItem(`review:imageHidden:${project.id}`) === 'true' } catch { return false }
+  })
+  // Set when the image loaded while the pane was hidden (no width to fit it to yet).
+  const pendingFitRef = useRef(false)
   const pendingScrollRef = useRef<{ left: number; top: number } | null>(null)
 
   useEffect(() => {
     if (!project?.id) return
     localStorage.setItem(`review:split:${project.id}`, String(splitRatio))
   }, [splitRatio, project?.id])
+
+  useEffect(() => {
+    if (!project?.id) return
+    try { localStorage.setItem(`review:imageHidden:${project.id}`, String(imagePaneHidden)) } catch { /* ignore */ }
+  }, [imagePaneHidden, project?.id])
 
   useEffect(() => {
     const onMove = (e: MouseEvent): void => {
@@ -394,7 +414,8 @@ export default function Review(): React.JSX.Element {
   const [compareMode, setCompareMode] = useState(false)
   const [krakenCompareText, setKrakenCompareText] = useState<string | null>(null)
   const [krakenLines, setKrakenLines] = useState<{ text: string; corners: [number, number][] }[]>([])
-  const [showGeometry, setShowGeometry] = useState(false)
+  // Line boxes start visible on the tour's demo project, so the tour shows its zones.
+  const [showGeometry, setShowGeometry] = useState(() => project?.id === TOUR_DEMO_ID)
   const [activeLbLineId, setActiveLbLineId] = useState<string | null>(null)
   const [groupMode, setGroupMode] = useState(false)
   const [groupRole, setGroupRole] = useState<'p' | 'quote' | 'head' | 'continuation'>('p')
@@ -406,6 +427,16 @@ export default function Review(): React.JSX.Element {
   const [zoneDraft, setZoneDraft] = useState<{ id: string; rect: ZoneRect } | null>(null)
   const zoneDraftRef = useRef<{ id: string; rect: ZoneRect } | null>(null)
   const [groupCursor, setGroupCursor] = useState('crosshair')
+  // Redrawing the selected line's box (R) and re-running OCR on that line only.
+  const [redrawLineId, setRedrawLineId] = useState<string | null>(null)
+  const [redrawRect, setRedrawRect] = useState<{ x0: number; y0: number; x1: number; y1: number } | null>(null)
+  const redrawRectRef = useRef<{ x0: number; y0: number; x1: number; y1: number } | null>(null)
+  // Set when a line was just picked by clicking its box on the image: that click moves
+  // the caret into the editor, but the next R is still meant for the image.
+  const lineClickArmedRef = useRef(false)
+  const [lineOcr, setLineOcr] = useState<
+    { lineId: string; status: 'running' } | { lineId: string; status: 'done'; text: string; lineCount: number } | { lineId: string; status: 'error'; error: string } | null
+  >(null)
   // Pointer is over the left (image) panel — scopes the G / zone-type shortcuts to it.
   const leftPanelHoverRef = useRef(false)
   // Floating crop of the current line's image above the caret while editing.
@@ -446,6 +477,8 @@ export default function Review(): React.JSX.Element {
 
   const levelList = flattenHierarchy(project?.hierarchy ?? [])
   const levelMap = new Map(levelList.map((l) => [l.depth, l]))
+  // With a single declared level there is nothing to choose: new <ref>s get level 1.
+  const refOpenTag = levelList.length === 1 ? '<ref level="1">' : '<ref level="">'
 
   const currentPage = activePages[currentIdx] ?? null
 
@@ -809,7 +842,112 @@ export default function Review(): React.JSX.Element {
     if (sel && sel.role !== r) updateManualZone(sel.id, { role: r })
   }
 
+  // ── Selected line: redraw its box, re-OCR it ──
+  const selectedLine = activeLbLineId ? currentPage?.lineGeometry?.find((l) => l.id === activeLbLineId) ?? null : null
+
+  const startRedrawLine = (): void => {
+    if (!selectedLine) return
+    setGroupMode(false); setDrawingRect(null); drawingRef.current = null; setSelectedZoneId(null)
+    setRedrawLineId(selectedLine.id)
+  }
+
+  // The new box replaces the line's polygon. A stored ALTO baseline no longer matches it,
+  // so it is dropped (ALTO export derives one from the polygon). The recognized text in
+  // the editor is left as is — use "Re-OCR line" to read the new box.
+  const commitRedrawLine = (lineId: string, rect: { x: number; y: number; width: number; height: number }): void => {
+    if (!project || !currentPage) return
+    const polygon: [number, number][] = [
+      [Math.round(rect.x), Math.round(rect.y)],
+      [Math.round(rect.x + rect.width), Math.round(rect.y)],
+      [Math.round(rect.x + rect.width), Math.round(rect.y + rect.height)],
+      [Math.round(rect.x), Math.round(rect.y + rect.height)],
+    ]
+    const updatedPages = project.pages.map((p) =>
+      p.n === currentPage.n
+        ? { ...p, lineGeometry: (p.lineGeometry ?? []).map((l) => (l.id === lineId ? { ...l, polygon, baseline: undefined } : l)) }
+        : p
+    )
+    void saveProject({ ...project, pages: updatedPages })
+    if (lineOcr?.lineId === lineId) setLineOcr(null)
+  }
+
+  // Image Kraken should read for this page: the masked render when masks exist.
+  const krakenImagePath = async (): Promise<string> => {
+    if (!project || !currentPage) throw new Error('No page')
+    if (currentPage.masks.length > 0) {
+      return window.api.joinPaths(project.projectDir, await renderMaskedPage(project.projectDir, currentPage))
+    }
+    return window.api.joinPaths(project.projectDir, currentPage.maskedImagePath ?? currentPage.imagePath)
+  }
+
+  const runLineOcr = async (): Promise<void> => {
+    const line = selectedLine
+    if (!line || lineOcr?.status === 'running') return
+    setLineOcr({ lineId: line.id, status: 'running' })
+    try {
+      const r = await window.api.ocrLineKraken(await krakenImagePath(), line.polygon, krakenPaths)
+      setLineOcr({ lineId: line.id, status: 'done', text: r.text.normalize('NFC'), lineCount: r.lineCount })
+    } catch (err: unknown) {
+      setLineOcr({ lineId: line.id, status: 'error', error: String(err) })
+    }
+  }
+
+  // Replaces only the text after the line's <lb n> anchor on its markdown line; tags
+  // inside that text (<ref>, <note>…) are replaced too, which the banner warns about.
+  const acceptLineOcr = (): void => {
+    if (lineOcr?.status !== 'done') return
+    const span = lineTextSpan(content, lineOcr.lineId)
+    if (span) setContent(content.slice(0, span.start) + lineOcr.text + content.slice(span.end))
+    setLineOcr(null)
+  }
+
+  const currentLineText = (id: string): string => {
+    const span = lineTextSpan(content, id)
+    return span ? content.slice(span.start, span.end) : ''
+  }
+
+  // R: redraw the selected line's box — pointer over the image panel, and either no text
+  // field focused or the line was just picked on the image. Escape cancels a redraw.
+  // Capture phase, so an R meant for the image never reaches the editor.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      const armed = lineClickArmedRef.current
+      lineClickArmedRef.current = false
+      if (e.key === 'Escape' && redrawLineId) { e.preventDefault(); setRedrawLineId(null); setRedrawRect(null); redrawRectRef.current = null; return }
+      if (e.ctrlKey || e.metaKey || e.altKey || e.repeat || e.key.toLowerCase() !== 'r') return
+      if (!leftPanelHoverRef.current || imagePaneHidden || !selectedLine) return
+      const el = document.activeElement
+      const typing = el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || (el as HTMLElement | null)?.isContentEditable
+      if (typing && !armed) return
+      e.preventDefault(); e.stopPropagation()
+      startRedrawLine()
+    }
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
+  })
+
+  const toggleImagePane = (): void => {
+    if (!imagePaneHidden) {
+      // Hiding: leave Draw Zone mode and forget the hover (no mouseleave fires on a
+      // display:none element), so the image-panel shortcuts don't stay armed.
+      setGroupMode(false); setDrawingRect(null); drawingRef.current = null; setSelectedZoneId(null)
+      leftPanelHoverRef.current = false
+    }
+    setImagePaneHidden((v) => !v)
+  }
+
+  // Fit the image once the pane is shown, if it loaded while hidden.
+  useEffect(() => {
+    if (imagePaneHidden || !pendingFitRef.current) return
+    const container = imageContainerRef.current
+    if (!container || !imgNaturalWidth || container.clientWidth === 0) return
+    pendingFitRef.current = false
+    const available = container.clientWidth - 32
+    setImgZoom(imgNaturalWidth > available ? available / imgNaturalWidth : 1.0)
+  }, [imagePaneHidden, imgNaturalWidth])
+
   const toggleGroupMode = (): void => {
+    setRedrawLineId(null)
     setGroupMode((v) => !v); setDrawingRect(null); drawingRef.current = null; setSelectedZoneId(null)
   }
 
@@ -1070,7 +1208,7 @@ export default function Review(): React.JSX.Element {
 
       if ((e.ctrlKey || e.metaKey) && e.key === 'r') {
         e.preventDefault()
-        insertTag('<ref level="">', '</ref>')
+        insertTag(refOpenTag, '</ref>')
         return
       }
       if ((e.ctrlKey || e.metaKey) && e.key === 'm') {
@@ -1101,10 +1239,31 @@ export default function Review(): React.JSX.Element {
   const canUndo = (currentState?.historyIdx ?? 0) > 0
   const canRedo = (currentState?.historyIdx ?? 0) < (currentState?.history.length ?? 1) - 1
 
+  // Caret (and editor scroll) to put back after a text change made from code rather
+  // than by typing — replacing a controlled textarea's value sends the caret to the end.
+  const restoreSelectionRef = useRef<{ start: number; end: number; scrollTop: number } | null>(null)
+  useLayoutEffect(() => {
+    const sel = restoreSelectionRef.current
+    const ta = textareaRef.current
+    if (!sel || !ta) return
+    restoreSelectionRef.current = null
+    ta.setSelectionRange(sel.start, sel.end)
+    if (scrollContainerRef.current) scrollContainerRef.current.scrollTop = sel.scrollTop
+  })
+
   const scheduleSigmaFix = useCallback(() => {
     if (sigmaTimerRef.current) clearTimeout(sigmaTimerRef.current)
     sigmaTimerRef.current = setTimeout(() => {
       if (!currentPage) return
+      // σ → ς is length-preserving, so the caret offsets stay valid.
+      const ta = textareaRef.current
+      if (ta && document.activeElement === ta) {
+        restoreSelectionRef.current = {
+          start: ta.selectionStart,
+          end: ta.selectionEnd,
+          scrollTop: scrollContainerRef.current?.scrollTop ?? 0,
+        }
+      }
       setPages((prev) => {
         const s = prev.get(currentPage.n)
         if (!s) return prev
@@ -1129,6 +1288,7 @@ export default function Review(): React.JSX.Element {
     setKrakenCompareText(null); setKrakenLines([]); setCompareError(null); setActiveSuggestion(null)
     setActiveLatinChar(null); setIgnoredLatinPositions(new Set())
     setActiveLbLineId(null); setGroupMode(false); setDrawingRect(null); drawingRef.current = null
+    setRedrawLineId(null); setRedrawRect(null); redrawRectRef.current = null; setLineOcr(null)
     setSelectedZoneId(null); setZoneDraft(null); zoneDraftRef.current = null
   }, [currentIdx])
 
@@ -1257,13 +1417,7 @@ export default function Review(): React.JSX.Element {
     }
     setCompareLoading(true); setCompareError(null); setKrakenCompareText(null)
     try {
-      let imgPath: string
-      if (currentPage.masks.length > 0) {
-        imgPath = await window.api.joinPaths(project.projectDir, await renderMaskedPage(project.projectDir, currentPage))
-      } else {
-        imgPath = await window.api.joinPaths(project.projectDir, currentPage.maskedImagePath ?? currentPage.imagePath)
-      }
-      const result = await window.api.rerunPageKraken(imgPath, krakenPaths)
+      const result = await window.api.rerunPageKraken(await krakenImagePath(), krakenPaths)
       const text = result.text.normalize('NFKC')
       const lines = result.lines ?? []
       krakenCacheRef.current.set(cacheKey, { text, lines })
@@ -1361,6 +1515,20 @@ export default function Review(): React.JSX.Element {
           className="px-6 py-2 border-b flex items-center gap-3 shrink-0"
           style={{ borderColor: 'var(--line)', background: 'var(--paper-2)' }}
         >
+          {/* Show / hide the page image pane */}
+          <button
+            className="btn btn-quiet"
+            style={{ width: 28, height: 28, padding: 0, justifyContent: 'center', ...(imagePaneHidden ? { color: 'var(--oxblood)' } : {}) }}
+            onClick={toggleImagePane}
+            title={imagePaneHidden ? t('review.showImagePane') : t('review.hideImagePane')}
+            aria-pressed={!imagePaneHidden}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+              <rect x="3" y="4" width="18" height="16" rx="1.5" /><path d="M9 4v16" />
+              {imagePaneHidden ? <path d="m13 10 2 2-2 2" /> : <path d="m16 10-2 2 2 2" />}
+            </svg>
+          </button>
+
           {/* Status dropdown */}
           <div ref={statusMenuRef} className="relative">
             <button
@@ -1590,7 +1758,8 @@ export default function Review(): React.JSX.Element {
           {/* Left: image pane */}
           <div
             className="flex flex-col overflow-hidden"
-            style={{ width: `${splitRatio * 100}%`, flexShrink: 0 }}
+            style={{ width: `${splitRatio * 100}%`, flexShrink: 0, display: imagePaneHidden ? 'none' : undefined }}
+            data-tour="review-image"
             onMouseEnter={() => { leftPanelHoverRef.current = true }}
             onMouseLeave={() => { leftPanelHoverRef.current = false }}
           >
@@ -1633,6 +1802,28 @@ export default function Review(): React.JSX.Element {
                       {groupRoleLabel(r, t)} ({groupRoleKey(r, t)})
                     </button>
                   ))}
+                </div>
+              )}
+              {selectedLine && !groupMode && (
+                <div className="flex items-center gap-1 shrink-0 text-[11px]">
+                  <span className="font-mono" style={{ color: '#9a3412' }} title={t('review.lineSelected')}>{selectedLine.id}</span>
+                  <button
+                    className="btn btn-quiet text-[11px] shrink-0"
+                    style={{ padding: '2px 8px', ...(redrawLineId ? { background: '#ea580c', color: '#fff', borderColor: '#ea580c' } : {}) }}
+                    onClick={() => (redrawLineId ? setRedrawLineId(null) : startRedrawLine())}
+                    title={t('review.redrawLineTitle')}
+                  >
+                    {t('review.redrawLine')} (R)
+                  </button>
+                  <button
+                    className="btn btn-quiet text-[11px] shrink-0"
+                    style={{ padding: '2px 8px' }}
+                    disabled={lineOcr?.status === 'running'}
+                    onClick={() => void runLineOcr()}
+                    title={t('review.reOcrLineTitle')}
+                  >
+                    {lineOcr?.status === 'running' && lineOcr.lineId === selectedLine.id ? t('review.runningReOcr') : t('review.reOcrLine')}
+                  </button>
                 </div>
               )}
               <div className="ml-auto flex items-center gap-0.5">
@@ -1699,8 +1890,12 @@ export default function Review(): React.JSX.Element {
                       setImgNaturalHeight(img.naturalHeight)
                       const container = imageContainerRef.current
                       if (container && nw > 0) {
-                        const available = container.clientWidth - 32
-                        setImgZoom(nw > available ? available / nw : 1.0)
+                        if (container.clientWidth === 0) {
+                          pendingFitRef.current = true  // pane hidden: fit once it is shown
+                        } else {
+                          const available = container.clientWidth - 32
+                          setImgZoom(nw > available ? available / nw : 1.0)
+                        }
                       }
                     }}
                     style={{
@@ -1723,7 +1918,7 @@ export default function Review(): React.JSX.Element {
                           stroke={activeLbLineId === line.id ? 'rgba(220,38,38,0.85)' : 'rgba(3,105,161,0.85)'}
                           strokeWidth={imgNaturalWidth / 600}
                           style={{ pointerEvents: 'auto', cursor: 'pointer' }}
-                          onClick={(e) => { e.stopPropagation(); jumpToLine(line.id) }}
+                          onClick={(e) => { e.stopPropagation(); jumpToLine(line.id); lineClickArmedRef.current = true }}
                         >
                           <title>{line.text}</title>
                         </polygon>
@@ -1783,6 +1978,66 @@ export default function Review(): React.JSX.Element {
                         )
                       })}
                     </svg>
+                  )}
+                  {redrawLineId && (
+                    <div
+                      className="text-[11px]"
+                      style={{ position: 'absolute', top: 6, left: 6, zIndex: 6, padding: '3px 8px', borderRadius: 5, background: '#ea580c', color: '#fff', pointerEvents: 'none' }}
+                    >
+                      {t('review.redrawLineHint')}
+                    </div>
+                  )}
+                  {redrawLineId && imgNaturalWidth && imgNaturalHeight && (
+                    <div
+                      style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', cursor: 'crosshair', zIndex: 4 }}
+                      onMouseDown={(e) => {
+                        const b = e.currentTarget.getBoundingClientRect()
+                        const scale = imgNaturalWidth / b.width
+                        const clamp = (cx: number, cy: number): [number, number] => [
+                          Math.max(0, Math.min(imgNaturalWidth, (cx - b.left) * scale)),
+                          Math.max(0, Math.min(imgNaturalHeight, (cy - b.top) * scale)),
+                        ]
+                        const [x0, y0] = clamp(e.clientX, e.clientY)
+                        const lineId = redrawLineId
+                        redrawRectRef.current = { x0, y0, x1: x0, y1: y0 }
+                        setRedrawRect(redrawRectRef.current)
+                        const onMove = (ev: MouseEvent): void => {
+                          const [x1, y1] = clamp(ev.clientX, ev.clientY)
+                          redrawRectRef.current = { x0, y0, x1, y1 }
+                          setRedrawRect(redrawRectRef.current)
+                        }
+                        const onUp = (): void => {
+                          window.removeEventListener('mousemove', onMove)
+                          window.removeEventListener('mouseup', onUp)
+                          const r = redrawRectRef.current
+                          redrawRectRef.current = null
+                          setRedrawRect(null)
+                          if (!r) return
+                          const rect = { x: Math.min(r.x0, r.x1), y: Math.min(r.y0, r.y1), width: Math.abs(r.x1 - r.x0), height: Math.abs(r.y1 - r.y0) }
+                          if (rect.width > 3 && rect.height > 3) {
+                            commitRedrawLine(lineId, rect)
+                            setRedrawLineId(null)
+                          }
+                        }
+                        window.addEventListener('mousemove', onMove)
+                        window.addEventListener('mouseup', onUp)
+                      }}
+                    >
+                      {redrawRect && (
+                        <svg
+                          style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', pointerEvents: 'none' }}
+                          viewBox={`0 0 ${imgNaturalWidth} ${imgNaturalHeight}`}
+                          preserveAspectRatio="none"
+                        >
+                          <rect
+                            x={Math.min(redrawRect.x0, redrawRect.x1)} y={Math.min(redrawRect.y0, redrawRect.y1)}
+                            width={Math.abs(redrawRect.x1 - redrawRect.x0)} height={Math.abs(redrawRect.y1 - redrawRect.y0)}
+                            fill="rgba(234,88,12,0.15)" stroke="#ea580c" strokeWidth={imgNaturalWidth / 400}
+                            strokeDasharray={`${imgNaturalWidth / 150} ${imgNaturalWidth / 300}`}
+                          />
+                        </svg>
+                      )}
+                    </div>
                   )}
                   {groupMode && imgNaturalWidth && imgNaturalHeight && (() => {
                     const zones = currentPage?.manualZones ?? []
@@ -1952,7 +2207,7 @@ export default function Review(): React.JSX.Element {
 
           {/* Drag handle */}
           <div
-            style={{ width: 5, flexShrink: 0, cursor: 'col-resize', background: 'var(--line)', position: 'relative', zIndex: 10 }}
+            style={{ width: 5, flexShrink: 0, cursor: 'col-resize', background: 'var(--line)', position: 'relative', zIndex: 10, display: imagePaneHidden ? 'none' : undefined }}
             onMouseDown={(e) => { e.preventDefault(); isDraggingRef.current = true; document.body.style.cursor = 'col-resize' }}
           >
             <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%,-50%)', display: 'flex', flexDirection: 'column', gap: 3, pointerEvents: 'none' }}>
@@ -1972,7 +2227,7 @@ export default function Review(): React.JSX.Element {
                   className="inline-flex items-center gap-1.5 border rounded"
                   style={{ padding: '4px 8px', fontFamily: 'ui-monospace, monospace', fontSize: 11.5, fontWeight: 500, background: '#d8e2c6', borderColor: '#b8c8a0', color: '#3b5a30', lineHeight: 1 }}
                   data-tour="review-tag-ref"
-                  onClick={() => insertTag('<ref level="">', '</ref>')}
+                  onClick={() => insertTag(refOpenTag, '</ref>')}
                   title={t('review.tagRef')}
                 >
                   &lt;ref&gt;
@@ -2134,86 +2389,91 @@ export default function Review(): React.JSX.Element {
                   {betaMode && (
                     <button
                       className="btn btn-quiet text-[11px]"
-                      style={{ width: 22, height: 22, padding: 0, justifyContent: 'center', fontWeight: 600, ...(betaHelpVisible ? { color: '#6a1b9a', borderColor: '#9c6ab0', background: '#f0eaf8' } : {}) }}
-                      onClick={() => setBetaHelpVisible((v) => { const next = !v; localStorage.setItem('review:betaHelp', String(next)); return next })}
+                      style={{ padding: '3px 7px', ...(betaHelpVisible ? { color: '#6a1b9a', borderColor: '#9c6ab0', background: '#f0eaf8' } : {}) }}
+                      onClick={() => setBetaHelpVisible(!betaHelpVisible)}
                       title={t('review.betacodeCheatsheet')}
+                      aria-pressed={betaHelpVisible}
                     >
-                      ?
+                      <svg width="13" height="11" viewBox="0 0 24 20" fill="none" stroke="currentColor" strokeWidth="1.8">
+                        <rect x="1.5" y="2" width="21" height="16" rx="2" /><path d="M5.5 7h1M9.5 7h1M13.5 7h1M17.5 7h1M5.5 11h1M9.5 11h1M13.5 11h1M17.5 11h1M8 15h8" />
+                      </svg>
+                      {betaHelpVisible ? t('review.betacodeHideHelp') : t('review.betacodeShowHelp')}
                     </button>
                   )}
                 </div>
 
                 <div className="w-px h-4 ml-auto" style={{ background: 'var(--line-2)' }} />
 
-                {/* Compare with Kraken */}
-                <button
-                  data-tour="review-compare"
-                  className="btn btn-quiet text-[11px]"
-                  style={{ padding: '3px 8px', ...(compareMode ? { color: '#0369a1', borderColor: '#0369a1', background: '#e0f2fe' } : {}) }}
-                  onClick={() => {
-                    if (!compareMode) {
-                      setCompareMode(true)
-                      if (krakenCompareText === null && !compareLoading) runKrakenCompare()
-                    } else {
-                      setCompareMode(false)
-                    }
-                  }}
-                >
-                  {compareLoading
-                    ? <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="animate-spin"><path d="M21 12a9 9 0 1 1-6.3-8.6" /></svg>
-                    : <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 3H5a2 2 0 0 0-2 2v4m6-6h10a2 2 0 0 1 2 2v4M9 3v18m0 0h10a2 2 0 0 0 2-2v-4M9 21H5a2 2 0 0 1-2-2v-4m0 0h18" /></svg>}
-                  {t('review.compare')}
-                  {compareMode && suggestionRanges.length > 0 && (
-                    <span style={{ marginLeft: 3, background: '#0369a1', color: '#fff', borderRadius: 8, padding: '0 5px', fontSize: 10, fontWeight: 600, lineHeight: '16px' }}>
-                      {suggestionRanges.length}
-                    </span>
-                  )}
-                </button>
-
-                {/* Line image popup toggle */}
-                {!!currentPage?.lineGeometry?.length && (
+                <div className="flex items-center gap-2" data-tour="review-tools">
+                  {/* Compare with Kraken */}
                   <button
                     className="btn btn-quiet text-[11px]"
-                    style={{ padding: '3px 8px', ...(linePopupEnabled ? { color: '#1d4ed8', borderColor: '#1d4ed8', background: '#dbeafe' } : {}) }}
-                    onClick={() => setLinePopupEnabled((v) => {
-                      try { localStorage.setItem('review:linePopup', String(!v)) } catch { /* ignore */ }
-                      return !v
-                    })}
-                    title={t('review.linePopupTitle')}
+                    style={{ padding: '3px 8px', ...(compareMode ? { color: '#0369a1', borderColor: '#0369a1', background: '#e0f2fe' } : {}) }}
+                    onClick={() => {
+                      if (!compareMode) {
+                        setCompareMode(true)
+                        if (krakenCompareText === null && !compareLoading) runKrakenCompare()
+                      } else {
+                        setCompareMode(false)
+                      }
+                    }}
                   >
-                    <svg width="12" height="11" viewBox="0 0 24 22" fill="none" stroke="currentColor" strokeWidth="2"><rect x="2" y="3" width="20" height="9" rx="1.5" /><path d="M5 17h14M5 20h9" /></svg>
-                    {t('review.linePopup')}
+                    {compareLoading
+                      ? <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="animate-spin"><path d="M21 12a9 9 0 1 1-6.3-8.6" /></svg>
+                      : <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 3H5a2 2 0 0 0-2 2v4m6-6h10a2 2 0 0 1 2 2v4M9 3v18m0 0h10a2 2 0 0 0 2-2v-4M9 21H5a2 2 0 0 1-2-2v-4m0 0h18" /></svg>}
+                    {t('review.compare')}
+                    {compareMode && suggestionRanges.length > 0 && (
+                      <span style={{ marginLeft: 3, background: '#0369a1', color: '#fff', borderRadius: 8, padding: '0 5px', fontSize: 10, fontWeight: 600, lineHeight: '16px' }}>
+                        {suggestionRanges.length}
+                      </span>
+                    )}
                   </button>
-                )}
 
-                {/* Find in page */}
-                <button
-                  className="btn btn-quiet text-[11px]"
-                  style={{ padding: '3px 8px', ...(findOpen ? { color: '#1d4ed8', borderColor: '#1d4ed8', background: '#dbeafe' } : {}) }}
-                  onClick={() => (findOpen ? closeFind() : openFind())}
-                  title={t('review.find')}
-                >
-                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg>
-                </button>
-
-                {/* Latin character detection */}
-                <button
-                  className="btn btn-quiet text-[11px]"
-                  style={{ padding: '3px 8px', ...(latinMode ? { color: '#1d4ed8', borderColor: '#1d4ed8', background: '#dbeafe' } : {}) }}
-                  onClick={() => {
-                    setLatinMode((m) => !m)
-                    setActiveLatinChar(null)
-                  }}
-                  title={t('review.latinTitle')}
-                >
-                  <span style={{ fontFamily: 'serif', fontStyle: 'italic', fontSize: 13, lineHeight: 1 }}>A/α</span>
-                  {t('review.latin')}
-                  {latinMode && latinChars.length > 0 && (
-                    <span style={{ marginLeft: 3, background: '#1d4ed8', color: '#fff', borderRadius: 8, padding: '0 5px', fontSize: 10, fontWeight: 600, lineHeight: '16px' }}>
-                      {latinChars.length}
-                    </span>
+                  {/* Line image popup toggle */}
+                  {!!currentPage?.lineGeometry?.length && (
+                    <button
+                      className="btn btn-quiet text-[11px]"
+                      style={{ padding: '3px 8px', ...(linePopupEnabled ? { color: '#1d4ed8', borderColor: '#1d4ed8', background: '#dbeafe' } : {}) }}
+                      onClick={() => setLinePopupEnabled((v) => {
+                        try { localStorage.setItem('review:linePopup', String(!v)) } catch { /* ignore */ }
+                        return !v
+                      })}
+                      title={t('review.linePopupTitle')}
+                    >
+                      <svg width="12" height="11" viewBox="0 0 24 22" fill="none" stroke="currentColor" strokeWidth="2"><rect x="2" y="3" width="20" height="9" rx="1.5" /><path d="M5 17h14M5 20h9" /></svg>
+                      {t('review.linePopup')}
+                    </button>
                   )}
-                </button>
+
+                  {/* Find in page */}
+                  <button
+                    className="btn btn-quiet text-[11px]"
+                    style={{ padding: '3px 8px', ...(findOpen ? { color: '#1d4ed8', borderColor: '#1d4ed8', background: '#dbeafe' } : {}) }}
+                    onClick={() => (findOpen ? closeFind() : openFind())}
+                    title={t('review.find')}
+                  >
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg>
+                  </button>
+
+                  {/* Latin character detection */}
+                  <button
+                    className="btn btn-quiet text-[11px]"
+                    style={{ padding: '3px 8px', ...(latinMode ? { color: '#1d4ed8', borderColor: '#1d4ed8', background: '#dbeafe' } : {}) }}
+                    onClick={() => {
+                      setLatinMode((m) => !m)
+                      setActiveLatinChar(null)
+                    }}
+                    title={t('review.latinTitle')}
+                  >
+                    <span style={{ fontFamily: 'serif', fontStyle: 'italic', fontSize: 13, lineHeight: 1 }}>A/α</span>
+                    {t('review.latin')}
+                    {latinMode && latinChars.length > 0 && (
+                      <span style={{ marginLeft: 3, background: '#1d4ed8', color: '#fff', borderRadius: 8, padding: '0 5px', fontSize: 10, fontWeight: 600, lineHeight: '16px' }}>
+                        {latinChars.length}
+                      </span>
+                    )}
+                  </button>
+                </div>
 
               </div>
             </div>
@@ -2256,6 +2516,39 @@ export default function Review(): React.JSX.Element {
               </div>
             )}
 
+            {/* Single-line re-OCR result */}
+            {lineOcr && lineOcr.status !== 'running' && (
+              <div className="shrink-0 border-b px-4 py-2 flex items-center gap-3 flex-wrap text-[12px]" style={{ borderColor: 'var(--line)', background: '#fff8f0' }}>
+                <span className="font-mono shrink-0" style={{ color: 'var(--mute)', fontSize: 10, textTransform: 'uppercase', letterSpacing: '.1em' }}>
+                  {t('review.compareKraken')} · {lineOcr.lineId}
+                </span>
+                {lineOcr.status === 'error' ? (
+                  <span style={{ color: '#b91c1c' }}>{lineOcr.error}</span>
+                ) : lineOcr.lineCount === 0 ? (
+                  <span style={{ color: 'var(--mute)' }}>{t('review.reOcrLineNothing')}</span>
+                ) : (
+                  <>
+                    <del style={{ color: '#b91c1c', fontFamily: "'Noto Sans Mono', monospace" }}>{currentLineText(lineOcr.lineId) || '∅'}</del>
+                    <span style={{ color: 'var(--mute)' }}>→</span>
+                    <ins style={{ color: '#15803d', textDecoration: 'none', fontFamily: "'Noto Sans Mono', monospace" }}>{lineOcr.text}</ins>
+                    {lineOcr.lineCount > 1 && <span style={{ color: '#b45309' }}>{t('review.reOcrLineSeveral', { count: lineOcr.lineCount })}</span>}
+                  </>
+                )}
+                <div className="ml-auto flex items-center gap-1.5 shrink-0">
+                  {lineOcr.status === 'done' && lineOcr.lineCount > 0 && (
+                    <button
+                      className="btn btn-quiet text-[11px]"
+                      style={{ padding: '3px 10px', background: '#dcfce7', borderColor: '#15803d', color: '#15803d' }}
+                      onClick={acceptLineOcr}
+                      title={t('review.reOcrLineReplaceTitle')}
+                    >{t('review.suggestionAccept')}</button>
+                  )}
+                  <button className="btn btn-quiet text-[11px]" style={{ padding: '3px 10px' }} onClick={() => setLineOcr(null)}>
+                    {t('review.suggestionDismiss')}
+                  </button>
+                </div>
+              </div>
+            )}
             {/* Suggestion banner */}
             {compareMode && activeSuggestion && (
               <div className="shrink-0 border-b px-4 py-2 flex items-center gap-3 text-[12px] flex-wrap" style={{ borderColor: 'var(--line)', background: '#fff8f0' }}>
@@ -2402,7 +2695,7 @@ export default function Review(): React.JSX.Element {
 
             {betaMode && betaHelpVisible && (
               <div className="shrink-0 px-4 pb-2" style={{ background: 'white' }}>
-                <BetaCodeHelper />
+                <BetaCodeHelper onClose={() => setBetaHelpVisible(false)} />
               </div>
             )}
 
@@ -2423,7 +2716,7 @@ export default function Review(): React.JSX.Element {
                         )}
                         {cursorTag.kind === 'note' && (
                           <button
-                            onClick={() => { replaceTag(cursorTag.start, cursorTag.end, `<ref level="">${cursorTag.inner}</ref>`); closePopover() }}
+                            onClick={() => { replaceTag(cursorTag.start, cursorTag.end, `${refOpenTag}${cursorTag.inner}</ref>`); closePopover() }}
                             style={{ display: 'inline-flex', alignItems: 'center', padding: '2px 6px', borderRadius: 4, fontFamily: 'ui-monospace', fontSize: 10.5, background: '#d8e2c6', border: '1px solid #b8c8a0', color: '#3b5a30', cursor: 'pointer' }}
                           >&lt;ref&gt;</button>
                         )}

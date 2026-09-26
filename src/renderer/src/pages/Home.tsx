@@ -368,7 +368,7 @@ export default function Home(): React.JSX.Element {
               </p>
             </div>
             <div className="flex flex-col gap-2 shrink-0 items-end">
-              <div className="flex gap-2">
+              <div className="flex gap-2" data-tour="home-sources">
                 <button className="btn btn-primary" data-tour="home-new-project" onClick={handleNewProject} disabled={busy || !!pendingImport}>
                   {busy ? (
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="animate-spin">

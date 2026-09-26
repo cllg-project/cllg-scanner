@@ -175,3 +175,19 @@ export function unwrapOrphanZones(markdown: string, keepIds: Set<string>): strin
   }
   return out
 }
+
+/**
+ * The span of the text belonging to line `id`: from just after its `<lb n="id"/>` anchor
+ * to the end of that markdown line, or to the next anchor if another line was joined onto
+ * the same markdown line (e.g. a hyphenation join). Null when the line has no anchor.
+ */
+export function lineTextSpan(markdown: string, id: string): { start: number; end: number } | null {
+  const anchors = findAnchors(markdown)
+  const i = anchors.findIndex((a) => a.id === id)
+  if (i < 0) return null
+  const start = anchors[i].end
+  const nl = markdown.indexOf('\n', start)
+  let end = nl === -1 ? markdown.length : nl
+  if (i + 1 < anchors.length && anchors[i + 1].start < end) end = anchors[i + 1].start
+  return { start, end }
+}

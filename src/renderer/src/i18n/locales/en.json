@@ -147,6 +147,7 @@
     "nextOcr": "Next: OCR",
     "nextOcrRun": "Next: OCR Run",
     "skipPage": "Skip this page",
+    "unskipPage": "Include this page again",
     "toolPointer": "Pointer",
     "toolRect": "Rectangle mask",
     "altoAutoMask": "Generate masks from ALTO regions",
@@ -190,8 +191,6 @@
     "colFile": "File",
     "colStatus": "Status",
     "colElapsed": "Elapsed",
-    "colTokens": "Tokens",
-    "colTokPerSec": "tok/s",
     "forceReprocess": "Force reprocess",
     "noMatchingPages": "No pages match the current filter.",
     "overall": "Overall",
@@ -204,7 +203,8 @@
     "nextStructure": "Next: Structure",
     "running": "running",
     "queued": "↺ queued",
-    "cache": "cache"
+    "cache": "cache",
+    "embeddedImage": "embedded image"
   },
   "config": {
     "title": "Structure configuration",
@@ -304,7 +304,7 @@
     "resetZoom": "Reset zoom (click)",
     "loadingPage": "Loading…",
     "noPageSelected": "No page selected",
-    "tagRef": "Wrap selection in <ref level=''> (⌘R)",
+    "tagRef": "Wrap selection in <ref> (⌘R) — level 1 directly when only one level is declared",
     "tagNote": "Wrap selection in <note> (⌘M)",
     "tagLb": "Insert <lb/> line break",
     "tagQuote": "Wrap selection in <quote> (⌘Q)",
@@ -376,7 +376,20 @@
     "find": "Find in page (⌘F)",
     "linePopup": "Line",
     "linePopupTitle": "Show the current line's image above the caret while editing",
-    "manualZoneSelect": "Select this group to move or resize it (Delete removes it)"
+    "manualZoneSelect": "Select this group to move or resize it (Delete removes it)",
+    "hideImagePane": "Hide the page image",
+    "showImagePane": "Show the page image",
+    "lineSelected": "Line",
+    "redrawLine": "Redraw",
+    "redrawLineTitle": "Draw a new box for this line on the image (R, pointer over the image; Esc cancels)",
+    "redrawLineHint": "Draw the new box on the image · Esc to cancel",
+    "reOcrLine": "Re-OCR line",
+    "reOcrLineTitle": "Run Kraken on this line's box only and propose the result",
+    "reOcrLineNothing": "no text found in this box",
+    "reOcrLineSeveral": "{{count}} lines seen in the box — kept the one centred in it; draw a tighter box if this is the wrong line",
+    "reOcrLineReplaceTitle": "Replace this line's text (tags on the line are replaced too)",
+    "betacodeShowHelp": "Show help",
+    "betacodeHideHelp": "Hide help"
   },
   "krakenModel": {
     "builtin": "Built-in",
@@ -384,7 +397,11 @@
     "segmentationModel": "Segmentation model",
     "recognitionModel": "Recognition model",
     "browse": "Browse…",
-    "notSet": "Not set"
+    "notSet": "Not set",
+    "threads": "CPU threads",
+    "threadsAuto": "automatic",
+    "threadsReset": "Reset ({{n}})",
+    "threadsHint": "More threads: faster OCR, but less CPU left for other programs. Applies from the next page; saved for this computer."
   },
   "tour": {
     "startTour": "Take the tour",
@@ -396,67 +413,63 @@
     "steps": {
       "welcome": {
         "title": "CLLG — Guided Tour",
-        "body": "This 6-step tool turns scanned PDFs of ancient Greek and Latin scholarship into structured TEI XML, using the Qwen3VL-8b vision model. Follow along to see every key button and field. The page on the right is from the BNF Discours funèbres — used as an example throughout this tour."
+        "body": "CLLG turns scans of Greek and Latin scholarship into structured TEI XML in six steps: import, mask, OCR, structure, review and export. Recognition runs locally with Kraken. The demo project is the start of the editio princeps of Galen's De propriis placitis (V. Boudon-Millot & A. Pietrobelli, Revue des Études Grecques 118, 2005), distributed by Persée under a CC BY-NC-ND licence. It is full of small challenges; nothing you do in the tour is saved."
       },
       "home-new-project": {
         "title": "Step 1 · Import your document",
-        "body": "Click «New project» to load a PDF or DjVu scan — for example a Gallica facsimile. CLLG renders each page as an image inside a project folder on your machine."
+        "body": "Click «New project» to load a PDF or DjVu, then choose the pages to import: a range such as «2-40», or quick filters like «Skip covers». Each page becomes an image in a project folder on your machine. In the demo, page 1 is the Persée cover: it is skipped for OCR but kept in the project, because it records where the document comes from and under which licence."
       },
-      "home-page-range": {
-        "title": "Select the pages to import",
-        "body": "Type a range like «127-131» to import only the relevant text pages. Use the quick buttons (Skip covers, First half, Odd pages…) to filter faster. The filmstrip lets you preview each page before confirming."
+      "home-sources": {
+        "title": "Other sources",
+        "body": "You can also start from a folder of page images, or from ALTO XML files with their images (e.g. exported from eScriptorium). ALTO import keeps each line's geometry; if the ALTO carries LADaS zone types, paragraphs, quotes and headings are detected automatically."
       },
       "masker-canvas": {
         "title": "Step 2 · Mask what shouldn't be read",
-        "body": "Draw white rectangles over the apparatus criticus and margin notes. Masked areas are replaced with white pixels before the model sees the image, keeping the transcription focused on the main text."
+        "body": "Draw white rectangles over everything that is not the main text: masked areas are whited out before Kraken reads the page. Page 2 of the demo has three: the running head («172  V. BOUDON-MILLOT ET A. PIETROBELLI»), the line numbers in the left margin (5, 10, 15…) and the footnotes. Challenge: page 3 prints its line numbers in the right margin — does it need a mask too?"
       },
       "masker-tools": {
         "title": "Masking tools",
-        "body": "Rectangle tool (shortcut D) draws a new white mask over the area to hide. Select a rectangle then press Delete to remove it. Use «Copy to all pages» for a consistent apparatus position."
+        "body": "Rectangle mask (D) draws, Pointer (S) selects, Delete removes. «Copy to all pages» repeats a layout across the book; hover a thumbnail and click ⊘ to skip a page (like the cover). «Generate masks from ALTO regions» builds masks from imported zones and «Export COCO» saves them as training data."
       },
-      "masker-example": {
-        "title": "Mark few-shot example pages",
-        "body": "Star up to 3 pages as examples. Before processing each new page, the model will read their completed transcriptions as context — significantly improving accuracy on unusual typefaces, ligatures, or layouts."
-      },
-      "ocr-endpoint": {
-        "title": "Step 3 · Connect to LM Studio",
-        "body": "Enter your LM Studio server address (default: http://localhost:1234) and select the Qwen3VL-8b model from the dropdown. Click «Test» to confirm the connection and measure latency."
+      "ocr-models": {
+        "title": "Step 3 · Choose the Kraken models",
+        "body": "Kraken uses a segmentation model (finds the lines) and a recognition model (reads them). The built-in Ancient Greek models work out of the box; choose Custom to load your own. «CPU threads» sets how much of the computer OCR may use — saved for this computer."
       },
       "ocr-run": {
         "title": "Run OCR",
-        "body": "Click «Run OCR» to start transcription. Pages are processed one by one and cached to disk — you can stop at any time and resume later. The live log shows token count and generation speed. Below: real Qwen3VL-8b output from the BNF Discours funèbres."
+        "body": "Click «Run OCR» to recognize the queued pages one at a time; results are cached, so you can stop and resume at any time. Each line is anchored with <lb n=\"…\"/> so the text stays linked to its place on the image. Below: Kraken's raw output for the start of page 2 — a lowercase ν in the title, a stray υ, a lost «(ἐν)» and a missing iota subscript."
       },
       "config-hierarchy": {
         "title": "Step 4 · Define the document structure",
-        "body": "This is the heart of the pipeline. Describe the hierarchical reference structure of your text: Book → Chapter → Section. This drives both the reference classifier (which assigns <ref> tags to levels) and the nested <div> structure in TEI export."
+        "body": "Describe how the text is divided and numbered. This treatise is divided into sections 1, 2, 3…, so the demo has a single level, «section», with Arabic numbers. The hierarchy drives the TEI <div> structure; the Bibliography section fills the TEI header's sourceDesc (the demo already cites the article)."
       },
       "config-format": {
-        "title": "Reference patterns — how the classifier reads your text",
-        "body": "Choose the numeral system for each level: Roman (I II III) for books, Arabic (1 2 3) for chapters, Greek (α β γ) for sections. The classifier scores every reference token against all levels and picks the best fit. Custom regex patterns work for unusual numbering systems."
+        "title": "Reference patterns",
+        "body": "Choose the numbering system of each level: Roman (I II III), Arabic (1 2 3), Greek (α β γ), or a custom regex. Options: missing_first (the first number is not printed), allow_gaps, and milestone (a marker inside the text, such as a page reference, rather than a division)."
       },
       "review-editor": {
         "title": "Step 5 · Review and correct",
-        "body": "Compare the source scan (left) with the OCR transcription (right). Edit the text directly to fix recognition errors. Changes are auto-saved. Use the page status dropdown to track your progress across the document."
+        "body": "The scan is on the left, the transcription on the right; the button at the left of the page bar hides the scan. Edit directly and save with ⌘S (⌘Z / ⌘⇧Z undo and redo); change page with the arrows at the top right or Ctrl+↑ / Ctrl+↓. Below: the same lines as the OCR step, after review. Challenge: page 3 still hides two OCR slips — find «ομὲν» and «τῆν»."
+      },
+      "review-image": {
+        "title": "Line boxes and zones",
+        "body": "«Show line boxes» outlines every line; click one to jump to it in the editor. «Draw Zone» (G, pointer over the image) groups lines: press P, Q, H or C for Paragraph, Quote, Heading or Continued, then draw; click a zone to move or resize it, Delete removes it. In the demo, page 2's title is a Heading, and page 3 opens with a Continued zone: section 2 carries on from page 2, and the export joins them. To fix a badly segmented line, select it, press R over the image and draw its new box; «Re-OCR line» reads that line again."
       },
       "review-tag-ref": {
-        "title": "Tag reference markers",
-        "body": "Select a reference number (e.g. «II» or «3a») and press ⌘R to wrap it in a <ref> tag. The tag dock appears at the bottom of the editor — use it to assign the marker to the right level."
+        "title": "Tag the section numbers",
+        "body": "Select a section number and press ⌘R to wrap it in <ref>; the tag dock at the bottom assigns its level (here, 1 = section). Each level-1 <ref> opens a new <div> at export. Also: ⌘M <note>, ⌘Q <quote>, ⌘I <cit>, ⌘B <bibl>."
       },
-      "review-level": {
-        "title": "Assign a hierarchy level",
-        "body": "Click a numbered button (1, 2…) to tell CLLG which level this reference belongs to. Level 1 = the outermost division (e.g. discourse), level 2 = the next one (e.g. section). A marker with no level (–) is kept in the text but ignored during TEI export."
-      },
-      "review-compare": {
-        "title": "2nd read — Kraken cross-check",
-        "body": "Click «2nd read» to run the built-in Kraken OCR engine on the current page. Differences between Kraken's reading and yours appear as wavy red underlines — click one to see the proposed correction and accept or dismiss it."
+      "review-tools": {
+        "title": "Checking tools and Greek typing",
+        "body": "«2nd read» runs Kraken again and underlines disagreements; «Line» shows the image of the current line above the caret; the magnifier (⌘F) searches the page; «Latin» flags Latin letters inside Greek. β (⌘K) is a betacode keyboard, diacritics first: «)a» gives ἀ, «:» the ano teleia ·, «?» the Greek question mark, and «<» «>» the Leiden brackets ⟨ ⟩ that this edition uses for supplied words (page 2: «περὶ ⟨ὧν⟩»)."
       },
       "export-generate": {
-        "title": "Step 6 · Export to TEI P5 XML",
-        "body": "Click «Generate» to produce a TEI P5 XML file validated against tei_all.rng. Each level-1 <ref> opens a <div>, level-2 <ref> opens a nested <div>, and the transcribed text becomes <p> elements inside. The snippet below is the actual structure you get."
+        "title": "Step 6 · Export",
+        "body": "«Generate» builds one TEI P5 file for the whole document: each section opens a <div>, zones become <head> and <p>, and a Continued zone is merged into the paragraph it continues — across the <pb/> — as in the real output below. Words split at the line end, like «διά-» / «νοιαν», are joined with <lb break=\"no\"/>. The Per-page tab exports plain text, LADaS-tagged text, ALTO or pre-TEI; you can also export a searchable PDF or share the project as a zip."
       },
       "finale": {
         "title": "You're ready!",
-        "body": "Import a PDF from Gallica or any other source and start building your corpus. The BNF «Discours funèbres de Grégoire de Nazianze» used in this tour is a fine starting point — pages 127–131 contain Greek orations with Roman numeral references (I, II, III…) that map directly to the hierarchy system shown above."
+        "body": "Import a PDF, a folder of images or ALTO files and start your own edition; the tour can be replayed from the home screen or the sidebar. Help improve the models: sharing your original data — page images with their corrected transcriptions (ALTO or per-page exports; the final TEI is not required) — with the CLLG developers helps train better segmentation and recognition. The demo pages come from Persée (doi:10.3406/reg.2005.4610) under CC BY-NC-ND."
       }
     }
   },

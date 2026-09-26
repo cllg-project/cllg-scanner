@@ -13,6 +13,43 @@ const LETTER_MAP: Record<string, string> = {
   R: 'Ρ', S: 'Σ', T: 'Τ', U: 'Υ', F: 'Φ', X: 'Χ', Y: 'Ψ', W: 'Ω'
 }
 
+// Greek punctuation typed from its Latin counterpart: ':' → ano teleia (raised dot),
+// '?' → Greek question mark. Inserted in their NFC forms — U+0387 ANO TELEIA normalizes
+// to U+00B7 MIDDLE DOT and U+037E GREEK QUESTION MARK to U+003B ';' — which is also what
+// Kraken outputs, so typed and recognized punctuation stay identical.
+// '<' / '>' → ⟨ ⟩ (U+27E8/U+27E9), the Leiden angle brackets for supplied text — the
+// same characters the OCR normalizer (normalizeAngleBrackets) folds look-alikes into.
+// In betacode mode this means '<' can't start a pseudo-XML tag by typing; the tag
+// buttons/shortcuts still insert tags, or turn betacode off (⌘K) to type one.
+const PUNCTUATION_MAP: Record<string, string> = {
+  ':': '\u00B7',
+  '?': ';',
+  '<': '\u27E8',
+  '>': '\u27E9'
+}
+
+const PUNCTUATION_NAMES: Record<string, string> = {
+  ':': 'ano teleia',
+  '?': 'question mark',
+  '<': 'Leiden ⟨ supplied',
+  '>': 'Leiden ⟩'
+}
+
+// Combining marks for combinations with no precomposed character (e.g. a circumflex on
+// ο or ε, which Greek orthography never uses, so Unicode has no ο͂): the diacritics are
+// never silently dropped. Order: breathing, diaeresis, accent, iota subscript — the
+// canonical Greek order; NFC then composes whatever does have a precomposed form.
+const COMBINING: Array<[string, string]> = [
+  [')', '\u0313'], ['(', '\u0314'], ['+', '\u0308'],
+  ['/', '\u0301'], ['\\', '\u0300'], ['=', '\u0342'], ['|', '\u0345']
+]
+
+const DIACRITIC_BASES = new Set(['a', 'e', 'h', 'i', 'o', 'u', 'w', 'r'])
+
+function composeWithCombining(base: string, modifiers: Set<string>): string {
+  return (base + COMBINING.filter(([m]) => modifiers.has(m)).map(([, c]) => c).join('')).normalize('NFC')
+}
+
 const MODIFIER_KEYS = new Set([')', '(', '/', '\\', '=', '+', '|'])
 
 // ── Precomposed character table ──────────────────────────────────────────────
@@ -131,6 +168,12 @@ export function convertBetaKey(key: string, pending: Set<string>): BetaResult {
     return { char: null, isPending: true }
   }
 
+  const punct = PUNCTUATION_MAP[key]
+  if (punct !== undefined) {
+    pending.clear()
+    return { char: punct, isPending: false }
+  }
+
   const base = LETTER_MAP[key]
   if (base === undefined) {
     pending.clear()
@@ -140,8 +183,11 @@ export function convertBetaKey(key: string, pending: Set<string>): BetaResult {
   if (pending.size > 0) {
     // Sort modifiers by char code for a canonical, order-independent key.
     const lookup = [...pending].sort().join('') + key
+    // Vowels (and ρ) keep diacritics that have no precomposed form; on other consonants
+    // stray modifiers are discarded.
+    const composed = COMPOSED[lookup] ?? (DIACRITIC_BASES.has(key.toLowerCase()) ? composeWithCombining(base, pending) : base)
     pending.clear()
-    return { char: COMPOSED[lookup] ?? base, isPending: false }
+    return { char: composed, isPending: false }
   }
 
   return { char: base, isPending: false }
@@ -172,6 +218,9 @@ export const MODIFIER_DESCRIPTIONS: Array<[string, string]> = [
   ['+', 'diaeresis ¨'],
   ['|', 'iota sub.']
 ]
+
+export const PUNCTUATION_PAIRS: Array<[string, string, string]> = Object.entries(PUNCTUATION_MAP)
+  .map(([k, v]) => [k, v, PUNCTUATION_NAMES[k] ?? ''])
 
 export const EXAMPLE_PAIRS: Array<[string, string]> = [
   [')/a', 'ἄ'],

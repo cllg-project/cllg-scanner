@@ -1,8 +1,8 @@
-import bnfP127 from '../assets/tour/bnf_p127.png'
-import bnfP128 from '../assets/tour/bnf_p128.png'
-import bnfP129 from '../assets/tour/bnf_p129.png'
-import bnfP130 from '../assets/tour/bnf_p130.png'
-import bnfP131 from '../assets/tour/bnf_p131.png'
+// Illustrations are the demo's own pages (assets/tour/galien_p*.png), shown unmodified
+// — the source is CC BY-NC-ND — and framed at display time with `illustrationView`.
+import page1 from '../assets/tour/galien_p1.png'
+import page2 from '../assets/tour/galien_p2.png'
+import page3 from '../assets/tour/galien_p3.png'
 
 export interface TourStep {
   id: string
@@ -12,8 +12,14 @@ export interface TourStep {
   position: 'top' | 'bottom' | 'left' | 'right' | 'center'
   /** Route where the target element lives */
   route?: string
-  /** Optional page screenshot shown in the tooltip */
+  /** Optional page image shown in the tooltip */
   illustration?: string
+  /**
+   * Which part of the illustration to show (display only, the file is not altered):
+   * `zoom` = image width relative to the panel, `position` = CSS background-position.
+   * Default: whole width, top of the page.
+   */
+  illustrationView?: { zoom: number; position: string }
   /** Short OCR demo snippet shown instead of (or below) the illustration */
   demo?: string
 }
@@ -23,7 +29,8 @@ export const TOUR_STEPS: TourStep[] = [
     id: 'welcome',
     selector: null,
     position: 'center',
-    illustration: bnfP127,
+    illustration: page1,
+    illustrationView: { zoom: 1.1, position: '0% 0%' },
   },
   {
     id: 'home-new-project',
@@ -32,18 +39,18 @@ export const TOUR_STEPS: TourStep[] = [
     route: '/',
   },
   {
-    id: 'home-page-range',
-    selector: '[data-tour="home-page-range"]',
+    id: 'home-sources',
+    selector: '[data-tour="home-sources"]',
     position: 'bottom',
     route: '/',
-    illustration: bnfP127,
   },
   {
     id: 'masker-canvas',
     selector: '[data-tour="masker-canvas"]',
     position: 'left',
     route: '/masker',
-    illustration: bnfP128,
+    illustration: page2,
+    illustrationView: { zoom: 1.8, position: '4.5% 7.6%' },
   },
   {
     id: 'masker-tools',
@@ -52,14 +59,8 @@ export const TOUR_STEPS: TourStep[] = [
     route: '/masker',
   },
   {
-    id: 'masker-example',
-    selector: '[data-tour="masker-example"]',
-    position: 'right',
-    route: '/masker',
-  },
-  {
-    id: 'ocr-endpoint',
-    selector: '[data-tour="ocr-endpoint"]',
+    id: 'ocr-models',
+    selector: '[data-tour="ocr-models"]',
     position: 'bottom',
     route: '/ocr',
   },
@@ -68,14 +69,16 @@ export const TOUR_STEPS: TourStep[] = [
     selector: '[data-tour="ocr-run"]',
     position: 'bottom',
     route: '/ocr',
-    demo: '<ref>1</ref> Voilà que je vous croyez de moi peut-être, amis, frères,\npères, douces choses et doux noms…\n<ref>2</ref> Et vous voilà préparés, les uns à partager mon deuil…\n<ref>3</ref> il faudrait que nous fissions étalage même de notre infortune…',
+    // Raw Kraken output for the demo's page 2, before review
+    demo: '<pb n="2"/>\n<lb n="k0"/>ΓΑΛΗνΟΥ\n<lb n="k1"/>Περὶ τῶν ἑαυτῷ δοκούντων\n<lb n="k2"/> Παραπλήσιόν τί μοι συμβεβηκέναι δοκεῖ τῷ γενομένῳ\n<lb n="k3"/>υποθ\', ὥς φασιν, Παρθενίῳ τῷ ποιητῇ· ζῶντος γὰρ ἔτι τἀνδρὸς\n<lb n="k4"/>ἐξέπεσεν εἰς πόλλα τῶν ἐθνῶν τὰ ποιήματα αὐτοῦ. καί ποτε\n<lb n="k5"/>διερχόμενος πόλιν ἐπέστη δύο γραμματικοῖς διδασκαλία',
   },
   {
     id: 'config-hierarchy',
     selector: '[data-tour="config-hierarchy"]',
     position: 'right',
     route: '/config',
-    illustration: bnfP130,
+    illustration: page2,
+    illustrationView: { zoom: 2, position: '20% 16%' },
   },
   {
     id: 'config-format',
@@ -88,39 +91,48 @@ export const TOUR_STEPS: TourStep[] = [
     selector: '[data-tour="review-editor"]',
     position: 'left',
     route: '/review',
-    illustration: bnfP131,
+    // The same lines as the OCR step, after review
+    demo: '<lb n="k0"/>ΓΑΛΗΝΟΥ\n<lb n="k3"/>ποθ\', ὥς φασιν, Παρθενίῳ τῷ ποιητῇ· ζῶντος γὰρ ἔτι τἀνδρὸς\n<lb n="k4"/>ἐξέπεσεν εἰς πόλλα τῶν ἐθνῶν τὰ ποιήματα αὐτοῦ· καί ποτε\n<lb n="k5"/>διερχόμενος πόλιν ἐπέστη δύο γραμματικοῖς (ἐν) διδασκαλίᾳ',
+  },
+  {
+    id: 'review-image',
+    selector: '[data-tour="review-image"]',
+    position: 'right',
+    route: '/review',
+    illustration: page3,
+    illustrationView: { zoom: 1.25, position: '25% 11.4%' },
+    // Demo page 3: the end of section 2, begun on page 2, then section 3
+    demo: '<continued zone="…">\n<lb n="k0"/>καὶ περὶ τούτων ὁποῖοι μέν εἰσι τὴν οὐσίαν ἀγνοεῖν, ὅτι δ\'\n…\n<lb n="k11"/>τῶν κατὰ τοὺς θεούς.\n</continued>\n<p zone="…">\n<lb n="k12"/><ref level="1">3</ref> Ὅπως δὲ καὶ περὶ τῶν ἀνθρώπων…',
   },
   {
     id: 'review-tag-ref',
     selector: '[data-tour="review-tag-ref"]',
     position: 'bottom',
     route: '/review',
-    demo: '<tab/> <ref level="1">II</ref>Καισαρίῳ πατέρες μέν, ἵν\' ἐντεῦθεν\nἤρξωμαι ὅθεν ἡμῖν πρεπωδέστατον…',
+    demo: '<lb n="k2"/><ref level="1">1</ref> Παραπλήσιόν τί μοι συμβεβηκέναι…\n<lb n="k32"/><ref level="1">2</ref> Πότερον ἀγέννητός ἐστιν ὁ κόσμος…',
   },
   {
-    id: 'review-level',
-    selector: '[data-tour="review-level"]',
-    position: 'top',
+    id: 'review-tools',
+    selector: '[data-tour="review-tools"]',
+    position: 'bottom',
     route: '/review',
-    demo: '<!-- discourse II, section 3 -->\n<ref level="1">II</ref>  →  discourse\n<ref level="2">3</ref>   →  section\n<ref>α</ref>            →  unclassified',
-  },
-  {
-    id: 'review-compare',
-    selector: '[data-tour="review-compare"]',
-    position: 'top',
-    route: '/review',
+    // Betacode keyboard: Leiden brackets and ano teleia
+    demo: 'β  <(=wn>   →  ⟨ὧν⟩\nβ  )aei:    →  ἀει·',
   },
   {
     id: 'export-generate',
     selector: '[data-tour="export-generate"]',
     position: 'top',
     route: '/export',
-    demo: '<div type="discourse" n="II">\n  <div type="section" n="1">\n    <p><tab/>Καισαρίῳ πατέρες μέν…</p>\n  </div>\n  <div type="section" n="2">\n    <p>ἐγὼ δὲ τοὺς μὲν ἄλλους…</p>\n  </div>\n</div>',
+    // Real md2tei output for the demo (trimmed): page 3's Continued zone joins
+    // section 2's paragraph across the page break.
+    demo: '<div type="section" n="1">\n  <head>ΓΑΛΗΝΟΥ\n    Περὶ τῶν ἑαυτῷ δοκούντων</head>\n  <p>Παραπλήσιόν τί μοι… (ἐν) διδασκαλίᾳ…</p>\n</div>\n<div type="section" n="2">\n  <p>Πότερον ἀγέννητός ἐστιν ὁ κόσμος…\n    …καθάπερ Πρωταγόρας ἔλεγεν ἢ <pb n="3"/>καὶ περὶ\n    τούτων… τῶν κατὰ τοὺς θεούς.</p>\n</div>\n<div type="section" n="3">…',
   },
   {
     id: 'finale',
     selector: null,
     position: 'center',
-    illustration: bnfP129,
+    illustration: page1,
+    illustrationView: { zoom: 1, position: '0% 100%' },
   },
 ]

@@ -12,6 +12,50 @@ function press(keys: string): string | null {
 }
 
 describe('convertBetaKey', () => {
+  describe('combinations without a precomposed character keep their diacritics', () => {
+    it('=o → ο + combining circumflex (no precomposed form exists)', () => {
+      expect(press('=o')).toBe('ο\u0342')
+    })
+    it('=e → ε + combining circumflex', () => {
+      expect(press('=e')).toBe('ε\u0342')
+    })
+    it(')=o → ο + smooth breathing + circumflex, breathing first', () => {
+      expect(press(')=o')).toBe('ὀ\u0342'.normalize('NFC'))
+    })
+    it('known combinations still give the precomposed character', () => {
+      expect(press('=w')).toBe('ῶ')
+      expect(press(')/a')).toBe('ἄ')
+    })
+  })
+
+  describe('Greek punctuation', () => {
+    it(': → · ano teleia, in its NFC form (U+00B7)', () => {
+      const r = convertBetaKey(':', new Set())
+      expect(r).toEqual({ char: '\u00B7', isPending: false })
+      expect(r.char).toBe('\u0387'.normalize('NFC'))
+    })
+    it('? → ; Greek question mark, in its NFC form (U+003B)', () => {
+      const r = convertBetaKey('?', new Set())
+      expect(r).toEqual({ char: ';', isPending: false })
+      expect(r.char).toBe('\u037E'.normalize('NFC'))
+    })
+    it('< and > → Leiden angle brackets ⟨ ⟩ (U+27E8/U+27E9)', () => {
+      expect(convertBetaKey('<', new Set()).char).toBe('\u27E8')
+      expect(convertBetaKey('>', new Set()).char).toBe('\u27E9')
+    })
+    it('Leiden brackets survive NFC and match the OCR normalizer output', () => {
+      expect('\u27E8\u27E9'.normalize('NFC')).toBe('\u27E8\u27E9')
+    })
+    it('punctuation discards pending modifiers', () => {
+      const pending = new Set<string>([')'])
+      expect(convertBetaKey(':', pending).char).toBe('\u00B7')
+      expect(pending.size).toBe(0)
+    })
+    it('σ before the ano teleia becomes final ς', () => {
+      expect(finalSigmaFix('λόγοσ\u00B7')).toBe('λόγος\u00B7')
+    })
+  })
+
   describe('basic letter conversions (no pending modifiers)', () => {
     it('a → α', () => {
       const pending = new Set<string>()

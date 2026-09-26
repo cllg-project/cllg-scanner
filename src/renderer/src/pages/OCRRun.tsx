@@ -6,6 +6,7 @@ import Sidebar from '../components/Sidebar'
 import { useProject } from '../App'
 import { renderMaskedPage } from '../utils/renderMaskedPage'
 import KrakenModelPicker from '../components/KrakenModelPicker'
+import KrakenThreadsSetting from '../components/KrakenThreadsSetting'
 
 interface PageRow {
   page: Page
@@ -78,7 +79,7 @@ export default function OCRRun(): React.JSX.Element {
         if (e.fromCache) {
           addLog(`[${ts}] page[${e.pageNum}] done · (cache)`)
         } else {
-          addLog(`[${ts}] page[${e.pageNum}] done · tokens=${e.tokens} elapsed=${((e.elapsedMs ?? 0) / 1000).toFixed(1)}s`)
+          addLog(`[${ts}] page[${e.pageNum}] done · ${((e.elapsedMs ?? 0) / 1000).toFixed(1)} s`)
         }
       } else if (e.status === 'error') {
         addLog(`[${ts}] page[${e.pageNum}] ERROR · ${e.errorMessage}`)
@@ -296,10 +297,11 @@ export default function OCRRun(): React.JSX.Element {
         <div className="flex-1 overflow-y-auto px-8 pt-5 pb-6 space-y-5">
 
           {/* ── Kraken model config ── */}
-          <section>
+          <section data-tour="ocr-models">
             <div className="panel px-3 py-2.5">
               <h3 className="font-serif text-[15px] leading-none mb-2">{t('review.krakenEngine')}</h3>
               <KrakenModelPicker value={krakenConfig} onChange={updateKrakenConfig} />
+              <KrakenThreadsSetting />
             </div>
           </section>
 
@@ -373,7 +375,7 @@ export default function OCRRun(): React.JSX.Element {
 
               {/* Table */}
               <div className="overflow-y-auto" style={{ maxHeight: 420 }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
                   <thead>
                     <tr style={{ background: 'var(--paper-3)', borderBottom: '1px solid var(--line)', position: 'sticky', top: 0, zIndex: 1 }}>
                       <th style={{ width: 36, padding: '7px 10px', textAlign: 'left', fontSize: 10, letterSpacing: '.12em', textTransform: 'uppercase', color: 'var(--mute)', fontWeight: 600 }} />
@@ -382,8 +384,6 @@ export default function OCRRun(): React.JSX.Element {
                       <th style={{ padding: '7px 10px', textAlign: 'left', fontSize: 10, letterSpacing: '.12em', textTransform: 'uppercase', color: 'var(--mute)', fontWeight: 600 }}>{t('ocr.colFile')}</th>
                       <th style={{ width: 110, padding: '7px 10px', textAlign: 'left', fontSize: 10, letterSpacing: '.12em', textTransform: 'uppercase', color: 'var(--mute)', fontWeight: 600 }}>{t('ocr.colStatus')}</th>
                       <th style={{ width: 90, padding: '7px 10px', textAlign: 'left', fontSize: 10, letterSpacing: '.12em', textTransform: 'uppercase', color: 'var(--mute)', fontWeight: 600 }}>{t('ocr.colElapsed')}</th>
-                      <th style={{ width: 80, padding: '7px 10px', textAlign: 'left', fontSize: 10, letterSpacing: '.12em', textTransform: 'uppercase', color: 'var(--mute)', fontWeight: 600 }}>{t('ocr.colTokens')}</th>
-                      <th style={{ width: 70, padding: '7px 10px', textAlign: 'left', fontSize: 10, letterSpacing: '.12em', textTransform: 'uppercase', color: 'var(--mute)', fontWeight: 600 }}>{t('ocr.colTokPerSec')}</th>
                       <th style={{ width: 60, padding: '7px 10px', textAlign: 'right', fontSize: 10 }} />
                     </tr>
                   </thead>
@@ -392,9 +392,6 @@ export default function OCRRun(): React.JSX.Element {
                       const isExcluded = excluded.has(r.page.n)
                       const isExamplePage = r.page.isExample
                       const canReprocess = !running && (r.status === 'done' || r.status === 'error')
-                      const tokensPerSec = r.tokens && r.elapsedMs && r.elapsedMs > 0
-                        ? Math.round(r.tokens / (r.elapsedMs / 1000))
-                        : null
                       const rowBg =
                         r.status === 'running' ? '#fbf5e7'
                         : r.status === 'error' ? '#f7ece5'
@@ -429,13 +426,24 @@ export default function OCRRun(): React.JSX.Element {
                             </span>
                           </td>
                           <td style={{ ...tdStyle, fontStyle: 'italic', textDecoration: dimmed ? 'line-through' : undefined, color: (r.status === 'skipped' || dimmed) ? 'var(--mute)' : undefined }}>
-                            {basename(r.page.imagePath)}
-                            {r.status === 'error' && r.errorMessage && (
-                              <span style={{ fontStyle: 'normal', fontSize: 11, color: 'var(--mute)', marginLeft: 8 }}>— {r.errorMessage}</span>
-                            )}
-                            {r.status === 'running' && (
-                              <span style={{ fontStyle: 'normal', fontSize: 11, color: 'var(--mute)', marginLeft: 8 }}>— {t('ocr.running')}</span>
-                            )}
+                            {/* Long file names are cut with an ellipsis; the full name is in the tooltip. */}
+                            <div style={{ display: 'flex', alignItems: 'baseline', minWidth: 0 }}>
+                              {(() => {
+                                // The tour's demo pages are embedded images, not files.
+                                const name = r.page.imagePath.startsWith('data:') ? t('ocr.embeddedImage') : basename(r.page.imagePath)
+                                return (
+                                  <span title={name} style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0, flexShrink: 1 }}>
+                                    {name}
+                                  </span>
+                                )
+                              })()}
+                              {r.status === 'error' && r.errorMessage && (
+                                <span title={r.errorMessage} style={{ fontStyle: 'normal', fontSize: 11, color: 'var(--mute)', marginLeft: 8, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0, flexShrink: 2 }}>— {r.errorMessage}</span>
+                              )}
+                              {r.status === 'running' && (
+                                <span style={{ fontStyle: 'normal', fontSize: 11, color: 'var(--mute)', marginLeft: 8, whiteSpace: 'nowrap', flexShrink: 0 }}>— {t('ocr.running')}</span>
+                              )}
+                            </div>
                           </td>
                           <td style={tdStyle}>
                             <span className={`badge ${r.status === 'done' ? 'badge-ocr' : r.status === 'error' ? 'badge-error' : r.status === 'skipped' ? 'badge-skipped' : r.status === 'running' ? 'badge-pending' : 'badge-pending'}`}>
@@ -446,16 +454,6 @@ export default function OCRRun(): React.JSX.Element {
                           </td>
                           <td style={{ ...tdStyle, fontFamily: 'var(--font-mono, ui-monospace)', fontVariantNumeric: 'tabular-nums', fontSize: 11, color: 'var(--mute)' }}>
                             {r.elapsedMs != null ? `${(r.elapsedMs / 1000).toFixed(1)} s` : '—'}
-                          </td>
-                          <td style={{ ...tdStyle, fontFamily: 'var(--font-mono, ui-monospace)', fontVariantNumeric: 'tabular-nums', fontSize: 11, color: 'var(--mute)' }}>
-                            {r.tokens != null
-                              ? r.status === 'running'
-                                ? <strong style={{ color: 'var(--ink)' }}>{r.tokens}</strong>
-                                : r.tokens
-                              : '—'}
-                          </td>
-                          <td style={{ ...tdStyle, fontFamily: 'var(--font-mono, ui-monospace)', fontVariantNumeric: 'tabular-nums', fontSize: 11, color: 'var(--mute)' }}>
-                            {tokensPerSec != null ? `${tokensPerSec}/s` : '—'}
                           </td>
                           <td style={{ ...tdStyle, textAlign: 'right' }}>
                             {canReprocess && (

@@ -147,6 +147,7 @@
     "nextOcr": "Suivant : OCR",
     "nextOcrRun": "Suivant : Lancement OCR",
     "skipPage": "Ignorer cette page",
+    "unskipPage": "Réintégrer cette page",
     "toolPointer": "Pointeur",
     "toolRect": "Masque rectangulaire",
     "altoAutoMask": "Générer des masques depuis les régions ALTO",
@@ -190,8 +191,6 @@
     "colFile": "Fichier",
     "colStatus": "Statut",
     "colElapsed": "Durée",
-    "colTokens": "Tokens",
-    "colTokPerSec": "tok/s",
     "forceReprocess": "Forcer le retraitement",
     "noMatchingPages": "Aucune page ne correspond au filtre actuel.",
     "overall": "Total",
@@ -204,7 +203,8 @@
     "nextStructure": "Suivant : Structure",
     "running": "en cours",
     "queued": "↺ en attente",
-    "cache": "cache"
+    "cache": "cache",
+    "embeddedImage": "image intégrée"
   },
   "config": {
     "title": "Configuration de la structure",
@@ -304,7 +304,7 @@
     "resetZoom": "Réinitialiser le zoom (clic)",
     "loadingPage": "Chargement…",
     "noPageSelected": "Aucune page sélectionnée",
-    "tagRef": "Entourer la sélection dans <ref level=''> (⌘R)",
+    "tagRef": "Entourer la sélection dans <ref> (⌘R) — niveau 1 directement s'il n'y a qu'un niveau déclaré",
     "tagNote": "Entourer la sélection dans <note> (⌘M)",
     "tagLb": "Insérer un saut de ligne <lb/>",
     "tagQuote": "Entourer la sélection dans <quote> (⌘Q)",
@@ -376,7 +376,20 @@
     "find": "Rechercher dans la page (⌘F)",
     "linePopup": "Ligne",
     "linePopupTitle": "Afficher l'image de la ligne courante au-dessus du curseur pendant l'édition",
-    "manualZoneSelect": "Sélectionner ce groupe pour le déplacer ou le redimensionner (Suppr pour l'effacer)"
+    "manualZoneSelect": "Sélectionner ce groupe pour le déplacer ou le redimensionner (Suppr pour l'effacer)",
+    "hideImagePane": "Masquer l'image de la page",
+    "showImagePane": "Afficher l'image de la page",
+    "lineSelected": "Ligne",
+    "redrawLine": "Redessiner",
+    "redrawLineTitle": "Tracer un nouveau cadre pour cette ligne sur l'image (R, pointeur sur l'image ; Échap pour annuler)",
+    "redrawLineHint": "Tracez le nouveau cadre sur l'image · Échap pour annuler",
+    "reOcrLine": "Relancer l'OCR de la ligne",
+    "reOcrLineTitle": "Lancer Kraken sur le cadre de cette ligne uniquement et proposer le résultat",
+    "reOcrLineNothing": "aucun texte trouvé dans ce cadre",
+    "reOcrLineSeveral": "{{count}} lignes vues dans le cadre — celle qui y est centrée a été gardée ; tracez un cadre plus serré si ce n'est pas la bonne",
+    "reOcrLineReplaceTitle": "Remplacer le texte de cette ligne (les balises de la ligne sont remplacées aussi)",
+    "betacodeShowHelp": "Afficher l'aide",
+    "betacodeHideHelp": "Masquer l'aide"
   },
   "krakenModel": {
     "builtin": "Intégré",
@@ -384,7 +397,11 @@
     "segmentationModel": "Modèle de segmentation",
     "recognitionModel": "Modèle de reconnaissance",
     "browse": "Parcourir…",
-    "notSet": "Non défini"
+    "notSet": "Non défini",
+    "threads": "Threads CPU",
+    "threadsAuto": "automatique",
+    "threadsReset": "Réinitialiser ({{n}})",
+    "threadsHint": "Plus de threads : OCR plus rapide, mais moins de CPU pour les autres programmes. S'applique dès la page suivante ; enregistré pour cet ordinateur."
   },
   "tour": {
     "startTour": "Visite guidée",
@@ -396,67 +413,63 @@
     "steps": {
       "welcome": {
         "title": "CLLG — Visite guidée",
-        "body": "Cet outil en 6 étapes convertit des PDF de textes grecs et latins anciens en XML TEI structuré, grâce au modèle de vision Qwen3VL-8b. Suivez ce guide pour découvrir chaque champ et bouton clé. La page à droite est extraite des Discours funèbres de la BNF — utilisée comme exemple tout au long de cette visite."
+        "body": "CLLG transforme des numérisations d'éditions savantes grecques et latines en XML TEI structuré, en six étapes : import, masquage, OCR, structure, révision et export. La reconnaissance tourne localement avec Kraken. Le projet de démonstration est le début de l'édition princeps du De propriis placitis de Galien (V. Boudon-Millot et A. Pietrobelli, Revue des Études Grecques 118, 2005), diffusée par Persée sous licence CC BY-NC-ND. Il regorge de petits défis ; rien de ce que vous faites pendant la visite n'est enregistré."
       },
       "home-new-project": {
         "title": "Étape 1 · Importer votre document",
-        "body": "Cliquez sur «Nouveau projet» pour charger un PDF ou DjVu — par exemple un fac-similé Gallica. CLLG convertit chaque page en image dans un dossier projet sur votre machine."
+        "body": "Cliquez sur «Nouveau projet» pour charger un PDF ou un DjVu, puis choisissez les pages à importer : une plage comme «2-40», ou des filtres rapides comme «Sans couvertures». Chaque page devient une image dans un dossier projet sur votre machine. Dans la démo, la page 1 est la couverture Persée : elle est ignorée pour l'OCR mais conservée dans le projet, car elle indique d'où vient le document et sous quelle licence."
       },
-      "home-page-range": {
-        "title": "Sélectionner les pages à importer",
-        "body": "Saisissez une plage comme «127-131» pour n'importer que les pages de texte pertinentes. Les boutons rapides (Sans couvertures, Première moitié, Pages impaires…) accélèrent la sélection. La bande de film vous permet de prévisualiser chaque page avant de confirmer."
+      "home-sources": {
+        "title": "Autres sources",
+        "body": "Vous pouvez aussi partir d'un dossier d'images, ou de fichiers ALTO XML avec leurs images (par exemple exportés d'eScriptorium). L'import ALTO conserve la géométrie de chaque ligne ; si l'ALTO porte des types de zones LADaS, paragraphes, citations et titres sont détectés automatiquement."
       },
       "masker-canvas": {
-        "title": "Étape 2 · Masquer ce que le modèle ne doit pas lire",
-        "body": "Dessinez des rectangles blancs sur l'apparat critique et les notes marginales. Les zones masquées sont remplacées par des pixels blancs avant que le modèle ne voie l'image, concentrant la transcription sur le texte principal."
+        "title": "Étape 2 · Masquer ce qui ne doit pas être lu",
+        "body": "Dessinez des rectangles blancs sur tout ce qui n'est pas le texte principal : les zones masquées sont blanchies avant que Kraken ne lise la page. La page 2 de la démo en a trois : le titre courant («172  V. BOUDON-MILLOT ET A. PIETROBELLI»), les numéros de ligne dans la marge gauche (5, 10, 15…) et les notes de bas de page. Défi : la page 3 imprime ses numéros de ligne dans la marge droite — faut-il aussi un masque ?"
       },
       "masker-tools": {
         "title": "Outils de masquage",
-        "body": "L'outil Rectangle (raccourci D) dessine un masque blanc sur la zone à masquer. Sélectionnez un rectangle puis appuyez sur Supprimer pour le retirer. Utilisez «Copier vers toutes les pages» pour un apparat toujours à la même position."
+        "body": "Le Masque rectangulaire (D) dessine, le Pointeur (S) sélectionne, Suppr efface. «Copier vers toutes les pages» répète une mise en page sur tout le livre ; survolez une miniature et cliquez sur ⊘ pour ignorer une page (comme la couverture). «Générer des masques depuis les régions ALTO» crée les masques à partir des zones importées et «Exporter COCO» les enregistre comme données d'entraînement."
       },
-      "masker-example": {
-        "title": "Pages exemples pour l'apprentissage",
-        "body": "Étoilez jusqu'à 3 pages comme exemples. Avant chaque nouvelle page, le modèle lira leurs transcriptions finalisées comme contexte — ce qui améliore nettement la précision sur les polices, ligatures ou mises en page inhabituelles."
-      },
-      "ocr-endpoint": {
-        "title": "Étape 3 · Connexion à LM Studio",
-        "body": "Saisissez l'adresse de votre serveur LM Studio (par défaut : http://localhost:1234) et sélectionnez le modèle Qwen3VL-8b dans la liste. Cliquez sur «Tester» pour confirmer la connexion et mesurer la latence."
+      "ocr-models": {
+        "title": "Étape 3 · Choisir les modèles Kraken",
+        "body": "Kraken utilise un modèle de segmentation (qui trouve les lignes) et un modèle de reconnaissance (qui les lit). Les modèles intégrés pour le grec ancien fonctionnent directement ; choisissez Personnalisé pour charger les vôtres. «Threads CPU» règle la part de l'ordinateur que l'OCR peut utiliser — enregistré pour cet ordinateur."
       },
       "ocr-run": {
         "title": "Lancer l'OCR",
-        "body": "Cliquez sur «Lancer l'OCR» pour démarrer la transcription. Les pages sont traitées une par une et mises en cache — vous pouvez vous arrêter à tout moment et reprendre plus tard. Le journal affiche le nombre de tokens et la vitesse. Ci-dessous : sortie réelle de Qwen3VL-8b sur les Discours funèbres de la BNF."
+        "body": "Cliquez sur «Lancer OCR» pour reconnaître les pages en file une par une ; les résultats sont mis en cache, vous pouvez arrêter et reprendre à tout moment. Chaque ligne est ancrée par <lb n=\"…\"/> pour que le texte reste lié à sa place sur l'image. Ci-dessous : la sortie brute de Kraken pour le début de la page 2 — un ν minuscule dans le titre, un υ parasite, un «(ἐν)» perdu et un iota souscrit manquant."
       },
       "config-hierarchy": {
         "title": "Étape 4 · Définir la structure du document",
-        "body": "C'est le cœur du pipeline. Décrivez la hiérarchie des références de votre texte : Livre → Chapitre → Section. Cela pilote à la fois le classificateur de références (qui assigne les balises <ref> aux niveaux) et la structure <div> imbriquée de l'export TEI."
+        "body": "Décrivez comment le texte est divisé et numéroté. Ce traité est divisé en sections 1, 2, 3…, la démo a donc un seul niveau, «section», en chiffres arabes. La hiérarchie pilote la structure <div> de la TEI ; la section Bibliographie remplit le sourceDesc de l'en-tête TEI (la démo cite déjà l'article)."
       },
       "config-format": {
-        "title": "Motifs de référence — comment le classificateur lit votre texte",
-        "body": "Choisissez le système de numération pour chaque niveau : Romain (I II III) pour les livres, Arabe (1 2 3) pour les chapitres, Grec (α β γ) pour les sections. Le classificateur évalue chaque token de référence contre tous les niveaux et choisit le meilleur. Les expressions régulières personnalisées fonctionnent pour les systèmes inhabituels."
+        "title": "Motifs de référence",
+        "body": "Choisissez le système de numérotation de chaque niveau : romain (I II III), arabe (1 2 3), grec (α β γ) ou une regex personnalisée. Options : missing_first (le premier numéro n'est pas imprimé), allow_gaps, et milestone (un repère dans le texte, comme un renvoi de page, plutôt qu'une division)."
       },
       "review-editor": {
         "title": "Étape 5 · Réviser et corriger",
-        "body": "Comparez le scan source (gauche) avec la transcription OCR (droite). Modifiez directement pour corriger les erreurs de reconnaissance. Les modifications sont sauvegardées automatiquement. Utilisez le menu de statut pour suivre l'avancement sur l'ensemble du document."
+        "body": "La numérisation est à gauche, la transcription à droite ; le bouton à gauche de la barre de page masque la numérisation. Corrigez directement et enregistrez avec ⌘S (⌘Z / ⌘⇧Z annulent et rétablissent) ; changez de page avec les flèches en haut à droite ou Ctrl+↑ / Ctrl+↓. Ci-dessous : les mêmes lignes qu'à l'étape OCR, après révision. Défi : la page 3 cache encore deux erreurs d'OCR — trouvez «ομὲν» et «τῆν»."
+      },
+      "review-image": {
+        "title": "Lignes et zones",
+        "body": "«Afficher les zones de ligne» dessine le cadre de chaque ligne ; cliquez-en une pour la retrouver dans l'éditeur. «Dessiner une zone» (G, pointeur sur l'image) regroupe des lignes : appuyez sur P, Q, H ou C pour Paragraph, Quote, Heading ou Continued, puis tracez ; cliquez sur une zone pour la déplacer ou la redimensionner, Suppr l'efface. Dans la démo, le titre de la page 2 est un Heading, et la page 3 s'ouvre sur une zone Continued : la section 2 se poursuit depuis la page 2, et l'export les réunit. Pour corriger une ligne mal segmentée, sélectionnez-la, appuyez sur R au-dessus de l'image et tracez son nouveau cadre ; «Relancer l'OCR de la ligne» relit cette ligne."
       },
       "review-tag-ref": {
-        "title": "Baliser les marqueurs de référence",
-        "body": "Sélectionnez un numéro de référence (ex. «II» ou «3a») et appuyez sur ⌘R pour l'entourer d'une balise <ref>. La barre de balisage apparaît en bas de l'éditeur — utilisez-la pour affecter le marqueur au bon niveau."
+        "title": "Baliser les numéros de section",
+        "body": "Sélectionnez un numéro de section et appuyez sur ⌘R pour l'entourer de <ref> ; la barre de balisage en bas affecte son niveau (ici, 1 = section). Chaque <ref> de niveau 1 ouvre un nouveau <div> à l'export. Aussi : ⌘M <note>, ⌘Q <quote>, ⌘I <cit>, ⌘B <bibl>."
       },
-      "review-level": {
-        "title": "Affecter un niveau hiérarchique",
-        "body": "Cliquez sur un bouton numéroté (1, 2…) pour indiquer à CLLG à quel niveau appartient cette référence. Niveau 1 = division extérieure (ex. discours), niveau 2 = division suivante (ex. section). Un marqueur sans niveau (–) est conservé dans le texte mais ignoré à l'export TEI."
-      },
-      "review-compare": {
-        "title": "2e lecture — vérification Kraken",
-        "body": "Cliquez sur «2e lecture» pour lancer le moteur OCR Kraken intégré sur la page courante. Les différences entre la lecture de Kraken et la vôtre apparaissent en soulignement rouge ondulé — cliquez sur une pour voir la correction proposée et l'accepter ou l'ignorer."
+      "review-tools": {
+        "title": "Outils de vérification et saisie du grec",
+        "body": "«2e lecture» relance Kraken et souligne les désaccords ; «Ligne» affiche l'image de la ligne courante au-dessus du curseur ; la loupe (⌘F) cherche dans la page ; «Latin» signale les lettres latines dans le grec. β (⌘K) est un clavier bêtacode, diacritiques d'abord : «)a» donne ἀ, «:» l'ano teleia ·, «?» le point d'interrogation grec, et «<» «>» les crochets de Leyde ⟨ ⟩ que cette édition emploie pour les mots suppléés (page 2 : «περὶ ⟨ὧν⟩»)."
       },
       "export-generate": {
-        "title": "Étape 6 · Exporter en TEI P5 XML",
-        "body": "Cliquez sur «Générer» pour produire un fichier TEI P5 XML validé selon tei_all.rng. Chaque <ref> de niveau 1 ouvre un <div>, le niveau 2 un <div> imbriqué, et le texte transcrit devient des éléments <p>. L'extrait ci-dessous est la structure réelle obtenue."
+        "title": "Étape 6 · Exporter",
+        "body": "«Générer» produit un fichier TEI P5 unique pour tout le document : chaque section ouvre un <div>, les zones deviennent <head> et <p>, et une zone Continued est fusionnée avec le paragraphe qu'elle poursuit — par-dessus le <pb/> — comme dans la sortie réelle ci-dessous. Les mots coupés en fin de ligne, comme «διά-» / «νοιαν», sont réunis par <lb break=\"no\"/>. L'onglet Par page exporte du texte brut, du texte balisé LADaS, de l'ALTO ou du pré-TEI ; vous pouvez aussi exporter un PDF interrogeable ou partager le projet en zip."
       },
       "finale": {
         "title": "Vous êtes prêt·e !",
-        "body": "Importez un PDF depuis Gallica ou toute autre source et commencez à construire votre corpus. Les «Discours funèbres de Grégoire de Nazianze» de la BNF utilisés dans cette visite sont un excellent point de départ — les pages 127–131 contiennent des oraisons grecques avec des références en chiffres romains (I, II, III…) qui s'appliquent directement au système de hiérarchie présenté ci-dessus."
+        "body": "Importez un PDF, un dossier d'images ou des fichiers ALTO et commencez votre propre édition ; la visite peut être relancée depuis l'accueil ou la barre latérale. Aidez à améliorer les modèles : partager vos données d'origine — les images des pages avec leurs transcriptions corrigées (exports ALTO ou par page ; la TEI finale n'est pas nécessaire) — avec les développeurs de CLLG permet d'entraîner de meilleurs modèles de segmentation et de reconnaissance. Les pages de la démo viennent de Persée (doi:10.3406/reg.2005.4610) sous CC BY-NC-ND."
       }
     }
   },

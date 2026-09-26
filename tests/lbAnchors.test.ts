@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { findAnchors, findAnchorAt, spanForLineIds } from '../src/renderer/src/utils/lbAnchors'
+import { findAnchors, findAnchorAt, spanForLineIds, lineTextSpan } from '../src/renderer/src/utils/lbAnchors'
 
 describe('findAnchors', () => {
   it('finds every <lb n="id"/> occurrence with its position', () => {
@@ -79,5 +79,23 @@ describe('spanForLineIds', () => {
   it('does not expand when there is no wrapper at all', () => {
     const span = spanForLineIds(md, ['k0', 'k1'])
     expect(md.slice(span!.start, span!.end)).toBe('<lb n="k0"/>First line<lb n="k1"/>second line')
+  })
+})
+
+describe('lineTextSpan', () => {
+  const md = '<pb n="1"/>\n<lb n="k0"/>first line\n<lb n="k1"/>hyphen-<lb n="k2"/>ated\n<lb n="k3"/>last'
+  const text = (id: string): string | null => {
+    const s = lineTextSpan(md, id)
+    return s ? md.slice(s.start, s.end) : null
+  }
+  it('spans from the anchor to the end of the line', () => {
+    expect(text('k0')).toBe('first line')
+    expect(text('k3')).toBe('last')
+  })
+  it('stops at the next anchor on the same markdown line', () => {
+    expect(text('k1')).toBe('hyphen-')
+  })
+  it('returns null for an unknown line', () => {
+    expect(text('nope')).toBeNull()
   })
 })

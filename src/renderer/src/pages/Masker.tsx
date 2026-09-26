@@ -252,7 +252,10 @@ export default function Masker(): React.JSX.Element {
   const { project, saveProject } = useProject()
   const navigate = useNavigate()
 
-  const [selectedPageIdx, setSelectedPageIdx] = useState(0)
+  // Open on the first page that isn't skipped (a skipped cover needs no masks).
+  const [selectedPageIdx, setSelectedPageIdx] = useState(() =>
+    Math.max(0, project?.pages.findIndex((p) => p.status !== 'skipped') ?? 0)
+  )
   const [tool, setTool] = useState<Tool>('rect')
   const [zoom, setZoom] = useState(1)
   const [konvaImg, setKonvaImg] = useState<HTMLImageElement | null>(null)
@@ -422,24 +425,33 @@ export default function Masker(): React.JSX.Element {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
-      if ((e.target as HTMLElement).tagName === 'INPUT') return
-      if (e.key === 'd') setTool('rect')
-      else if (e.key === 's') setTool('pointer')
-      else if (e.key === 'Delete' || e.key === 'Backspace') deleteSelected()
+      // S = select (pointer), D = draw (rectangle), Delete/Backspace = delete the
+      // selected mask. Case-insensitive; ignored with modifiers (so Ctrl+S etc. keep
+      // their meaning) and while typing in a text field.
+      if (e.ctrlKey || e.metaKey || e.altKey) return
+      const el = e.target as HTMLElement
+      if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || el.isContentEditable) return
+      const key = e.key.toLowerCase()
+      if (key === 'd') { e.preventDefault(); setTool('rect') }
+      else if (key === 's') { e.preventDefault(); setTool('pointer') }
+      else if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); deleteSelected() }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [deleteSelected])
 
-  const toggleSkip = useCallback(async () => {
-    if (!project || !page) return
+  // Skip / un-skip a page (the current one by default; the filmstrip passes its own
+  // index). Un-skipping a page that has masks puts it back to 'masked'.
+  const toggleSkip = useCallback(async (pageIdx: number = selectedPageIdx) => {
+    const target = project?.pages[pageIdx]
+    if (!project || !target) return
     const newStatus: Page['status'] =
-      page.status === 'skipped' ? 'pending' : 'skipped'
+      target.status === 'skipped' ? (target.masks.length > 0 ? 'masked' : 'pending') : 'skipped'
     const updatedPages = project.pages.map((p, i) =>
-      i === selectedPageIdx ? { ...p, status: newStatus } : p
+      i === pageIdx ? { ...p, status: newStatus } : p
     )
     await saveProject({ ...project, pages: updatedPages })
-  }, [project, page, selectedPageIdx, saveProject])
+  }, [project, selectedPageIdx, saveProject])
 
   // ── Example page toggle ────────────────────────────────────────────────────
 
@@ -644,7 +656,7 @@ export default function Masker(): React.JSX.Element {
               }}
             >
               <div
-                className={`relative cursor-pointer rounded overflow-hidden border ${i === selectedPageIdx ? 'border-[color:var(--oxblood)] shadow-[0_0_0_2px_var(--oxblood)]' : 'border-[color:var(--line-2)]'}`}
+                className={`group relative cursor-pointer rounded overflow-hidden border ${i === selectedPageIdx ? 'border-[color:var(--oxblood)] shadow-[0_0_0_2px_var(--oxblood)]' : 'border-[color:var(--line-2)]'}`}
                 style={{ aspectRatio: '3/4', background: '#f0ede8' }}
                 onClick={() => setSelectedPageIdx(i)}
               >
@@ -670,6 +682,17 @@ export default function Masker(): React.JSX.Element {
                     style={{ background: 'repeating-linear-gradient(45deg, var(--oxblood) 0 4px, transparent 4px 8px)' }}
                   />
                 )}
+                {/* Skip toggle — shown on hover, or always once the page is skipped */}
+                <button
+                  className={`absolute top-1 left-1 z-20 w-5 h-5 flex items-center justify-center rounded ${p.status === 'skipped' ? '' : 'opacity-0 group-hover:opacity-100 focus:opacity-100'}`}
+                  style={{ background: p.status === 'skipped' ? 'var(--oxblood)' : 'rgba(255,255,255,.75)' }}
+                  title={p.status === 'skipped' ? t('masker.unskipPage') : t('masker.skipPage')}
+                  onClick={(e) => { e.stopPropagation(); toggleSkip(i) }}
+                >
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke={p.status === 'skipped' ? '#fff' : '#8b3a2a'} strokeWidth="2.4">
+                    <circle cx="12" cy="12" r="9" /><path d="m6 6 12 12" />
+                  </svg>
+                </button>
                 {/* Star example toggle */}
                 <button
                   className="absolute top-1 right-1 z-20 w-5 h-5 flex items-center justify-center rounded"
@@ -768,8 +791,10 @@ export default function Masker(): React.JSX.Element {
           <button
             className={`tool-btn ${tool === 'pointer' ? 'active' : ''}`}
             onClick={() => setTool('pointer')}
-            title={t('masker.toolPointer')}
+            title={`${t('masker.toolPointer')} (S)`}
+            style={{ position: 'relative' }}
           >
+            <span aria-hidden="true" style={{ position: 'absolute', right: 2, bottom: 0, fontSize: 8, lineHeight: 1, fontFamily: 'ui-monospace, monospace', opacity: 0.6 }}>S</span>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
               <path d="m4 4 6 16 2-7 7-2z" />
             </svg>
@@ -777,8 +802,10 @@ export default function Masker(): React.JSX.Element {
           <button
             className={`tool-btn ${tool === 'rect' ? 'active' : ''}`}
             onClick={() => setTool('rect')}
-            title={t('masker.toolRect')}
+            title={`${t('masker.toolRect')} (D)`}
+            style={{ position: 'relative' }}
           >
+            <span aria-hidden="true" style={{ position: 'absolute', right: 2, bottom: 0, fontSize: 8, lineHeight: 1, fontFamily: 'ui-monospace, monospace', opacity: 0.6 }}>D</span>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
               <rect x="4" y="6" width="16" height="12" rx="1" />
             </svg>
@@ -803,10 +830,11 @@ export default function Masker(): React.JSX.Element {
           <button
             className="tool-btn"
             onClick={deleteSelected}
-            title={t('masker.deleteSelected')}
+            title={`${t('masker.deleteSelected')} (Delete)`}
             disabled={selectedRectId === null}
-            style={{ color: selectedRectId !== null ? 'var(--oxblood)' : undefined }}
+            style={{ position: 'relative', color: selectedRectId !== null ? 'var(--oxblood)' : undefined }}
           >
+            <span aria-hidden="true" style={{ position: 'absolute', right: 2, bottom: 0, fontSize: 8, lineHeight: 1, fontFamily: 'ui-monospace, monospace', opacity: 0.6 }}>Del</span>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
               <path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13" />
             </svg>
@@ -965,7 +993,7 @@ export default function Masker(): React.JSX.Element {
               <button
                 className={`relative w-9 h-5 rounded-full border transition-colors ${page?.status === 'skipped' ? 'bg-[color:var(--oxblood)] border-[color:var(--oxblood-2)]' : 'border-[color:var(--line-2)]'}`}
                 style={{ background: page?.status === 'skipped' ? undefined : 'var(--paper-3)' }}
-                onClick={toggleSkip}
+                onClick={() => toggleSkip()}
               >
                 <span
                   className={`absolute top-0.5 w-3.5 h-3.5 rounded-full bg-white shadow transition-all ${page?.status === 'skipped' ? 'left-[18px]' : 'left-0.5'}`}

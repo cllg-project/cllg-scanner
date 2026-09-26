@@ -95,6 +95,14 @@ const api = {
   ): Promise<{ text: string; lines: { text: string; corners: [number, number][] }[] }> =>
     ipcRenderer.invoke('kraken:rerun-page', imagePath, krakenConfig.segModelPath, krakenConfig.recModelPath),
 
+  // Re-OCR one line: only `polygon` (page-image pixels) of the page is kept.
+  ocrLineKraken: (
+    imagePath: string,
+    polygon: [number, number][],
+    krakenConfig: KrakenConfig
+  ): Promise<{ text: string; lineCount: number }> =>
+    ipcRenderer.invoke('kraken:ocr-line', imagePath, polygon, krakenConfig.segModelPath, krakenConfig.recModelPath),
+
   selectKrakenModel: (kind: 'segmentation' | 'recognition'): Promise<string | null> =>
     ipcRenderer.invoke('dialog:selectKrakenModel', kind),
 
@@ -103,6 +111,13 @@ const api = {
 
   stopKraken: (): Promise<void> =>
     ipcRenderer.invoke('kraken:stop'),
+
+  // Per-machine CPU threads for Kraken OCR (settings.json); null resets to automatic.
+  getKrakenThreads: (): Promise<{ threads: number; isDefault: boolean; defaultThreads: number; maxThreads: number }> =>
+    ipcRenderer.invoke('kraken:getThreads'),
+
+  setKrakenThreads: (n: number | null): Promise<number> =>
+    ipcRenderer.invoke('kraken:setThreads', n),
 
   // ── ALTO XML import (eScriptorium) ──────────────────────────────────────
   selectAltoDir: (): Promise<string | null> =>

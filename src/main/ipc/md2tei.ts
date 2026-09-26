@@ -1,6 +1,6 @@
 /**
  * Pure TypeScript md2tei converter.
- * Replaces the Python subprocess — no lxml, no regex module, works on all platforms.
+ * Port of the Python pipeline's md2tei — no lxml, no regex module, works on all platforms.
  */
 
 import { DOMParser, XMLSerializer } from '@xmldom/xmldom'

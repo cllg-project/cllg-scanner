@@ -50,7 +50,9 @@ function installSharpWasm(version) {
     const tgz = fs.readdirSync(tmpDir).find((f) => f.endsWith('.tgz'));
     if (!tgz) throw new Error('npm pack did not produce a .tgz');
     fs.mkdirSync(imgDir, { recursive: true });
-    execFileSync('tar', ['xzf', path.join(tmpDir, tgz), '-C', tmpDir]);
+    // Relative paths via cwd: GNU tar (Git for Windows/MSYS) reads a `C:\...` argument
+    // as a remote host, while Windows' bundled bsdtar lacks `--force-local`.
+    execFileSync('tar', ['xzf', tgz], { cwd: tmpDir });
     fs.mkdirSync(wasmDir, { recursive: true });
     fs.cpSync(path.join(tmpDir, 'package'), wasmDir, { recursive: true });
   } finally {

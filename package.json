@@ -14,7 +14,6 @@
     "test:update": "tsx tests/update-fixtures.ts"
   },
   "dependencies": {
-    "@electron-toolkit/preload": "^3.0.1",
     "@electron-toolkit/utils": "^3.0.0",
     "@emnapi/runtime": "^1.7.0",
     "@fontsource/noto-sans": "^5.3.0",
@@ -28,14 +27,12 @@
     "kraken-js": "github:cllg-project/kraken-js#774b197abf26f7db7b50526c301bd3032ab0fe53",
     "pdf-lib": "^1.17.1",
     "pdfjs-dist": "^4.4.168",
-    "pngjs": "^7.0.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-i18next": "^17.0.8",
     "react-konva": "^18.2.10",
     "react-router-dom": "^6.26.0",
     "sharp": "0.34.5",
-    "use-image": "^1.1.1",
     "yaml": "^2.5.0"
   },
   "devDependencies": {

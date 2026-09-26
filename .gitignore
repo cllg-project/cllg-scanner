@@ -1,6 +1,5 @@
 node_modules/
 out/
 dist/
-resources/python-*/
 *.log
 .DS_Store

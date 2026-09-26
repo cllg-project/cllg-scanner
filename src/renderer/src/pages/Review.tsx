@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react'
+import React, { useState, useEffect, useLayoutEffect, useCallback, useRef, useMemo } from 'react'
 import {
   computeDiff, computeSuggestionRanges, acceptSuggestion,
   detectLatinChars, applyLatinSuggestion,
@@ -14,7 +14,7 @@ import BetaCodeHelper from '../components/BetaCodeHelper'
 import KrakenModelPicker from '../components/KrakenModelPicker'
 import { renderMaskedPage } from '../utils/renderMaskedPage'
 import { linesInRect, blockTagForRole } from '../utils/manualZones'
-import { findAnchorAt, findAnchors, spanForLineIds } from '../utils/lbAnchors'
+import { findAnchorAt, findAnchors, spanForLineIds, unwrapZone, unwrapLegacyZone, unwrapOrphanZones } from '../utils/lbAnchors'
 
 interface FlatLevel { depth: number; name: string; pattern: string; color?: string }
 
@@ -60,6 +60,12 @@ function groupRoleLabel(role: ManualZoneRole, t: (key: string) => string): strin
   }
 }
 
+// Zone-type keyboard shortcut: the first letter of the label, so it matches
+// what the button shows (P/Q/H/C). Zone names are TEI element types and are not translated.
+function groupRoleKey(role: ManualZoneRole, t: (key: string) => string): string {
+  return groupRoleLabel(role, t).charAt(0).toUpperCase()
+}
+
 function manualZoneColor(role: ManualZoneRole): { bg: string; fg: string } {
   switch (role) {
     case 'quote': return { bg: 'rgba(122,79,174,0.10)', fg: '#7a4fae' }
@@ -67,6 +73,45 @@ function manualZoneColor(role: ManualZoneRole): { bg: string; fg: string } {
     case 'continuation': return { bg: 'rgba(184,140,40,0.10)', fg: '#c89328' }
     default: return { bg: 'rgba(90,140,63,0.08)', fg: '#5a8c3f' }
   }
+}
+
+type ZoneRect = { x: number; y: number; width: number; height: number }
+type ZoneHandle = 'nw' | 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w'
+const ZONE_HANDLES: ZoneHandle[] = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w']
+
+function handlePoint(r: ZoneRect, h: ZoneHandle): [number, number] {
+  const x = h.includes('w') ? r.x : h.includes('e') ? r.x + r.width : r.x + r.width / 2
+  const y = h.includes('n') ? r.y : h.includes('s') ? r.y + r.height : r.y + r.height / 2
+  return [x, y]
+}
+
+const HANDLE_CURSOR: Record<ZoneHandle, string> = {
+  nw: 'nwse-resize', se: 'nwse-resize', ne: 'nesw-resize', sw: 'nesw-resize',
+  n: 'ns-resize', s: 'ns-resize', e: 'ew-resize', w: 'ew-resize',
+}
+
+/**
+ * (Re)writes a manual zone's block tags in `markdown`: removes whatever tags the zone
+ * previously had (by its `zone="id"` attribute, or — for zones created before tags carried
+ * an id — the bare wrapper around `previous`'s lines), then wraps the span covering the
+ * zone's current lines with `<tag zone="id">…</tag>`. Returns the id of another manual
+ * zone whose wrapper was replaced in the process (redrawing over an already-grouped span).
+ */
+function writeZoneTags(
+  markdown: string,
+  zone: ManualZoneGroup,
+  previous?: ManualZoneGroup
+): { markdown: string; replacedZoneId?: string } {
+  let md = unwrapZone(markdown, zone.id)
+  if (md === markdown && previous) md = unwrapLegacyZone(md, previous.lineIds, blockTagForRole(previous.role))
+  if (!zone.lineIds.length) return { markdown: md }
+  const span = spanForLineIds(md, zone.lineIds)
+  if (!span) return { markdown: md }
+  // When the lines are already wrapped by another block, that wrapper is *replaced*
+  // (span covers it; only the lines themselves are re-wrapped), never nested.
+  const tag = blockTagForRole(zone.role)
+  const wrapped = `<${tag} zone="${zone.id}">\n${md.slice(span.innerStart, span.innerEnd)}\n</${tag}>`
+  return { markdown: md.slice(0, span.start) + wrapped + md.slice(span.end), replacedZoneId: span.wrapperZoneId }
 }
 
 const FORMAT_RE: Record<string, RegExp> = {
@@ -221,6 +266,38 @@ function highlightMarkdownWithDiff(
   return html
 }
 
+interface FindMatch {
+  start: number
+  end: number
+}
+
+function escapeHtml(text: string): string {
+  return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+}
+
+// Every literal occurrence of `query` in `text` (RegExp with the `u` flag so offsets stay
+// exact for Greek, rather than lower-casing the text, which could shift positions).
+function findAllMatches(text: string, query: string, matchCase: boolean): FindMatch[] {
+  if (!query) return []
+  const re = new RegExp(query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), matchCase ? 'gu' : 'giu')
+  const out: FindMatch[] = []
+  for (const m of text.matchAll(re)) out.push({ start: m.index!, end: m.index! + m[0].length })
+  return out
+}
+
+// HTML for the search-highlight layer: same text as the editor (kept invisible) with the
+// matches wrapped in <mark>, laid out under the textarea like the syntax-highlight layer.
+function findLayerHtml(text: string, matches: FindMatch[], current: number): string {
+  let html = ''
+  let pos = 0
+  matches.forEach((m, i) => {
+    html += escapeHtml(text.slice(pos, m.start))
+    html += `<mark class="find-hit${i === current ? ' find-cur' : ''}">${escapeHtml(text.slice(m.start, m.end))}</mark>`
+    pos = m.end
+  })
+  return html + escapeHtml(text.slice(pos))
+}
+
 interface ScanInfo {
   total: number
   matched: number
@@ -268,6 +345,12 @@ export default function Review(): React.JSX.Element {
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const highlightRef = useRef<HTMLDivElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
+  const findLayerRef = useRef<HTMLDivElement>(null)
+  const findInputRef = useRef<HTMLInputElement>(null)
+  const [findOpen, setFindOpen] = useState(false)
+  const [findQuery, setFindQuery] = useState('')
+  const [findCase, setFindCase] = useState(false)
+  const [findIdx, setFindIdx] = useState(0)
   const [scanInfo, setScanInfo] = useState<ScanInfo | null>(null)
   const [fontSize, setFontSize] = useState(() => {
     const saved = localStorage.getItem('review:fontSize')
@@ -317,6 +400,22 @@ export default function Review(): React.JSX.Element {
   const [groupRole, setGroupRole] = useState<'p' | 'quote' | 'head' | 'continuation'>('p')
   const [drawingRect, setDrawingRect] = useState<{ x0: number; y0: number; x1: number; y1: number } | null>(null)
   const drawingRef = useRef<{ x0: number; y0: number; x1: number; y1: number } | null>(null)
+  // Editing existing manual groups (Group mode): the selected group, its live rect while
+  // it is being moved/resized (committed on mouse-up), and the hover cursor.
+  const [selectedZoneId, setSelectedZoneId] = useState<string | null>(null)
+  const [zoneDraft, setZoneDraft] = useState<{ id: string; rect: ZoneRect } | null>(null)
+  const zoneDraftRef = useRef<{ id: string; rect: ZoneRect } | null>(null)
+  const [groupCursor, setGroupCursor] = useState('crosshair')
+  // Pointer is over the left (image) panel — scopes the G / zone-type shortcuts to it.
+  const leftPanelHoverRef = useRef(false)
+  // Floating crop of the current line's image above the caret while editing.
+  const [linePopupEnabled, setLinePopupEnabled] = useState(() => {
+    try { return localStorage.getItem('review:linePopup') !== 'false' } catch { return true }
+  })
+  const [editorFocused, setEditorFocused] = useState(false)
+  const [caretPos, setCaretPos] = useState(0)
+  const [editorScrollTick, setEditorScrollTick] = useState(0)
+  const [linePopupPos, setLinePopupPos] = useState<{ top: number; width: number } | null>(null)
   const [compareLoading, setCompareLoading] = useState(false)
   const [compareError, setCompareError] = useState<string | null>(null)
   const krakenCacheRef = useRef<Map<string, { text: string; lines: { text: string; corners: [number, number][] }[] }>>(new Map())
@@ -395,6 +494,106 @@ export default function Review(): React.JSX.Element {
 
   const currentState = currentPage ? pages.get(currentPage.n) : undefined
   const content = currentState?.content ?? ''
+
+  // ── In-page search (⌘F) ──
+  const findMatches = useMemo(
+    () => (findOpen ? findAllMatches(content, findQuery, findCase) : []),
+    [findOpen, content, findQuery, findCase]
+  )
+  const findCur = findMatches.length ? Math.min(findIdx, findMatches.length - 1) : -1
+
+  const openFind = (): void => {
+    const ta = textareaRef.current
+    if (ta && document.activeElement === ta && ta.selectionEnd > ta.selectionStart) {
+      const sel = ta.value.slice(ta.selectionStart, ta.selectionEnd)
+      if (!sel.includes('\n')) setFindQuery(sel)
+    }
+    setFindOpen(true)
+    setTimeout(() => { findInputRef.current?.focus(); findInputRef.current?.select() }, 0)
+  }
+
+  const stepFind = (delta: number): void => {
+    if (!findMatches.length) return
+    setFindIdx((findCur + delta + findMatches.length) % findMatches.length)
+  }
+
+  // Closing the bar leaves the caret on the current match, selected, so editing can
+  // continue right there.
+  const closeFind = (): void => {
+    const m = findCur >= 0 ? findMatches[findCur] : null
+    setFindOpen(false)
+    const ta = textareaRef.current
+    if (ta) {
+      ta.focus()
+      if (m) ta.setSelectionRange(m.start, m.end)
+    }
+  }
+
+  // Keep the current match in view (the editor scrolls on scrollContainerRef, not the
+  // textarea — see jumpToLine).
+  useEffect(() => {
+    if (findCur < 0) return
+    const el = findLayerRef.current?.querySelector<HTMLElement>('mark.find-cur')
+    const sc = scrollContainerRef.current
+    if (!el || !sc) return
+    const top = el.offsetTop
+    if (top < sc.scrollTop + 20 || top > sc.scrollTop + sc.clientHeight - 40) {
+      sc.scrollTop = Math.max(0, top - sc.clientHeight / 2)
+    }
+  }, [findCur, findMatches])
+
+  // Search again from the first match whenever the query or the page changes.
+  useEffect(() => { setFindIdx(0) }, [findQuery, findCase, currentIdx])
+
+  // ── Line image popup ──
+  // While typing, a crop of the current line's image floats just above the caret's line
+  // (or below it when there is no room above in the visible part of the editor).
+  const popupLine = linePopupEnabled && editorFocused && activeLbLineId
+    ? currentPage?.lineGeometry?.find((l) => l.id === activeLbLineId) ?? null
+    : null
+  const LINE_POPUP_MAX_H = 84
+
+  const popupCrop = useMemo(() => {
+    if (!popupLine || !linePopupPos || !imgNaturalWidth || !imgNaturalHeight) return null
+    const pad = 6
+    const xs = popupLine.polygon.map(([x]) => x)
+    const ys = popupLine.polygon.map(([, y]) => y)
+    const x0 = Math.max(0, Math.min(...xs) - pad)
+    const y0 = Math.max(0, Math.min(...ys) - pad)
+    const bw = Math.min(imgNaturalWidth, Math.max(...xs) + pad) - x0
+    const bh = Math.min(imgNaturalHeight, Math.max(...ys) + pad) - y0
+    if (bw <= 0 || bh <= 0) return null
+    const scale = Math.min(linePopupPos.width / bw, LINE_POPUP_MAX_H / bh)
+    return { x0, y0, w: bw * scale, h: bh * scale, scale }
+  }, [popupLine, linePopupPos, imgNaturalWidth, imgNaturalHeight])
+
+  // Measure where the caret's line starts, with a hidden copy of the highlight layer
+  // (same font, padding and wrapping as the textarea) holding the text up to that line.
+  useLayoutEffect(() => {
+    const hl = highlightRef.current
+    const sc = scrollContainerRef.current
+    if (!popupLine || !hl || !sc || !hl.parentElement) { setLinePopupPos(null); return }
+    const lineStart = content.lastIndexOf('\n', Math.max(0, caretPos - 1)) + 1
+    const mirror = document.createElement('div')
+    mirror.className = hl.className
+    mirror.style.cssText = hl.style.cssText
+    mirror.style.visibility = 'hidden'
+    mirror.style.bottom = 'auto'
+    mirror.textContent = content.slice(0, lineStart)
+    const marker = document.createElement('span')
+    marker.textContent = '\u200b'
+    mirror.appendChild(marker)
+    hl.parentElement.appendChild(mirror)
+    const lineTop = marker.offsetTop
+    const lineH = marker.offsetHeight
+    mirror.remove()
+
+    const width = hl.clientWidth - 32
+    const boxH = LINE_POPUP_MAX_H + 12
+    const roomAbove = lineTop - sc.scrollTop
+    const top = roomAbove >= boxH + 4 ? lineTop - boxH - 4 : lineTop + lineH + 4
+    setLinePopupPos((prev) => (prev && prev.top === top && prev.width === width ? prev : { top, width }))
+  }, [popupLine, content, caretPos, fontSize, editorScrollTick])
 
   const krakenDiffTokens = useMemo<DiffTokens>(() => {
     if (!krakenCompareText) return []
@@ -539,20 +738,46 @@ export default function Review(): React.JSX.Element {
         rect,
         lineIds,
       }
+      // The open tag carries the group's id (`<p zone="mz-…">`) so deleting or editing
+      // the group can find exactly the tags it added. Redrawing over lines already
+      // wrapped by another manual group replaces that group's wrapper, so the old group
+      // is dropped too.
+      const { markdown: written, replacedZoneId } = writeZoneTags(content, group)
+      const zones = [...(currentPage.manualZones ?? []).filter((z) => z.id !== replacedZoneId), group]
+      const next = unwrapOrphanZones(written, new Set(zones.map((z) => z.id)))
+      if (next !== content) setContent(next)
+
       const updatedPages = project.pages.map((p) =>
-        p.n === currentPage.n ? { ...p, manualZones: [...(p.manualZones ?? []), group] } : p
+        p.n === currentPage.n ? { ...p, manualZones: zones } : p
       )
       void saveProject({ ...project, pages: updatedPages })
+    },
+    [project, currentPage, content, saveProject] // eslint-disable-line react-hooks/exhaustive-deps
+  )
 
-      if (lineIds.length) {
-        const span = spanForLineIds(content, lineIds)
-        if (span) {
-          const inner = content.slice(span.start, span.end)
-          const tag = blockTagForRole(role)
-          const wrapped = `<${tag}>\n${inner}\n</${tag}>`
-          setContent(content.slice(0, span.start) + wrapped + content.slice(span.end))
-        }
+  // Moving/resizing a group recomputes which lines it covers; changing its role swaps
+  // the tag. Either way its tags in the markdown are rewritten to match.
+  const updateManualZone = useCallback(
+    (id: string, patch: { rect?: ZoneRect; role?: ManualZoneRole }) => {
+      if (!project || !currentPage) return
+      const previous = currentPage.manualZones?.find((z) => z.id === id)
+      if (!previous) return
+      const zone: ManualZoneGroup = {
+        ...previous,
+        ...patch,
+        lineIds: patch.rect ? linesInRect(patch.rect, currentPage.lineGeometry ?? []) : previous.lineIds,
       }
+      const { markdown: written, replacedZoneId } = writeZoneTags(content, zone, previous)
+      const zones = (currentPage.manualZones ?? [])
+        .filter((z) => z.id === id || z.id !== replacedZoneId)
+        .map((z) => (z.id === id ? zone : z))
+      const next = unwrapOrphanZones(written, new Set(zones.map((z) => z.id)))
+      if (next !== content) setContent(next)
+
+      const updatedPages = project.pages.map((p) =>
+        p.n === currentPage.n ? { ...p, manualZones: zones } : p
+      )
+      void saveProject({ ...project, pages: updatedPages })
     },
     [project, currentPage, content, saveProject] // eslint-disable-line react-hooks/exhaustive-deps
   )
@@ -560,13 +785,66 @@ export default function Review(): React.JSX.Element {
   const deleteManualZone = useCallback(
     (id: string) => {
       if (!project || !currentPage) return
+      const zone = currentPage.manualZones?.find((z) => z.id === id)
       const updatedPages = project.pages.map((p) =>
         p.n === currentPage.n ? { ...p, manualZones: (p.manualZones ?? []).filter((z) => z.id !== id) } : p
       )
       void saveProject({ ...project, pages: updatedPages })
+      if (selectedZoneId === id) setSelectedZoneId(null)
+
+      // Remove the block tags this group added to the markdown (the wrapped lines stay).
+      let next = unwrapZone(content, id)
+      if (next === content && zone) next = unwrapLegacyZone(content, zone.lineIds, blockTagForRole(zone.role))
+      const remaining = (currentPage.manualZones ?? []).filter((z) => z.id !== id)
+      next = unwrapOrphanZones(next, new Set(remaining.map((z) => z.id)))
+      if (next !== content) setContent(next)
     },
-    [project, currentPage, saveProject]
+    [project, currentPage, content, saveProject, selectedZoneId] // eslint-disable-line react-hooks/exhaustive-deps
   )
+
+  // Picking a zone type sets the type for new zones and also retypes the selected one.
+  const chooseGroupRole = (r: ManualZoneRole): void => {
+    setGroupRole(r)
+    const sel = currentPage?.manualZones?.find((z) => z.id === selectedZoneId)
+    if (sel && sel.role !== r) updateManualZone(sel.id, { role: r })
+  }
+
+  const toggleGroupMode = (): void => {
+    setGroupMode((v) => !v); setDrawingRect(null); drawingRef.current = null; setSelectedZoneId(null)
+  }
+
+  // Left-panel shortcuts, only while the pointer is over the image panel and no text
+  // field has focus: G toggles Draw Zone; in Draw Zone mode, a zone type's first letter
+  // picks it.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.ctrlKey || e.metaKey || e.altKey || e.repeat) return
+      if (!leftPanelHoverRef.current || !currentPage?.lineGeometry?.length) return
+      const el = document.activeElement
+      if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || (el as HTMLElement | null)?.isContentEditable) return
+      const key = e.key.toUpperCase()
+      if (key === 'G') { e.preventDefault(); toggleGroupMode(); return }
+      if (!groupMode) return
+      const role = (['p', 'quote', 'head', 'continuation'] as const).find((r) => groupRoleKey(r, t) === key)
+      if (role) { e.preventDefault(); chooseGroupRole(role) }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  })
+
+  // Delete/Backspace removes the selected group; Escape deselects it. Only while Group
+  // mode is on and focus isn't in a text field.
+  useEffect(() => {
+    if (!groupMode || !selectedZoneId) return
+    const onKey = (e: KeyboardEvent): void => {
+      const el = document.activeElement
+      if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) return
+      if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); deleteManualZone(selectedZoneId) }
+      if (e.key === 'Escape') setSelectedZoneId(null)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [groupMode, selectedZoneId, deleteManualZone])
 
   const saveCurrent = useCallback(async () => {
     if (!project || !currentPage || !currentState?.dirty) return
@@ -590,6 +868,7 @@ export default function Review(): React.JSX.Element {
     if (!ta) return
     setCursorTag(detectCursorTag(ta.value, ta.selectionStart))
     setActiveLbLineId(findAnchorAt(ta.value, ta.selectionStart))
+    setCaretPos(ta.selectionStart)
   }
 
   const closePopover = (): void => setCursorTag(null)
@@ -759,6 +1038,17 @@ export default function Review(): React.JSX.Element {
         saveCurrent()
         return
       }
+      if (e.ctrlKey && !e.shiftKey && !e.altKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
+        e.preventDefault()
+        const delta = e.key === 'ArrowUp' ? -1 : 1
+        setCurrentIdx((i) => Math.max(0, Math.min(activePages.length - 1, i + delta)))
+        return
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
+        e.preventDefault()
+        openFind()
+        return
+      }
       if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
         e.preventDefault()
         undo()
@@ -839,6 +1129,7 @@ export default function Review(): React.JSX.Element {
     setKrakenCompareText(null); setKrakenLines([]); setCompareError(null); setActiveSuggestion(null)
     setActiveLatinChar(null); setIgnoredLatinPositions(new Set())
     setActiveLbLineId(null); setGroupMode(false); setDrawingRect(null); drawingRef.current = null
+    setSelectedZoneId(null); setZoneDraft(null); zoneDraftRef.current = null
   }, [currentIdx])
 
   useEffect(() => {
@@ -1070,65 +1361,6 @@ export default function Review(): React.JSX.Element {
           className="px-6 py-2 border-b flex items-center gap-3 shrink-0"
           style={{ borderColor: 'var(--line)', background: 'var(--paper-2)' }}
         >
-          {/* Page nav */}
-          <div className="flex items-center gap-1">
-            <button
-              className="btn btn-quiet"
-              style={{ width: 28, height: 28, padding: 0, justifyContent: 'center' }}
-              disabled={currentIdx === 0}
-              onClick={() => setCurrentIdx((i) => i - 1)}
-              title={t('review.previousPage')}
-            >
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m15 6-6 6 6 6" /></svg>
-            </button>
-            {pageInput !== null ? (
-              <input
-                type="text"
-                value={pageInput}
-                autoFocus
-                className="font-mono text-[12.5px] px-2 py-1 rounded text-center outline-none"
-                style={{ width: 72, background: 'var(--paper-3)', border: '1px solid var(--oxblood)', fontVariantNumeric: 'tabular-nums' }}
-                onChange={(e) => setPageInput(e.target.value)}
-                onBlur={() => {
-                  const n = parseInt(pageInput, 10)
-                  const idx = activePages.findIndex((p) => p.n === n)
-                  if (idx >= 0) setCurrentIdx(idx)
-                  setPageInput(null)
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    const n = parseInt(pageInput, 10)
-                    const idx = activePages.findIndex((p) => p.n === n)
-                    if (idx >= 0) setCurrentIdx(idx)
-                    setPageInput(null)
-                  }
-                  if (e.key === 'Escape') setPageInput(null)
-                }}
-              />
-            ) : (
-              <button
-                className="font-mono text-[12.5px] px-2 py-1 rounded"
-                style={{ background: 'var(--paper-3)', fontVariantNumeric: 'tabular-nums' }}
-                onClick={() => setPageInput(String(currentPage?.n ?? 1))}
-                title={t('review.jumpToPage')}
-              >
-                <span className="font-semibold">p. {currentPage?.n ?? '–'}</span>
-                <span style={{ color: 'var(--mute)' }}> / {activePages.length}</span>
-              </button>
-            )}
-            <button
-              className="btn btn-quiet"
-              style={{ width: 28, height: 28, padding: 0, justifyContent: 'center' }}
-              disabled={currentIdx === activePages.length - 1}
-              onClick={() => setCurrentIdx((i) => i + 1)}
-              title={t('review.nextPage')}
-            >
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m9 6 6 6-6 6" /></svg>
-            </button>
-          </div>
-
-          <div className="w-px h-5" style={{ background: 'var(--line)' }} />
-
           {/* Status dropdown */}
           <div ref={statusMenuRef} className="relative">
             <button
@@ -1208,6 +1440,63 @@ export default function Review(): React.JSX.Element {
               {saving ? t('review.saving') : t('review.save')}
               <span className="font-mono text-[10px] opacity-60 ml-0.5">⌘S</span>
             </button>
+            <div className="w-px h-5 mx-1" style={{ background: 'var(--line-2)' }} />
+            {/* Page nav */}
+            <div className="flex items-center gap-1">
+              <button
+                className="btn btn-quiet"
+                style={{ width: 28, height: 28, padding: 0, justifyContent: 'center' }}
+                disabled={currentIdx === 0}
+                onClick={() => setCurrentIdx((i) => i - 1)}
+                title={t('review.previousPage')}
+              >
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m15 6-6 6 6 6" /></svg>
+              </button>
+              {pageInput !== null ? (
+                <input
+                  type="text"
+                  value={pageInput}
+                  autoFocus
+                  className="font-mono text-[12.5px] px-2 py-1 rounded text-center outline-none"
+                  style={{ width: 72, background: 'var(--paper-3)', border: '1px solid var(--oxblood)', fontVariantNumeric: 'tabular-nums' }}
+                  onChange={(e) => setPageInput(e.target.value)}
+                  onBlur={() => {
+                    const n = parseInt(pageInput, 10)
+                    const idx = activePages.findIndex((p) => p.n === n)
+                    if (idx >= 0) setCurrentIdx(idx)
+                    setPageInput(null)
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      const n = parseInt(pageInput, 10)
+                      const idx = activePages.findIndex((p) => p.n === n)
+                      if (idx >= 0) setCurrentIdx(idx)
+                      setPageInput(null)
+                    }
+                    if (e.key === 'Escape') setPageInput(null)
+                  }}
+                />
+              ) : (
+                <button
+                  className="font-mono text-[12.5px] px-2 py-1 rounded"
+                  style={{ background: 'var(--paper-3)', fontVariantNumeric: 'tabular-nums' }}
+                  onClick={() => setPageInput(String(currentPage?.n ?? 1))}
+                  title={t('review.jumpToPage')}
+                >
+                  <span className="font-semibold">p. {currentPage?.n ?? '–'}</span>
+                  <span style={{ color: 'var(--mute)' }}> / {activePages.length}</span>
+                </button>
+              )}
+              <button
+                className="btn btn-quiet"
+                style={{ width: 28, height: 28, padding: 0, justifyContent: 'center' }}
+                disabled={currentIdx === activePages.length - 1}
+                onClick={() => setCurrentIdx((i) => i + 1)}
+                title={t('review.nextPage')}
+              >
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m9 6 6 6-6 6" /></svg>
+              </button>
+            </div>
           </div>
         </div>
 
@@ -1299,7 +1588,12 @@ export default function Review(): React.JSX.Element {
         <div ref={splitContainerRef} className="flex-1 flex overflow-hidden">
 
           {/* Left: image pane */}
-          <div className="flex flex-col overflow-hidden" style={{ width: `${splitRatio * 100}%`, flexShrink: 0 }}>
+          <div
+            className="flex flex-col overflow-hidden"
+            style={{ width: `${splitRatio * 100}%`, flexShrink: 0 }}
+            onMouseEnter={() => { leftPanelHoverRef.current = true }}
+            onMouseLeave={() => { leftPanelHoverRef.current = false }}
+          >
             <div className="px-3 py-1.5 border-b shrink-0 flex items-center gap-2" style={{ borderColor: 'var(--line)', background: 'var(--paper-2)' }}>
               <span className="font-mono text-[11px]" style={{ color: 'var(--mute)' }}>{t('review.source')}</span>
               {!!currentPage?.lineGeometry?.length && (
@@ -1316,10 +1610,10 @@ export default function Review(): React.JSX.Element {
                 <button
                   className="btn btn-quiet text-[11px] shrink-0"
                   style={{ padding: '2px 8px', ...(groupMode ? { background: '#7a4fae', color: '#fff', borderColor: '#7a4fae' } : {}) }}
-                  onClick={() => { setGroupMode((v) => !v); setDrawingRect(null); drawingRef.current = null }}
+                  onClick={toggleGroupMode}
                   title={t('review.groupToolTitle')}
                 >
-                  {t('review.groupTool')}
+                  {t('review.groupTool')} (G)
                   {!!currentPage.manualZones?.length && (
                     <span style={{ marginLeft: 3, background: groupMode ? 'rgba(255,255,255,.25)' : '#7a4fae', color: '#fff', borderRadius: 8, padding: '0 5px', fontSize: 10, fontWeight: 600, lineHeight: '16px' }}>
                       {currentPage.manualZones.length}
@@ -1334,9 +1628,9 @@ export default function Review(): React.JSX.Element {
                       key={r}
                       className="btn btn-quiet text-[10.5px] shrink-0"
                       style={{ padding: '2px 6px', ...(groupRole === r ? { background: '#7a4fae', color: '#fff', borderColor: '#7a4fae' } : {}) }}
-                      onClick={() => setGroupRole(r)}
+                      onClick={() => chooseGroupRole(r)}
                     >
-                      {groupRoleLabel(r, t)}
+                      {groupRoleLabel(r, t)} ({groupRoleKey(r, t)})
                     </button>
                   ))}
                 </div>
@@ -1358,7 +1652,13 @@ export default function Review(): React.JSX.Element {
               <div className="px-3 py-1.5 border-b shrink-0 flex items-center gap-1.5 flex-wrap" style={{ borderColor: 'var(--line)', background: '#f6f2fb' }}>
                 <span className="text-[10px] uppercase tracking-[.12em] font-semibold shrink-0" style={{ color: 'var(--mute)' }}>{t('review.manualZonesTitle')}</span>
                 {currentPage.manualZones.map((z) => (
-                  <span key={z.id} className="inline-flex items-center gap-1 rounded" style={{ padding: '2px 6px', fontSize: 11, background: '#e0dff0', border: '1px solid #b8b5dc', color: '#3f3a7a' }}>
+                  <span
+                    key={z.id}
+                    className="inline-flex items-center gap-1 rounded"
+                    style={{ padding: '2px 6px', fontSize: 11, background: '#e0dff0', border: `1px solid ${selectedZoneId === z.id ? '#3f3a7a' : '#b8b5dc'}`, color: '#3f3a7a', cursor: 'pointer', boxShadow: selectedZoneId === z.id ? '0 0 0 1px #3f3a7a' : undefined }}
+                    title={t('review.manualZoneSelect')}
+                    onClick={() => { setGroupMode(true); setSelectedZoneId(z.id) }}
+                  >
                     {groupRoleLabel(z.role, t)}
                     <span style={{ opacity: 0.7 }}>
                       {z.lineIds.length ? t('review.manualZoneLinesCount', { count: z.lineIds.length }) : t('review.manualZoneNoLines')}
@@ -1367,7 +1667,7 @@ export default function Review(): React.JSX.Element {
                       className="tool-btn"
                       style={{ width: 18, height: 18, padding: 0, justifyContent: 'center' }}
                       title={t('review.delete')}
-                      onClick={() => deleteManualZone(z.id)}
+                      onClick={(e) => { e.stopPropagation(); deleteManualZone(z.id) }}
                     >
                       <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M18 6 6 18M6 6l12 12" /></svg>
                     </button>
@@ -1468,82 +1768,179 @@ export default function Review(): React.JSX.Element {
                       viewBox={`0 0 ${imgNaturalWidth} ${imgNaturalHeight}`}
                       preserveAspectRatio="none"
                     >
-                      {currentPage.manualZones.map((z) => (
-                        <rect
-                          key={z.id}
-                          x={z.rect.x} y={z.rect.y} width={z.rect.width} height={z.rect.height}
-                          fill={manualZoneColor(z.role).bg}
-                          stroke={manualZoneColor(z.role).fg}
-                          strokeWidth={imgNaturalWidth / 500}
-                          strokeDasharray={`${imgNaturalWidth / 150} ${imgNaturalWidth / 300}`}
-                        />
-                      ))}
+                      {currentPage.manualZones.map((z) => {
+                        const r = zoneDraft?.id === z.id ? zoneDraft.rect : z.rect
+                        const selected = groupMode && selectedZoneId === z.id
+                        return (
+                          <rect
+                            key={z.id}
+                            x={r.x} y={r.y} width={r.width} height={r.height}
+                            fill={manualZoneColor(z.role).bg}
+                            stroke={manualZoneColor(z.role).fg}
+                            strokeWidth={imgNaturalWidth / (selected ? 250 : 500)}
+                            strokeDasharray={selected ? undefined : `${imgNaturalWidth / 150} ${imgNaturalWidth / 300}`}
+                          />
+                        )
+                      })}
                     </svg>
                   )}
-                  {groupMode && imgNaturalWidth && imgNaturalHeight && (
-                    <div
-                      style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', cursor: 'crosshair' }}
-                      onMouseDown={(e) => {
-                        const r = e.currentTarget.getBoundingClientRect()
-                        const scale = imgNaturalWidth / r.width
-                        const clamp = (cx: number, cy: number): [number, number] => [
-                          Math.max(0, Math.min(imgNaturalWidth, (cx - r.left) * scale)),
-                          Math.max(0, Math.min(imgNaturalHeight, (cy - r.top) * scale)),
-                        ]
-                        const [x0, y0] = clamp(e.clientX, e.clientY)
-                        const current = { x0, y0, x1: x0, y1: y0 }
-                        drawingRef.current = current
-                        setDrawingRect(current)
+                  {groupMode && imgNaturalWidth && imgNaturalHeight && (() => {
+                    const zones = currentPage?.manualZones ?? []
+                    const selected = zones.find((z) => z.id === selectedZoneId)
+                    const selRect = selected ? (zoneDraft?.id === selected.id ? zoneDraft.rect : selected.rect) : null
+                    // Handle size / hit tolerance: ~9 screen px, expressed in image px.
+                    const hs = 9 / imgZoom
 
-                        // Track the drag on `window`, not this element: once the pointer
-                        // leaves the image (common when drawing a rect near an edge),
-                        // this div's own mousemove/mouseup stop firing entirely — window
-                        // listeners keep the drag alive, clamped to the image bounds,
-                        // instead of the draw silently aborting.
-                        const onMove = (ev: MouseEvent): void => {
-                          const [x1, y1] = clamp(ev.clientX, ev.clientY)
-                          const next = { x0, y0, x1, y1 }
-                          drawingRef.current = next
-                          setDrawingRect(next)
+                    type Hit = { kind: 'handle'; handle: ZoneHandle } | { kind: 'zone'; id: string } | null
+                    const hitTest = (x: number, y: number): Hit => {
+                      if (selRect) {
+                        for (const h of ZONE_HANDLES) {
+                          const [hx, hy] = handlePoint(selRect, h)
+                          if (Math.abs(x - hx) <= hs && Math.abs(y - hy) <= hs) return { kind: 'handle', handle: h }
                         }
-                        const onUp = (): void => {
-                          window.removeEventListener('mousemove', onMove)
-                          window.removeEventListener('mouseup', onUp)
-                          const final = drawingRef.current
-                          drawingRef.current = null
-                          setDrawingRect(null)
-                          if (!final) return
-                          const rect = {
-                            x: Math.min(final.x0, final.x1),
-                            y: Math.min(final.y0, final.y1),
-                            width: Math.abs(final.x1 - final.x0),
-                            height: Math.abs(final.y1 - final.y0),
+                      }
+                      // Selected group first, then topmost (last drawn) first.
+                      const order = selected ? [selected, ...zones.filter((z) => z !== selected).reverse()] : [...zones].reverse()
+                      for (const z of order) {
+                        const r = z.rect
+                        if (x >= r.x && x <= r.x + r.width && y >= r.y && y <= r.y + r.height) return { kind: 'zone', id: z.id }
+                      }
+                      return null
+                    }
+
+                    return (
+                      <div
+                        style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', cursor: groupCursor }}
+                        onMouseMove={(e) => {
+                          if (drawingRef.current || zoneDraftRef.current) return
+                          const b = e.currentTarget.getBoundingClientRect()
+                          const scale = imgNaturalWidth / b.width
+                          const hit = hitTest((e.clientX - b.left) * scale, (e.clientY - b.top) * scale)
+                          setGroupCursor(hit?.kind === 'handle' ? HANDLE_CURSOR[hit.handle] : hit?.kind === 'zone' ? 'move' : 'crosshair')
+                        }}
+                        onMouseDown={(e) => {
+                          const b = e.currentTarget.getBoundingClientRect()
+                          const scale = imgNaturalWidth / b.width
+                          const clamp = (cx: number, cy: number): [number, number] => [
+                            Math.max(0, Math.min(imgNaturalWidth, (cx - b.left) * scale)),
+                            Math.max(0, Math.min(imgNaturalHeight, (cy - b.top) * scale)),
+                          ]
+                          const [x0, y0] = clamp(e.clientX, e.clientY)
+                          const hit = hitTest(x0, y0)
+
+                          // All drags are tracked on `window`, not this element: once the
+                          // pointer leaves the image (common near an edge), this div's own
+                          // mousemove/mouseup stop firing — window listeners keep the drag
+                          // alive, clamped to the image bounds.
+                          const track = (onMove: (x: number, y: number) => void, onUp: () => void): void => {
+                            const move = (ev: MouseEvent): void => { const [x, y] = clamp(ev.clientX, ev.clientY); onMove(x, y) }
+                            const up = (): void => {
+                              window.removeEventListener('mousemove', move)
+                              window.removeEventListener('mouseup', up)
+                              onUp()
+                            }
+                            window.addEventListener('mousemove', move)
+                            window.addEventListener('mouseup', up)
                           }
-                          if (rect.width > 3 && rect.height > 3) applyManualGroup(rect, groupRole)
-                        }
-                        window.addEventListener('mousemove', onMove)
-                        window.addEventListener('mouseup', onUp)
-                      }}
-                    >
-                      {drawingRect && (
+
+                          // Move or resize an existing group; committed (lines + tags
+                          // recomputed) only on release, and only if it actually changed.
+                          if (hit) {
+                            const zone = hit.kind === 'zone' ? zones.find((z) => z.id === hit.id)! : selected!
+                            setSelectedZoneId(zone.id)
+                            const start = zone.rect
+                            const setDraft = (rect: ZoneRect): void => {
+                              zoneDraftRef.current = { id: zone.id, rect }
+                              setZoneDraft(zoneDraftRef.current)
+                            }
+                            track(
+                              (x, y) => {
+                                if (hit.kind === 'zone') {
+                                  const dx = Math.max(-start.x, Math.min(imgNaturalWidth - start.x - start.width, x - x0))
+                                  const dy = Math.max(-start.y, Math.min(imgNaturalHeight - start.y - start.height, y - y0))
+                                  setDraft({ ...start, x: start.x + dx, y: start.y + dy })
+                                } else {
+                                  const h = hit.handle
+                                  let l = start.x, t = start.y, r = start.x + start.width, btm = start.y + start.height
+                                  if (h.includes('w')) l = x
+                                  if (h.includes('e')) r = x
+                                  if (h.includes('n')) t = y
+                                  if (h.includes('s')) btm = y
+                                  setDraft({ x: Math.min(l, r), y: Math.min(t, btm), width: Math.abs(r - l), height: Math.abs(btm - t) })
+                                }
+                              },
+                              () => {
+                                const draft = zoneDraftRef.current
+                                zoneDraftRef.current = null
+                                setZoneDraft(null)
+                                if (!draft) return
+                                const r = draft.rect
+                                const changed = r.x !== start.x || r.y !== start.y || r.width !== start.width || r.height !== start.height
+                                if (changed && r.width > 3 && r.height > 3) updateManualZone(zone.id, { rect: r })
+                              }
+                            )
+                            return
+                          }
+
+                          // Empty area: deselect and draw a new group.
+                          setSelectedZoneId(null)
+                          const current = { x0, y0, x1: x0, y1: y0 }
+                          drawingRef.current = current
+                          setDrawingRect(current)
+                          track(
+                            (x1, y1) => {
+                              const next = { x0, y0, x1, y1 }
+                              drawingRef.current = next
+                              setDrawingRect(next)
+                            },
+                            () => {
+                              const final = drawingRef.current
+                              drawingRef.current = null
+                              setDrawingRect(null)
+                              if (!final) return
+                              const rect = {
+                                x: Math.min(final.x0, final.x1),
+                                y: Math.min(final.y0, final.y1),
+                                width: Math.abs(final.x1 - final.x0),
+                                height: Math.abs(final.y1 - final.y0),
+                              }
+                              if (rect.width > 3 && rect.height > 3) applyManualGroup(rect, groupRole)
+                            }
+                          )
+                        }}
+                      >
                         <svg
                           style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', pointerEvents: 'none' }}
                           viewBox={`0 0 ${imgNaturalWidth} ${imgNaturalHeight}`}
                           preserveAspectRatio="none"
                         >
-                          <rect
-                            x={Math.min(drawingRect.x0, drawingRect.x1)}
-                            y={Math.min(drawingRect.y0, drawingRect.y1)}
-                            width={Math.abs(drawingRect.x1 - drawingRect.x0)}
-                            height={Math.abs(drawingRect.y1 - drawingRect.y0)}
-                            fill={manualZoneColor(groupRole).bg}
-                            stroke={manualZoneColor(groupRole).fg}
-                            strokeWidth={imgNaturalWidth / 500}
-                          />
+                          {drawingRect && (
+                            <rect
+                              x={Math.min(drawingRect.x0, drawingRect.x1)}
+                              y={Math.min(drawingRect.y0, drawingRect.y1)}
+                              width={Math.abs(drawingRect.x1 - drawingRect.x0)}
+                              height={Math.abs(drawingRect.y1 - drawingRect.y0)}
+                              fill={manualZoneColor(groupRole).bg}
+                              stroke={manualZoneColor(groupRole).fg}
+                              strokeWidth={imgNaturalWidth / 500}
+                            />
+                          )}
+                          {selected && selRect && ZONE_HANDLES.map((h) => {
+                            const [hx, hy] = handlePoint(selRect, h)
+                            return (
+                              <rect
+                                key={h}
+                                x={hx - hs / 2} y={hy - hs / 2} width={hs} height={hs}
+                                fill="white"
+                                stroke={manualZoneColor(selected.role).fg}
+                                strokeWidth={1.5 / imgZoom}
+                              />
+                            )
+                          })}
                         </svg>
-                      )}
-                    </div>
-                  )}
+                      </div>
+                    )
+                  })()}
                 </div>
               ) : (
                 <div className="flex items-center justify-center w-full h-full text-[13px]" style={{ color: 'var(--mute)' }}>
@@ -1773,6 +2170,32 @@ export default function Review(): React.JSX.Element {
                   )}
                 </button>
 
+                {/* Line image popup toggle */}
+                {!!currentPage?.lineGeometry?.length && (
+                  <button
+                    className="btn btn-quiet text-[11px]"
+                    style={{ padding: '3px 8px', ...(linePopupEnabled ? { color: '#1d4ed8', borderColor: '#1d4ed8', background: '#dbeafe' } : {}) }}
+                    onClick={() => setLinePopupEnabled((v) => {
+                      try { localStorage.setItem('review:linePopup', String(!v)) } catch { /* ignore */ }
+                      return !v
+                    })}
+                    title={t('review.linePopupTitle')}
+                  >
+                    <svg width="12" height="11" viewBox="0 0 24 22" fill="none" stroke="currentColor" strokeWidth="2"><rect x="2" y="3" width="20" height="9" rx="1.5" /><path d="M5 17h14M5 20h9" /></svg>
+                    {t('review.linePopup')}
+                  </button>
+                )}
+
+                {/* Find in page */}
+                <button
+                  className="btn btn-quiet text-[11px]"
+                  style={{ padding: '3px 8px', ...(findOpen ? { color: '#1d4ed8', borderColor: '#1d4ed8', background: '#dbeafe' } : {}) }}
+                  onClick={() => (findOpen ? closeFind() : openFind())}
+                  title={t('review.find')}
+                >
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg>
+                </button>
+
                 {/* Latin character detection */}
                 <button
                   className="btn btn-quiet text-[11px]"
@@ -1794,6 +2217,44 @@ export default function Review(): React.JSX.Element {
 
               </div>
             </div>
+
+            {/* Find bar */}
+            {findOpen && (
+              <div className="shrink-0 border-b px-3 py-1.5 flex items-center gap-1.5 text-[12px]" style={{ borderColor: 'var(--line)', background: 'var(--paper-2)' }}>
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ color: 'var(--mute)' }}><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg>
+                <input
+                  ref={findInputRef}
+                  type="text"
+                  value={findQuery}
+                  placeholder={t('review.findPlaceholder')}
+                  className="flex-1 min-w-0 px-2 py-1 rounded outline-none"
+                  style={{ background: 'white', border: '1px solid var(--line-2)', fontFamily: "'Noto Sans Mono', monospace", fontSize: 12 }}
+                  onChange={(e) => setFindQuery(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') { e.preventDefault(); stepFind(e.shiftKey ? -1 : 1) }
+                    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeFind() }
+                  }}
+                />
+                <span className="font-mono text-[11px] shrink-0" style={{ color: findQuery && !findMatches.length ? '#b91c1c' : 'var(--mute)', minWidth: 52, textAlign: 'center', fontVariantNumeric: 'tabular-nums' }}>
+                  {findQuery ? (findMatches.length ? `${findCur + 1} / ${findMatches.length}` : t('review.findNoMatch')) : ''}
+                </span>
+                <button
+                  className="btn btn-quiet text-[11px]"
+                  style={{ padding: '3px 7px', ...(findCase ? { color: '#1d4ed8', borderColor: '#1d4ed8', background: '#dbeafe' } : {}) }}
+                  onClick={() => setFindCase((v) => !v)}
+                  title={t('review.findMatchCase')}
+                >Aa</button>
+                <button className="btn btn-quiet" style={{ width: 24, height: 24, padding: 0, justifyContent: 'center' }} disabled={!findMatches.length} onClick={() => stepFind(-1)} title={t('review.findPrev')}>
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m6 15 6-6 6 6" /></svg>
+                </button>
+                <button className="btn btn-quiet" style={{ width: 24, height: 24, padding: 0, justifyContent: 'center' }} disabled={!findMatches.length} onClick={() => stepFind(1)} title={t('review.findNext')}>
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m6 9 6 6 6-6" /></svg>
+                </button>
+                <button className="btn btn-quiet" style={{ width: 24, height: 24, padding: 0, justifyContent: 'center' }} onClick={closeFind} title={t('common.close')}>
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M18 6 6 18M6 6l12 12" /></svg>
+                </button>
+              </div>
+            )}
 
             {/* Suggestion banner */}
             {compareMode && activeSuggestion && (
@@ -1859,9 +2320,19 @@ export default function Review(): React.JSX.Element {
             <div
               ref={scrollContainerRef}
               className="flex-1 overflow-y-auto"
+              onScroll={() => { if (popupLine) setEditorScrollTick((n) => n + 1) }}
               style={{ background: currentState?.loaded ? 'white' : 'var(--paper-2)' }}
             >
               <div className="relative">
+                {findMatches.length > 0 && (
+                  <div
+                    ref={findLayerRef}
+                    aria-hidden="true"
+                    className="absolute inset-0 px-4 pt-4 pb-10 overflow-hidden pointer-events-none leading-relaxed whitespace-pre-wrap break-words"
+                    style={{ color: 'transparent', background: 'transparent', fontSize, fontFamily: "'Noto Sans Mono', monospace" }}
+                    dangerouslySetInnerHTML={{ __html: findLayerHtml(content, findMatches, findCur) }}
+                  />
+                )}
                 <div
                   ref={highlightRef}
                   aria-hidden="true"
@@ -1896,9 +2367,36 @@ export default function Review(): React.JSX.Element {
                   }}
                   onKeyUp={updateCursorTag}
                   onKeyDown={handleBetaKeyDown}
+                  onFocus={() => { setEditorFocused(true); updateCursorTag() }}
+                  onBlur={() => setEditorFocused(false)}
                   spellCheck={false}
                   placeholder={currentState?.loaded ? '' : t('review.loadingPage')}
                 />
+                {popupLine && popupCrop && linePopupPos && imageUrl && imgNaturalWidth && (
+                  <div
+                    aria-hidden="true"
+                    className="absolute pointer-events-none"
+                    style={{
+                      top: linePopupPos.top, left: 16, zIndex: 5, padding: 5,
+                      background: 'white', border: '1px solid var(--line-2)', borderRadius: 6,
+                      boxShadow: '0 8px 22px -8px rgba(40,30,20,.35)',
+                    }}
+                  >
+                    <div style={{ position: 'relative', overflow: 'hidden', width: popupCrop.w, height: popupCrop.h }}>
+                      <img
+                        src={imageUrl}
+                        alt=""
+                        draggable={false}
+                        style={{
+                          position: 'absolute', maxWidth: 'none',
+                          width: imgNaturalWidth * popupCrop.scale,
+                          left: -popupCrop.x0 * popupCrop.scale,
+                          top: -popupCrop.y0 * popupCrop.scale,
+                        }}
+                      />
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
 
@@ -2067,6 +2565,8 @@ export default function Review(): React.JSX.Element {
         mark.diff-suggestion:hover { background: rgba(220,38,38,0.08); }
         mark.latin-char { background: transparent; text-decoration: underline wavy #2563eb; text-decoration-thickness: 1.5px; cursor: pointer; border-radius: 0; }
         mark.latin-char:hover { background: rgba(37,99,235,0.08); }
+        mark.find-hit { background: #fde68a; color: transparent; border-radius: 2px; }
+        mark.find-cur { background: #f59e0b; }
         @keyframes spin { from { transform: rotate(0deg) } to { transform: rotate(360deg) } }
       `}</style>
     </div>

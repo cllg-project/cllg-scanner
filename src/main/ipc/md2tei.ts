@@ -181,9 +181,10 @@ function tokenizeLine(s: string): LineToken[] {
 //     → auto-open that div with its format's start value
 
 type BlockKind = 'p' | 'head' | 'quote' | 'continued'
-const BLOCK_OPEN_RE = /^<(p|head|quote|continued)>$/
+// Open tags may carry a `zone="..."` attribute (Review's manual-group link); it is ignored here.
+const BLOCK_OPEN_RE = /^<(p|head|quote|continued)(?: zone="[^"]*")?>$/
 const BLOCK_CLOSE_RE = /^<\/(p|head|quote|continued)>$/
-const BLOCK_INLINE_RE = /^<(p|head|quote|continued)>([\s\S]*)<\/\1>$/
+const BLOCK_INLINE_RE = /^<(p|head|quote|continued)(?: zone="[^"]*")?>([\s\S]*)<\/\1>$/
 
 function buildBody(
   md: string,

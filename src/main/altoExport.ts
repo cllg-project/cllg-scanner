@@ -41,7 +41,7 @@ export function textByAnchor(markdown: string): Map<string, string> {
   for (let i = 0; i < matches.length; i++) {
     const start = matches[i].end
     const end = i + 1 < matches.length ? matches[i + 1].start : markdown.length
-    const text = markdown.slice(start, end).replace(/<\/?(p|head|quote|continued)>/g, '').trim()
+    const text = markdown.slice(start, end).replace(/<\/?(p|head|quote|continued)(?: zone="[^"]*")?>/g, '').trim()
     out.set(matches[i].id, text)
   }
   return out

@@ -32,7 +32,9 @@ export function findAnchorAt(markdown: string, cursorPos: number): string | null
   return last
 }
 
-const BLOCK_OPEN_LINE_RE = /^<(p|head|quote|continued)>$/
+// A block open tag may carry a `zone="<ManualZoneGroup id>"` attribute linking it back to
+// the manual group that produced it, so deleting the group can remove its tags.
+const BLOCK_OPEN_LINE_RE = /^<(p|head|quote|continued)(?: zone="([^"]*)")?>$/
 const BLOCK_CLOSE_LINE_RE = /^<\/(p|head|quote|continued)>$/
 
 /**
@@ -52,7 +54,10 @@ const BLOCK_CLOSE_LINE_RE = /^<\/(p|head|quote|continued)>$/
  * redrawing a manual region over content that's already zone-typed) would wrap a *new*
  * tag around the old one instead of replacing it, producing doubled `<p><p>...</p></p>`.
  */
-export function spanForLineIds(markdown: string, lineIds: string[] | Set<string>): { start: number; end: number } | null {
+export function spanForLineIds(
+  markdown: string,
+  lineIds: string[] | Set<string>
+): { start: number; end: number; innerStart: number; innerEnd: number; wrapped: boolean; wrapperZoneId?: string } | null {
   const ids = lineIds instanceof Set ? lineIds : new Set(lineIds)
   const anchors = findAnchors(markdown).filter((a) => ids.has(a.id))
   if (!anchors.length) return null
@@ -60,6 +65,10 @@ export function spanForLineIds(markdown: string, lineIds: string[] | Set<string>
   const lastAnchor = anchors[anchors.length - 1]
   const nl = markdown.indexOf('\n', lastAnchor.end)
   let end = nl === -1 ? markdown.length : nl
+  const innerStart = start
+  const innerEnd = end
+  let wrapped = false
+  let wrapperZoneId: string | undefined
 
   if (start > 0 && markdown[start - 1] === '\n') {
     const prevLineEnd = start - 1
@@ -73,9 +82,96 @@ export function spanForLineIds(markdown: string, lineIds: string[] | Set<string>
       if (closeMatch && closeMatch[1] === openMatch[1]) {
         start = prevLineStart
         end = nextLineEnd
+        wrapped = true
+        wrapperZoneId = openMatch[2]
       }
     }
   }
 
-  return { start, end }
+  return { start, end, innerStart, innerEnd, wrapped, wrapperZoneId }
+}
+
+/** Removes a whole line (and its trailing newline, or the preceding one at end of text). */
+function removeLine(markdown: string, lineStart: number, lineEnd: number): string {
+  if (markdown[lineEnd] === '\n') return markdown.slice(0, lineStart) + markdown.slice(lineEnd + 1)
+  if (lineStart > 0) return markdown.slice(0, lineStart - 1) + markdown.slice(lineEnd)
+  return markdown.slice(0, lineStart) + markdown.slice(lineEnd)
+}
+
+/**
+ * Removes the block wrapper belonging to a manual zone: every `<tag zone="zoneId">` open
+ * line together with the next matching `</tag>` close line (md2tei.ts's buildBody() has
+ * no nested blocks, so the next close of the same kind is the one). The wrapped lines
+ * themselves are kept. Returns `markdown` unchanged when no tag carries that id.
+ */
+export function unwrapZone(markdown: string, zoneId: string): string {
+  let out = markdown
+  for (;;) {
+    let pos = 0
+    let found = false
+    while (pos <= out.length) {
+      const nl = out.indexOf('\n', pos)
+      const lineEnd = nl === -1 ? out.length : nl
+      const open = BLOCK_OPEN_LINE_RE.exec(out.slice(pos, lineEnd).trim())
+      if (open && open[2] === zoneId) {
+        // Find the matching close line after it.
+        let q = lineEnd + 1
+        while (q <= out.length) {
+          const nl2 = out.indexOf('\n', q)
+          const end2 = nl2 === -1 ? out.length : nl2
+          const close = BLOCK_CLOSE_LINE_RE.exec(out.slice(q, end2).trim())
+          if (close && close[1] === open[1]) {
+            out = removeLine(out, q, end2)
+            break
+          }
+          if (nl2 === -1) break
+          q = nl2 + 1
+        }
+        out = removeLine(out, pos, lineEnd)
+        found = true
+        break
+      }
+      if (nl === -1) break
+      pos = nl + 1
+    }
+    if (!found) return out
+  }
+}
+
+/**
+ * Legacy fallback for manual zones created before tags carried a `zone` attribute: if the
+ * zone's lines are wrapped by exactly one bare `<tag>`…`</tag>` pair of the zone's kind,
+ * strip that pair. Returns `markdown` unchanged otherwise.
+ */
+export function unwrapLegacyZone(markdown: string, lineIds: string[], tag: string): string {
+  const span = spanForLineIds(markdown, lineIds)
+  if (!span || !span.wrapped || span.wrapperZoneId !== undefined) return markdown
+  const openLineEnd = markdown.indexOf('\n', span.start)
+  if (openLineEnd === -1 || markdown.slice(span.start, openLineEnd) !== `<${tag}>`) return markdown
+  const closeLineStart = markdown.lastIndexOf('\n', span.end - 1) + 1
+  if (markdown.slice(closeLineStart, span.end) !== `</${tag}>`) return markdown
+  return removeLine(removeLine(markdown, closeLineStart, span.end), span.start, openLineEnd)
+}
+
+/** Every `zone="id"` carried by a block open tag in `markdown`. */
+export function zoneIdsInMarkdown(markdown: string): Set<string> {
+  const ids = new Set<string>()
+  for (const line of markdown.split('\n')) {
+    const m = BLOCK_OPEN_LINE_RE.exec(line.trim())
+    if (m?.[2]) ids.add(m[2])
+  }
+  return ids
+}
+
+/**
+ * Unwraps every block tagged with a `zone` id that isn't in `keepIds` — tags left behind
+ * by a manual group that no longer exists (e.g. one replaced by a redraw over the same
+ * lines).
+ */
+export function unwrapOrphanZones(markdown: string, keepIds: Set<string>): string {
+  let out = markdown
+  for (const id of zoneIdsInMarkdown(markdown)) {
+    if (!keepIds.has(id)) out = unwrapZone(out, id)
+  }
+  return out
 }

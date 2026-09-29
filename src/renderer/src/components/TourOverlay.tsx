@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState, useCallback } from 'react'
+import React, { useEffect, useLayoutEffect, useRef, useState, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { TOUR_STEPS } from '../data/tourSteps'
@@ -11,6 +11,7 @@ interface Rect { top: number; left: number; width: number; height: number }
 
 const PADDING = 8   // px around the spotlight highlight
 const PANEL_W = 340 // tooltip panel width
+const MARGIN = 8    // min px between the panel and the viewport edge
 
 function getSpotlightRect(selector: string): Rect | null {
   const el = document.querySelector(selector)
@@ -30,11 +31,14 @@ function clamp(v: number, lo: number, hi: number): number {
 
 function panelPosition(
   spotlight: Rect | null,
-  preferred: 'top' | 'bottom' | 'left' | 'right' | 'center'
+  preferred: 'top' | 'bottom' | 'left' | 'right' | 'center',
+  measuredH: number
 ): React.CSSProperties {
   const vw = window.innerWidth
   const vh = window.innerHeight
-  const panelH = 440 // rough max height
+  // Real rendered height (capped by the panel's maxHeight) so the clamps below keep
+  // the footer buttons on screen; before the first measure, assume a typical panel.
+  const panelH = Math.min(measuredH || 440, vh - MARGIN * 2)
 
   if (!spotlight || preferred === 'center') {
     return {
@@ -54,8 +58,8 @@ function panelPosition(
     if (panelTop + panelH < vh) {
       return {
         position: 'fixed',
-        top:  clamp(panelTop, 8, vh - panelH - 8),
-        left: clamp(left + width / 2 - PANEL_W / 2, 8, vw - PANEL_W - 8),
+        top:  clamp(panelTop, MARGIN, vh - panelH - MARGIN),
+        left: clamp(left + width / 2 - PANEL_W / 2, MARGIN, vw - PANEL_W - MARGIN),
         width: PANEL_W,
       }
     }
@@ -64,8 +68,8 @@ function panelPosition(
   if (preferred === 'top') {
     return {
       position: 'fixed',
-      top:  clamp(top - panelH - gap, 8, vh - panelH - 8),
-      left: clamp(left + width / 2 - PANEL_W / 2, 8, vw - PANEL_W - 8),
+      top:  clamp(top - panelH - gap, MARGIN, vh - panelH - MARGIN),
+      left: clamp(left + width / 2 - PANEL_W / 2, MARGIN, vw - PANEL_W - MARGIN),
       width: PANEL_W,
     }
   }
@@ -75,7 +79,7 @@ function panelPosition(
     if (panelLeft + PANEL_W < vw) {
       return {
         position: 'fixed',
-        top:  clamp(top + height / 2 - panelH / 2, 8, vh - panelH - 8),
+        top:  clamp(top + height / 2 - panelH / 2, MARGIN, vh - panelH - MARGIN),
         left: panelLeft,
         width: PANEL_W,
       }
@@ -85,8 +89,8 @@ function panelPosition(
   // left
   return {
     position: 'fixed',
-    top:  clamp(top + height / 2 - panelH / 2, 8, vh - panelH - 8),
-    left: clamp(left - PANEL_W - gap, 8, vw - PANEL_W - 8),
+    top:  clamp(top + height / 2 - panelH / 2, MARGIN, vh - panelH - MARGIN),
+    left: clamp(left - PANEL_W - gap, MARGIN, vw - PANEL_W - MARGIN),
     width: PANEL_W,
   }
 }
@@ -104,6 +108,15 @@ export default function TourOverlay({ tour }: { tour: TourState }): React.JSX.El
   const rafRef       = useRef<number | null>(null)
   const settleRef    = useRef<ReturnType<typeof setTimeout> | null>(null)
   const prevProjectRef = useRef<Project | null>(null)
+  const panelRef     = useRef<HTMLDivElement | null>(null)
+  const [panelH, setPanelH] = useState(0)
+
+  // Measure after every render: content changes per step and the spotlight tick
+  // re-renders continuously, so this converges within a frame.
+  useLayoutEffect(() => {
+    const h = panelRef.current?.offsetHeight ?? 0
+    if (h !== panelH) setPanelH(h)
+  })
 
   // Inject / restore the demo project when the tour opens or closes
   useEffect(() => {
@@ -185,7 +198,7 @@ export default function TourOverlay({ tour }: { tour: TourState }): React.JSX.El
   if (!active || !step) return null
 
   const isModal  = step.position === 'center' || !spotlight
-  const panelStyle = panelPosition(spotlight, step.position)
+  const panelStyle = panelPosition(spotlight, step.position, panelH)
   const isFirst  = stepIndex === 0
   const isLast   = stepIndex === total - 1
 
@@ -224,6 +237,7 @@ export default function TourOverlay({ tour }: { tour: TourState }): React.JSX.El
 
       {/* Tooltip panel */}
       <div
+        ref={panelRef}
         style={{
           ...panelStyle,
           background: 'var(--paper)',
@@ -234,7 +248,7 @@ export default function TourOverlay({ tour }: { tour: TourState }): React.JSX.El
           flexDirection: 'column',
           gap: 0,
           overflow: 'hidden',
-          maxHeight: '90vh',
+          maxHeight: `calc(100vh - ${MARGIN * 2}px)`,
           zIndex: 9901,
         }}
         onClick={(e) => e.stopPropagation()}
@@ -259,7 +273,7 @@ export default function TourOverlay({ tour }: { tour: TourState }): React.JSX.El
         )}
 
         {/* Body */}
-        <div style={{ padding: '1rem 1.1rem', flex: 1, overflowY: 'auto' }}>
+        <div style={{ padding: '1rem 1.1rem', flex: 1, minHeight: 0, overflowY: 'auto' }}>
           {/* Step counter */}
           <div style={{ fontFamily: 'ui-monospace, monospace', fontSize: 10, letterSpacing: '.14em', textTransform: 'uppercase', color: 'var(--mute)', marginBottom: 6 }}>
             {t('tour.stepOf', { current: stepIndex + 1, total })}

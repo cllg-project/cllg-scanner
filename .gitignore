@@ -3,3 +3,8 @@ out/
 dist/
 *.log
 .DS_Store
+
+# Kraken models: attached to the GitHub releases and downloaded by the app on first
+# run (resources/models.json lists them); in development, place them here by hand.
+resources/models/*.js_mlmodel
+*.tsbuildinfo

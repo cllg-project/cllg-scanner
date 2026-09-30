@@ -486,7 +486,7 @@
       },
       "ocr-models": {
         "title": "Step 4 · Choose the Kraken models",
-        "body": "Kraken uses a segmentation model (finds the lines) and a recognition model (reads them); with «Detect regions», a layout model also finds the zones chosen at step 2. The built-in Ancient Greek models work out of the box; choose Custom to load your own. «CPU threads» sets how much of the computer OCR may use — saved for this computer."
+        "body": "Kraken uses a segmentation model (finds the lines) and a recognition model (reads them); with «Detect regions», a layout model also finds the zones chosen at step 2. The built-in models (Ancient Greek, and the CLLG and LADaS layout models) are downloaded once, on the app's first launch; choose Custom to load your own. «CPU threads» sets how much of the computer OCR may use — saved for this computer."
       },
       "ocr-run": {
         "title": "Run OCR",
@@ -599,5 +599,15 @@
     "outcomeMarginCllg": "inline <ref> / <note> on the line beside it",
     "outcomeLines": "plain lines",
     "outcomeLinesZone": "plain lines, linked to a zone"
+  },
+  "models": {
+    "title": "Downloading the Kraken models",
+    "intro": "The built-in OCR models are not part of the application: they are downloaded once from the release on GitHub ({{size}} MB) and kept for the next launches. Importing and masking work in the meantime; OCR needs them.",
+    "error": "The download failed:",
+    "retry": "Retry",
+    "continueWithout": "Continue without",
+    "background": "Continue in the background",
+    "backgroundHint": "Hide this window; the download goes on",
+    "done": "All models are ready."
   }
 }

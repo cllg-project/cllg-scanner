@@ -486,7 +486,7 @@
       },
       "ocr-models": {
         "title": "Étape 4 · Choisir les modèles Kraken",
-        "body": "Kraken utilise un modèle de segmentation (trouve les lignes) et un modèle de reconnaissance (les lit) ; avec « Détecter les régions », un modèle de mise en page trouve aussi les zones choisies à l'étape 2. Les modèles intégrés pour le grec ancien fonctionnent tels quels ; choisissez Personnalisé pour charger les vôtres. « Threads CPU » règle la part de l'ordinateur que l'OCR peut utiliser — enregistré pour cet ordinateur."
+        "body": "Kraken utilise un modèle de segmentation (trouve les lignes) et un modèle de reconnaissance (les lit) ; avec « Détecter les régions », un modèle de mise en page trouve aussi les zones choisies à l'étape 2. Les modèles intégrés (grec ancien, et modèles de mise en page CLLG et LADaS) sont téléchargés une fois, au premier lancement de l'application ; choisissez Personnalisé pour charger les vôtres. « Threads CPU » règle la part de l'ordinateur que l'OCR peut utiliser — enregistré pour cet ordinateur."
       },
       "ocr-run": {
         "title": "Lancer l'OCR",
@@ -599,5 +599,15 @@
     "outcomeMarginCllg": "<ref> / <note> dans la ligne voisine",
     "outcomeLines": "lignes simples",
     "outcomeLinesZone": "lignes simples, liées à une zone"
+  },
+  "models": {
+    "title": "Téléchargement des modèles Kraken",
+    "intro": "Les modèles d'OCR intégrés ne font pas partie de l'application : ils sont téléchargés une fois depuis la publication sur GitHub ({{size}} Mo) et conservés pour les prochains lancements. L'import et le masquage fonctionnent en attendant ; l'OCR en a besoin.",
+    "error": "Le téléchargement a échoué :",
+    "retry": "Réessayer",
+    "continueWithout": "Continuer sans",
+    "background": "Continuer en arrière-plan",
+    "backgroundHint": "Masquer cette fenêtre ; le téléchargement continue",
+    "done": "Tous les modèles sont prêts."
   }
 }

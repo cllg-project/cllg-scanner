@@ -9,6 +9,7 @@ import Config from './pages/Config'
 import Review from './pages/Review'
 import Export from './pages/Export'
 import TourOverlay from './components/TourOverlay'
+import ModelDownloadGate from './components/ModelDownloadGate'
 import { useTour } from './hooks/useTour'
 import type { TourState } from './hooks/useTour'
 import { TOUR_DEMO_ID } from './data/tourDemoProject'
@@ -77,6 +78,7 @@ export default function App(): React.JSX.Element {
             <Route path="/export" element={<Export />} />
           </Routes>
           <TourOverlay tour={tour} />
+          <ModelDownloadGate />
         </div>
       </ProjectContext.Provider>
     </TourContext.Provider>

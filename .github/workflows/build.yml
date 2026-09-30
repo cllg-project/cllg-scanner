@@ -82,10 +82,27 @@ jobs:
     permissions:
       contents: write
     steps:
+      # For resources/models.json and the scripts that check the models against it.
+      - uses: actions/checkout@v4.2.2
+
       - uses: actions/download-artifact@v4.3.0
         with:
           path: artifacts
           merge-multiple: true
+
+      # The Kraken models are not packaged in the app: they are attached to each release
+      # and downloaded by the app on first run. They live in their own repository (Git
+      # LFS) and are taken from its release pinned in resources/models.json, checked
+      # against the manifest.
+      - name: Attach the Kraken models
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          REPO="$(node -p "require('./resources/models.json').modelsRepo")"
+          TAG="$(node -p "require('./resources/models.json').modelsTag")"
+          gh release download "$TAG" --repo "$REPO" --dir artifacts/models \
+            $(node scripts/model-manifest.mjs list | sed 's/^/--pattern /')
+          node scripts/model-manifest.mjs verify artifacts/models
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2

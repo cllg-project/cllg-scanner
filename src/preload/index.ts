@@ -10,6 +10,8 @@ import type {
   KrakenConfig,
   KrakenStep,
   KrakenStepResult,
+  ModelStatus,
+  ModelDownloadEvent,
   DocumentType,
   AltoScanResult,
   AltoLine,
@@ -115,6 +117,16 @@ const api = {
 
   runKraken: (projectDir: string, pages: Project['pages'], krakenConfig: KrakenConfig): Promise<void> =>
     ipcRenderer.invoke('kraken:run', projectDir, pages, krakenConfig),
+
+  // Built-in Kraken models, downloaded on first run.
+  getModelStatus: (): Promise<ModelStatus[]> => ipcRenderer.invoke('models:status'),
+  downloadModels: (): Promise<ModelStatus[]> => ipcRenderer.invoke('models:download'),
+  cancelModelDownload: (): Promise<void> => ipcRenderer.invoke('models:cancel'),
+  onModelDownload: (cb: (e: ModelDownloadEvent) => void): (() => void) => {
+    const handler = (_: unknown, e: ModelDownloadEvent): void => cb(e)
+    ipcRenderer.on('models:progress', handler)
+    return () => ipcRenderer.removeListener('models:progress', handler)
+  },
 
   // Region types (LADaS labels) a D-FINE region model detects.
   getRegionClasses: (modelPath: string): Promise<string[]> =>

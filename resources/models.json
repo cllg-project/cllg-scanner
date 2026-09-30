@@ -1,0 +1,31 @@
+{
+  "repo": "cllg-project/cllg-scanner",
+  "modelsRepo": "PonteIneptique/kraken-js-models",
+  "modelsTag": "v1.0.0",
+  "files": [
+    {
+      "file": "segmentation.js_mlmodel",
+      "size": 4634709,
+      "sha256": "d9b402fd1071c968c979b0d70e31aaad222485a0cff30e3de49e5ef1379822f4",
+      "description": "Kraken line segmentation"
+    },
+    {
+      "file": "ppocr_v6_tau090.js_mlmodel",
+      "size": 58976582,
+      "sha256": "ebdad219dc03ceda8f9b60e8327864b1ad7d1f9ff7dacaa33a6d5fb0b595476a",
+      "description": "Kraken recognition (Ancient Greek)"
+    },
+    {
+      "file": "dfine_cllg.js_mlmodel",
+      "size": 115899510,
+      "sha256": "f74a53415d05aebbaacac5375a4c4af9bda0bbb0434adc956f86c92c16a6071e",
+      "description": "D-FINE layout zones (CLLG, Greek editions)"
+    },
+    {
+      "file": "dfine_ladas.js_mlmodel",
+      "size": 13890313,
+      "sha256": "88e8d3196b4d651b4ddcec0f4c3c8bc562fe496e8f7354979b80e1f2cd015847",
+      "description": "D-FINE layout zones (LADaS, Latin and general documents)"
+    }
+  ]
+}

@@ -4,9 +4,9 @@
 
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 
-A desktop application that turns scans of ancient Greek and Latin scholarly editions — PDFs, DjVu files, image folders, or ALTO exports — into structured TEI XML, through a guided six-step workflow.
+A desktop application that turns scans of ancient Greek and Latin scholarly editions — PDFs, DjVu files, image folders, or ALTO exports — into structured TEI XML, through a guided seven-step workflow.
 
-Text recognition runs locally with [Kraken](https://kraken.re/) models (through [kraken-js](https://github.com/cllg-project/kraken-js) and ONNX Runtime). Nothing to install besides the application, and no data leaves your machine.
+Text recognition runs locally with [Kraken](https://kraken.re/) models (through [kraken-js](https://github.com/cllg-project/kraken-js) and ONNX Runtime). Nothing to install besides the application (the models are downloaded on first launch), and no data leaves your machine.
 
 ---
 
@@ -16,16 +16,18 @@ No technical skills or build tools are required. Pre-built executables for Windo
 
 | Platform | File |
 |---|---|
-| Windows | `CLLG-Desktop-Setup-*.exe` — run the installer |
-| macOS | `CLLG-Desktop-*.dmg` — open and drag to Applications |
-| Linux | `CLLG-Desktop-*.AppImage`, `.deb`, or `.tar.gz` — see below |
+| Windows | `CLLG.Desktop.*.exe` — portable: run it directly, nothing to install |
+| macOS (Apple Silicon) | `CLLG.Desktop-*-arm64.dmg` — open and drag to Applications |
+| Linux | `CLLG.Desktop-*.AppImage`, `cllg-desktop_*_amd64.deb`, or `cllg-desktop-*.tar.gz` — see below |
+
+The `.js_mlmodel` files attached to a release are the Kraken models: the application downloads them by itself on first launch, there is no need to download them by hand.
 
 **Linux — which file to pick:**
 
 - **`.deb`** (recommended for Debian/Ubuntu): installs via your package manager,
   which resolves all required shared libraries automatically.
   ```bash
-  sudo apt install ./CLLG-Desktop-*.deb
+  sudo apt install ./cllg-desktop_*_amd64.deb
   ```
 - **`.AppImage`**: run directly, but requires `libfuse2`, which is no longer
   preinstalled on Ubuntu ≥ 22.04 / Debian ≥ 12 (they ship FUSE3 by default). If you see
@@ -33,13 +35,13 @@ No technical skills or build tools are required. Pre-built executables for Windo
   `libfuse2`:
   ```bash
   sudo apt install libfuse2
-  chmod +x CLLG-Desktop-*.AppImage
-  ./CLLG-Desktop-*.AppImage
+  chmod +x CLLG.Desktop-*.AppImage
+  ./CLLG.Desktop-*.AppImage
   ```
   or bypass FUSE entirely:
   ```bash
-  chmod +x CLLG-Desktop-*.AppImage
-  ./CLLG-Desktop-*.AppImage --appimage-extract-and-run
+  chmod +x CLLG.Desktop-*.AppImage
+  ./CLLG.Desktop-*.AppImage --appimage-extract-and-run
   ```
 - **`.tar.gz`**: works on any distribution, no packaging system required. Extract
   and run the `cllg-desktop` binary inside.
@@ -53,7 +55,7 @@ sudo apt install libnss3 libgtk-3-0 libasound2 libatk-bridge2.0-0 libgbm1 libxss
 If the application fails to start with a sandbox error, add the `--no-sandbox` flag:
 
 ```bash
-./CLLG-Desktop-*.AppImage --no-sandbox
+./CLLG.Desktop-*.AppImage --no-sandbox
 ```
 
 ---
@@ -61,7 +63,7 @@ If the application fails to start with a sandbox error, add the `--no-sandbox` f
 ## Requirements
 
 - A scanned document: PDF, DjVu, a folder of page images (PNG, JPEG, TIFF…), or ALTO XML files with their images (e.g. exported from eScriptorium)
-- Nothing else: built-in Ancient Greek segmentation and recognition models are bundled. Your own Kraken models (`.js_mlmodel`) can be loaded instead.
+- An internet connection on first launch: the built-in Kraken models (Ancient Greek segmentation and recognition, and the CLLG and LADaS layout models, ~190 MB) are downloaded once from the GitHub release, checked against their SHA-256, and kept in the app's user-data folder. Importing and masking work while they download. The models are published in their own repository, [kraken-js-models](https://github.com/PonteIneptique/kraken-js-models). Your own Kraken models (`.js_mlmodel`) can be loaded instead.
 
 A guided tour (home screen or sidebar) walks through every step on a demo project.
 
@@ -73,28 +75,40 @@ A guided tour (home screen or sidebar) walks through every step on a demo projec
 
 Create a project from a PDF or DjVu (choose the pages: ranges, «Skip covers», odd/even pages…), from a folder of images, or from ALTO files with their images. Each page is stored as a PNG under `pages/`. ALTO import keeps every line's geometry; when the ALTO carries LADaS zone types, paragraphs, quotes and headings are recognised automatically.
 
-### 2. Mask
+### 2. Document
+
+Say what kind of document the project is:
+
+- **Greek (CLLG)** — a Greek scholarly edition: the section markers in the margins (Stephanus, Bekker, chapter numbers…) are merged into the text as `<ref>`, longer margin text as an inline `<note>`;
+- **Latin (LADaS)** — a Latin or general document typed with the LADaS zone vocabulary: margin text stays a `<note>` of its own.
+
+The choice picks the layout model that detects the zones of each page (9 zone types for CLLG, 37 for LADaS). For every zone type, choose what the transcription keeps: **Annotate** (text kept and tagged, e.g. `<p zone="r3">`, zone editable in Review), **Keep text** (plain lines) or **Drop** (left out; the line boxes are kept). By default running titles, page and quire numbers, stamps, decorations and noise are dropped, everything else is annotated. All of this can be changed later.
+
+### 3. Mask
 
 Draw white rectangles over what should not be read — running heads, line numbers, footnotes, critical apparatus, marginalia. Masked regions are whited out before recognition. Masks can be copied to all pages, generated from ALTO regions, or exported as COCO JSON. Pages can be skipped (e.g. a cover page) from the thumbnail list.
 
 Shortcuts: **D** draw, **S** select, **Delete** remove.
 
-### 3. OCR
+### 4. OCR
 
-Kraken segments each page into lines and recognises them, one page at a time. Results are cached per page (`pages/page_NNNN.md`; the first pass is also kept, untouched, in `page_NNNN.orig.md`), so runs can be stopped and resumed; «Force reprocess» redoes chosen pages. Every line is anchored with `<lb n="…"/>`, which keeps the text linked to its position on the image.
+Kraken segments each page into lines and recognises them, one page at a time; with «Detect regions», a D-FINE layout model also finds the page's zones and the lines are grouped into them as chosen in the Document step. Duplicate detections (two zones overlapping by more than 80%) are dropped. Results are cached per page (`pages/page_NNNN.md`; the first pass is also kept, untouched, in `page_NNNN.orig.md`), so runs can be stopped and resumed; «Force reprocess» redoes chosen pages. Every line is anchored with `<lb n="…"/>`, which keeps the text linked to its position on the image.
+
+The three steps can also be run separately — **Zones** (layout), **Lines** (segmentation), **Text** (recognition) — on any selected pages, including pages already reviewed: each changes only its own layer and keeps the corrected text (the Zones step, for instance, adds or updates the zones without touching a word). Review offers the same for the current page.
 
 The **CPU threads** setting (saved per computer) controls how much of the machine OCR may use.
 
-### 4. Structure
+### 5. Structure
 
-Describe the document's metadata, its reference hierarchy (e.g. book → chapter → section) and its bibliography (TEI `sourceDesc`). Each level has a numbering format — Roman, Arabic, Alpha, Greek, Stephanus, or a custom regular expression — and options: `missing_first` (the first number is not printed), `allow_gaps`, and `milestone` (a marker inside the text rather than a division).
+Describe the document's metadata, its reference hierarchy (e.g. book → chapter → section) and its bibliography (TEI `sourceDesc`). The hierarchy is optional: without it, the TEI is cited by page only. Each level has a numbering format — Roman, Arabic, Alpha, Greek, Stephanus, or a custom regular expression — and options: `missing_first` (the first number is not printed), `allow_gaps`, and `milestone` (a marker inside the text rather than a division).
 
-### 5. Review
+### 6. Review
 
 The page image and the transcription side by side (the image pane can be hidden). Edits are saved per page with Ctrl/Cmd S; the combined `ocr_output.md` is rebuilt on every save.
 
 - **Structure tags:** `<ref>` for reference numbers (with their hierarchy level; level 1 directly when only one level is declared), `<note>`, `<quote>`, `<cit>`, `<bibl>`, `<lb/>`. Click inside a tag to edit or convert it.
-- **Zones:** «Draw Zone» groups lines into Paragraph, Quote, Heading or Continued (a paragraph continuing from the previous page); zones can be moved, resized, retyped or deleted, and their tags follow.
+- **Zones:** «Zones» shows the page's zones — detected by the layout model (dashed) or drawn by hand with «Draw Zone» (solid). Each zone is linked to its tag in the text (`<p zone="r3">`): putting the caret in the text selects its zone, and moving, resizing, retyping or deleting a zone rewrites its tag. To change a zone's type, click its label (on the image or in the zone list) or press **T**: a searchable list of the zone types (type to filter — «head», «mzh»…; the types dropped in the Document step are left out).
+- **Re-OCR:** rebuild the page from scratch, or run a single step (Zones, Lines or Text) on it without losing corrections.
 - **Lines:** «Show line boxes» outlines every line — click one to jump to it. A selected line can be redrawn (**R**) and re-read on its own («Re-OCR line»).
 - **Checking:** «2nd read» (Kraken re-read with differences underlined), «Line» (image of the current line above the caret), in-page search, detection of Latin letters inside Greek, «Fix hyphens», «Scan refs».
 - **Greek typing:** a betacode keyboard (diacritics before the letter: `)/a` → ἄ), with `:` → · (ano teleia), `?` → ; (Greek question mark) and `<` `>` → ⟨ ⟩ (Leiden brackets).
@@ -108,18 +122,19 @@ The page image and the transcription side by side (the image pane can be hidden)
 | Betacode keyboard on/off | Ctrl/Cmd K |
 | Wrap in `<ref>` / `<note>` / `<quote>` / `<cit>` / `<bibl>` | Ctrl/Cmd R / M / Q / I / B |
 | Draw Zone mode on/off *(pointer over the image)* | G |
-| Zone type *(in Draw Zone mode)* | P, Q, H, C |
+| Zone type list *(zone selected, or in Draw Zone mode)* | T |
+| Paragraph / Quote / Heading / Continued *(in Draw Zone mode)* | P, Q, H, C |
 | Redraw the selected line *(pointer over the image)* | R |
 | Delete the selected zone | Delete |
 
-### 6. TEI Export
+### 7. TEI Export
 
-«Generate» builds one TEI P5 file for the whole document; the converter runs inside the application, with no external tools or network access. The output includes:
+«Generate» builds one TEI P5 file for the whole document; the converter runs inside the application, with no external tools or network access. It works with or without a reference hierarchy. The output includes:
 
 - nested `<div>` elements following the reference hierarchy, and `<milestone>` elements for milestone levels
 - `<head>`, `<p>` and `<quote>` from zones and tags; Continued zones merged into the paragraph they continue, across the page break
 - `<pb>` page breaks, `<lb n="…"/>` line anchors, and `<lb break="no"/>` for words split at the line end
-- `<note>`, `<cit>`, `<bibl>`, and `<citeStructure>` in the header for machine-readable citation paths
+- `<note>`, `<cit>`, `<bibl>`, and `<citeStructure>` in the header for machine-readable citation paths: always by page (`<refsDecl type="physical">`, on `//pb`), and by the reference hierarchy when there is one
 
 The text is normalised to Unicode NFC. The Per-page tab exports plain text, text with LADaS tags, ALTO or pre-TEI; a searchable PDF and a zip of the whole project can also be exported.
 
@@ -131,7 +146,8 @@ Each project is a directory containing:
 
 ```
 my_project/
-  project.cllg.json      metadata, pages (masks, status, line geometry, zones), hierarchy, bibliography
+  project.cllg.json      metadata, pages (masks, status, line geometry, zones), hierarchy, bibliography,
+                         Kraken settings (document type, zone choices)
   pages/
     page_0001.png         original page image
     page_0001_masked.png  masked version (when the page has masks)
@@ -141,13 +157,13 @@ my_project/
   ocr_output.md           all pages combined, rebuilt on every save
 ```
 
-The TEI file is saved wherever you choose. The project file is plain JSON and can be version-controlled or shared. Per-computer settings (such as CPU threads) live in the application's user-data folder, not in the project.
+The TEI file is saved wherever you choose. The project file is plain JSON and can be version-controlled or shared. Per-computer settings (such as CPU threads) and the downloaded Kraken models live in the application's user-data folder, not in the project.
 
 ---
 
 ## Hierarchy configuration
 
-The hierarchy is defined in the Structure step and stored in `project.cllg.json`; it is compiled to YAML for the converter:
+The hierarchy is defined in the Structure step and stored in `project.cllg.json`; it is compiled to YAML for the converter (with no hierarchy, `structure` is left out and the TEI is cited by page only):
 
 ```yaml
 metadata:
@@ -183,11 +199,13 @@ npm test           # unit tests (vitest)
 
 Requires Node 20+ and npm 10+.
 
+The Kraken models are not in this repository. `npm run dev` downloads them on first launch like the released application; to work offline, put the `.js_mlmodel` files from [kraken-js-models](https://github.com/PonteIneptique/kraken-js-models) (Git LFS) in `resources/models/`, where they are used as they are. `resources/models.json` pins the models release and their checksums; the release workflow attaches the models to every application release.
+
 ---
 
 ## Architecture notes
 
-Electron 31, React 18 and TypeScript. PDF pages are rendered with pdfjs-dist (DjVu with djvu.js) in the renderer; masking uses Konva. Recognition runs in the main process with kraken-js on ONNX Runtime; each run uses only the full-page pipeline (segmentation + recognition), including single-line re-reads, which isolate the line on a blank page. TEI conversion is a pure TypeScript implementation with no native dependencies.
+Electron 31, React 18 and TypeScript. PDF pages are rendered with pdfjs-dist (DjVu with djvu.js) in the renderer; masking uses Konva. Recognition runs in the main process with kraken-js on ONNX Runtime; each run uses only the full-page pipeline (segmentation + recognition), including single-line re-reads, which isolate the line on a blank page. Layout zones come from a D-FINE model (kraken-js `DFineSegmenter`) run on the whole page; lines are assigned to the zone covering them. TEI conversion is a pure TypeScript implementation with no native dependencies.
 
 ---
 

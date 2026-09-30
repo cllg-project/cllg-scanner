@@ -17,11 +17,9 @@ asarUnpack:
   - node_modules/sharp/**
   - node_modules/@img/**
 
+# The Kraken models are not packaged: they are attached to the GitHub release and
+# downloaded on first run (src/main/models.ts, resources/models.json).
 extraResources:
-  - from: resources/models/
-    to: models/
-    filter:
-      - '**/*.js_mlmodel'
   - from: licenses/
     to: licenses/
 

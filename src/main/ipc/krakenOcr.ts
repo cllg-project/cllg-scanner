@@ -1,5 +1,4 @@
-import { ipcMain, app, dialog, BrowserWindow, type IpcMainInvokeEvent } from 'electron'
-import { is } from '@electron-toolkit/utils'
+import { ipcMain, dialog, BrowserWindow, type IpcMainInvokeEvent } from 'electron'
 import { join, isAbsolute } from 'path'
 import { readFile, writeFile, appendFile, unlink } from 'fs/promises'
 import { mkdirSync, existsSync } from 'fs'
@@ -16,6 +15,7 @@ import { migratePageZones, writeAllZoneTags } from '@shared/zones'
 import { rebuildCombinedMarkdown } from './pdf'
 import { loadSettings, updateSettings } from '../settings'
 import sharp from 'sharp'
+import { assertModelPresent, builtinModelPath, resolveModelPath } from '../models'
 
 const BUILTIN_SEG = 'segmentation.js_mlmodel'
 const BUILTIN_REC = 'ppocr_v6_tau090.js_mlmodel'
@@ -26,11 +26,6 @@ const BUILTIN_REGION: Record<DocumentType, string> = {
   ladas: 'dfine_ladas.js_mlmodel',
 }
 
-function modelsDir(): string {
-  return is.dev
-    ? join(app.getAppPath(), 'resources', 'models')
-    : join(process.resourcesPath, 'models')
-}
 
 type Obb = { cx: number; cy: number; w: number; h: number; angle: number; corners: [number, number][] }
 type KrakenPipelineT = {
@@ -88,7 +83,9 @@ type RegionSegmenterT = {
 // session from the pipeline's, run on the whole page image only (never on crops).
 let cachedRegionSegmenter: { path: string; threads: number; promise: Promise<RegionSegmenterT> } | null = null
 
-async function getRegionSegmenter(modelPath: string): Promise<RegionSegmenterT> {
+async function getRegionSegmenter(storedPath: string): Promise<RegionSegmenterT> {
+  const modelPath = resolveModelPath(storedPath)
+  assertModelPresent(modelPath)
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const { DFineSegmenter } = require('kraken-js') as {
     DFineSegmenter: {
@@ -110,7 +107,11 @@ async function getRegionSegmenter(modelPath: string): Promise<RegionSegmenterT> 
   return cachedRegionSegmenter.promise
 }
 
-async function getPipeline(segModelPath: string, recModelPath: string): Promise<KrakenPipelineT> {
+async function getPipeline(storedSegPath: string, storedRecPath: string): Promise<KrakenPipelineT> {
+  const segModelPath = resolveModelPath(storedSegPath)
+  const recModelPath = resolveModelPath(storedRecPath)
+  assertModelPresent(segModelPath)
+  assertModelPresent(recModelPath)
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const { KrakenPipeline } = require('kraken-js') as {
     KrakenPipeline: {
@@ -176,6 +177,8 @@ export function registerKrakenHandlers(): void {
   // The region types a D-FINE model detects, from its metadata.json (class_mapping.regions).
   // Only that entry of the .js_mlmodel zip is read: no ONNX session is created.
   ipcMain.handle('kraken:regionClasses', async (_event, modelPath: string): Promise<string[]> => {
+    modelPath = resolveModelPath(modelPath)
+    assertModelPresent(modelPath)
     const cached = regionClassCache.get(modelPath)
     if (cached) return cached
     // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -192,11 +195,11 @@ export function registerKrakenHandlers(): void {
   })
 
   ipcMain.handle('kraken:getBuiltinPaths', () => ({
-    segModelPath: join(modelsDir(), BUILTIN_SEG),
-    recModelPath: join(modelsDir(), BUILTIN_REC),
+    segModelPath: builtinModelPath(BUILTIN_SEG),
+    recModelPath: builtinModelPath(BUILTIN_REC),
     regionModelPaths: {
-      cllg: join(modelsDir(), BUILTIN_REGION.cllg),
-      ladas: join(modelsDir(), BUILTIN_REGION.ladas),
+      cllg: builtinModelPath(BUILTIN_REGION.cllg),
+      ladas: builtinModelPath(BUILTIN_REGION.ladas),
     },
   }))
 

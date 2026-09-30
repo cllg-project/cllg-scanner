@@ -221,3 +221,19 @@ export interface AltoScanResult {
   regionTypes: string[]
   ladasCompatible: boolean   // true if any regionType matches the LADaS MainZone:* convention
 }
+
+// Built-in Kraken models, downloaded on first run (see src/main/models.ts).
+export interface ModelStatus {
+  file: string
+  description: string
+  size: number        // bytes
+  present: boolean
+}
+
+export interface ModelDownloadEvent {
+  file: string
+  status: 'started' | 'progress' | 'done' | 'error'
+  received: number
+  total: number
+  error?: string
+}

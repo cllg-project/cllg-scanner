@@ -7,6 +7,7 @@ import { registerPDFHandlers } from './ipc/pdf'
 import { registerOCRHandlers } from './ipc/ocr'
 import { registerTEIHandlers } from './ipc/tei'
 import { registerKrakenHandlers } from './ipc/krakenOcr'
+import { registerModelHandlers } from './models'
 import { registerProjectExportHandlers } from './ipc/projectExport'
 import { registerAltoHandlers } from './ipc/alto'
 import { registerPageExportHandlers } from './ipc/pageExport'
@@ -77,6 +78,7 @@ app.whenReady().then(() => {
   registerOCRHandlers()
   registerTEIHandlers()
   registerKrakenHandlers()
+  registerModelHandlers()
   registerProjectExportHandlers()
   registerAltoHandlers()
   registerPageExportHandlers()

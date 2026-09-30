@@ -3,10 +3,13 @@
 ![CLLG Desktop](cllg.png)
 
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
+[![Web demo](https://img.shields.io/badge/try_it-web_demo-8b3a2a.svg)](https://cllg-project.github.io/cllg-scanner/)
 
 A desktop application that turns scans of ancient Greek and Latin scholarly editions — PDFs, DjVu files, image folders, or ALTO exports — into structured TEI XML, through a guided seven-step workflow.
 
 Text recognition runs locally with [Kraken](https://kraken.re/) models (through [kraken-js](https://github.com/cllg-project/kraken-js) and ONNX Runtime). Nothing to install besides the application (the models are downloaded on first launch), and no data leaves your machine.
+
+**[Try the interactive demo in your browser →](https://cllg-project.github.io/cllg-scanner/)** A guided tour of the interface on a sample project (Galen, *De propriis placitis*). Masking, zone drawing, text correction and TEI generation work in the demo; OCR and file import need the desktop app.
 
 ---
 

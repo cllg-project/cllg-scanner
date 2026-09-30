@@ -609,5 +609,17 @@
     "background": "Continuer en arrière-plan",
     "backgroundHint": "Masquer cette fenêtre ; le téléchargement continue",
     "done": "Tous les modèles sont prêts."
+  },
+  "demo": {
+    "badge": "Démo web",
+    "hint": "Découvrez l'interface sur un projet d'exemple. Rien ne quitte votre navigateur.",
+    "download": "Télécharger l'application",
+    "source": "Code source",
+    "desktopOnly": "Cette action a besoin de vos fichiers ou des modèles d'OCR : elle est disponible dans l'application de bureau.",
+    "ocrReplay": "Démo : relecture de la sortie Kraken précalculée. L'application de bureau fait la reconnaissance en local, sur votre machine.",
+    "downloaded": "{{file}} téléchargé",
+    "smallScreenTitle": "À consulter sur ordinateur",
+    "smallScreenBody": "CLLG est une application de bureau pour travailler sur les scans de pages en regard de leur transcription : cette démo demande un écran large et une souris. Sur téléphone, elle sera à l'étroit.",
+    "smallScreenContinue": "Continuer quand même"
   }
 }

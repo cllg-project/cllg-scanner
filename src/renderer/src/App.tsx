@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState } from 'react'
+import React, { createContext, useContext, useEffect, useState } from 'react'
 import { Routes, Route, useNavigate } from 'react-router-dom'
 import type { Project } from '@shared/types'
 import Home from './pages/Home'
@@ -13,6 +13,7 @@ import ModelDownloadGate from './components/ModelDownloadGate'
 import { useTour } from './hooks/useTour'
 import type { TourState } from './hooks/useTour'
 import { TOUR_DEMO_ID } from './data/tourDemoProject'
+import { WEB_DEMO } from './webDemo'
 
 interface ProjectContextValue {
   project: Project | null
@@ -59,10 +60,22 @@ export default function App(): React.JSX.Element {
   }
 
   const saveProject = async (p: Project): Promise<void> => {
-    if (p.id === TOUR_DEMO_ID) return   // never write the demo project to disk
+    // Never write the demo project to disk; the web demo's api keeps it in memory.
+    if (p.id === TOUR_DEMO_ID && !WEB_DEMO) return
     await window.api.saveProject(p)
     setProjectState(p)
   }
+
+  // Web demo: first-time visitors land in the tour.
+  useEffect(() => {
+    if (!WEB_DEMO) return
+    try {
+      if (localStorage.getItem('cllg:demoTourSeen')) return
+      localStorage.setItem('cllg:demoTourSeen', '1')
+    } catch { /* storage unavailable: show the tour */ }
+    tour.start()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   return (
     <TourContext.Provider value={tour}>

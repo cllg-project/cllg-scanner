@@ -609,5 +609,17 @@
     "background": "Continue in the background",
     "backgroundHint": "Hide this window; the download goes on",
     "done": "All models are ready."
+  },
+  "demo": {
+    "badge": "Web demo",
+    "hint": "Explore the interface on a sample project. Nothing leaves your browser.",
+    "download": "Download the app",
+    "source": "Source code",
+    "desktopOnly": "This needs your files or the OCR models: it is available in the desktop app.",
+    "ocrReplay": "Demo: replaying the precomputed Kraken output. The desktop app runs recognition locally on your machine.",
+    "downloaded": "Downloaded {{file}}",
+    "smallScreenTitle": "Best viewed on a computer",
+    "smallScreenBody": "CLLG is a desktop application for working on page scans side by side with their transcription: this demo needs a wide screen and a mouse. On a phone it will be cramped.",
+    "smallScreenContinue": "Continue anyway"
   }
 }

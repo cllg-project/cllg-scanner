@@ -7,6 +7,8 @@
     "dev": "electron-vite dev -- --no-sandbox",
     "build": "electron-vite build",
     "preview": "electron-vite preview",
+    "dev:web": "vite --config vite.web.config.ts",
+    "build:web": "vite build --config vite.web.config.ts",
     "package": "npm run build && electron-builder",
     "postinstall": "electron-builder install-app-deps && node scripts/force-sharp-wasm.js",
     "test": "vitest run",

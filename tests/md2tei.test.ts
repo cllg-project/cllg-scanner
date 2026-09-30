@@ -40,3 +40,25 @@ describe('md2tei zone links', () => {
     expect(run(block.replace('<p>', '<p zone="r0">'))).toBe(run(block))
   })
 })
+
+describe('md2tei division ref at the start of a block', () => {
+  const yamlConfigText = 'structure:\n  name: section\n  format: Arabic\n  missing_first: false\n'
+  const run = (markdownText: string): string => normalizeXml(runMd2Tei({ markdownText, yamlConfigText, log: () => {} }))
+  const page = (firstLine: string): string =>
+    '<pb n="1"/>\n<p>\n<lb n="k0"/><ref level="1">1</ref> Prima\n</p>\n' +
+    `<p>\n${firstLine}\n<lb n="k2"/>tertia\n</p>\n`
+
+  it('opens the div when whitespace separates the <lb> anchor from the ref', () => {
+    // Kraken lines often start with a space: `<lb n="k1"/> <ref level="1">2</ref>`.
+    const spaced = run(page('<lb n="k1"/> <ref level="1">2</ref> Secunda'))
+    expect(spaced).toContain('<div type="section" n="2">')
+    expect(spaced).not.toContain('<note>2</note>')
+    expect(spaced).toBe(run(page('<lb n="k1"/><ref level="1">2</ref> Secunda')))
+  })
+
+  it('still degrades a ref preceded by real text to a note', () => {
+    const xml = run(page('<lb n="k1"/>Secunda <ref level="1">2</ref>'))
+    expect(xml).not.toContain('<div type="section" n="2">')
+    expect(xml).toContain('<note>2</note>')
+  })
+})

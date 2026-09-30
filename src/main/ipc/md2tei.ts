@@ -288,7 +288,9 @@ function buildBody(
             parts.push(`<note>${esc(val)}</note>`)
           } else if (ms.has(lvl)) {
             parts.push(`<milestone unit="${escAttr(lm[lvl] ?? `level${lvl}`)}" n="${escAttr(val)}"/>`)
-          } else if (blockLines.length === 0 && parts.every((p) => p.startsWith('<lb '))) {
+          } else if (blockLines.length === 0 && parts.every((p) => p.startsWith('<lb ') || !p.trim())) {
+            // Whitespace doesn't count as content: Kraken lines often start with a space
+            // (`<lb n="k1"/> <ref level="1">2</ref>`).
             openDiv(lvl, val)
           } else {
             parts.push(`<note>${esc(val)}</note>`)

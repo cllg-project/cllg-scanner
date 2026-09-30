@@ -43,11 +43,11 @@ function XmlHighlight({ xml }: { xml: string }): React.JSX.Element {
 
 // ── Main component ────────────────────────────────────────────────────────────
 
-const CURRENT_STEP = 6
+const CURRENT_STEP = 7
 
 export default function Export(): React.JSX.Element {
   const { t } = useTranslation()
-  const STEP_LABELS = [t('steps.import'), t('steps.mask'), t('steps.ocr'), t('steps.config'), t('steps.review'), t('steps.tei')]
+  const STEP_LABELS = [t('steps.import'), t('steps.document'), t('steps.mask'), t('steps.ocr'), t('steps.config'), t('steps.review'), t('steps.tei')]
   const { project } = useProject()
 
   const projectDisplayName = project
@@ -349,7 +349,7 @@ export default function Export(): React.JSX.Element {
 
         {/* Bottom bar */}
         <div className="border-t px-6 h-14 flex items-center gap-4 shrink-0" style={{ borderColor: 'var(--line)', background: 'var(--paper-3)' }}>
-          <button className="btn btn-primary" data-tour="export-generate" onClick={generate} disabled={generating || !hasHierarchy}>
+          <button className="btn btn-primary" data-tour="export-generate" onClick={generate} disabled={generating}>
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z" /><polyline points="13 2 13 9 20 9" />
             </svg>
@@ -411,11 +411,12 @@ export default function Export(): React.JSX.Element {
           </button>
 
           {!hasHierarchy && (
-            <div className="flex items-center gap-2 px-3 py-1.5 rounded-md border" style={{ background: '#fbf2dc', borderColor: '#d9c688' }}>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#8a6a18" strokeWidth="2">
-                <path d="M12 2 2 21h20z" /><path d="M12 9v5M12 17h.01" />
+            // No hierarchy is fine: the TEI is then cited by page only.
+            <div className="flex items-center gap-2 px-3 py-1.5 rounded-md border" style={{ background: 'var(--paper-3)', borderColor: 'var(--line-2)' }}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--mute)" strokeWidth="2">
+                <circle cx="12" cy="12" r="9" /><path d="M12 11v5M12 8h.01" />
               </svg>
-              <span className="text-[11.5px]" style={{ color: '#8a6a18' }}>
+              <span className="text-[11.5px]" style={{ color: 'var(--mute)' }}>
                 {t('export.noHierarchy')}
               </span>
             </div>

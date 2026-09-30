@@ -58,7 +58,7 @@ export function textByAnchor(markdown: string): Map<string, string> {
  * originally produced" export.
  *
  * Lines are grouped into `<TextBlock>`s via ladas.ts's effectiveZones() — the same
- * grouping used to build the markdown in the first place, with any `ManualZoneGroup`
+ * grouping used to build the markdown in the first place, with any `PageZone`
  * override applied *before* grouping so a manually regrouped run of lines merges into
  * one `<TextBlock>` instead of just getting relabeled while staying fragmented. Rather
  * than writing that type directly as a `TextBlock/@TYPE` attribute, this reuses the same
@@ -72,7 +72,7 @@ export function buildAltoXml(page: Page, correctedMarkdown?: string): string {
   const correctedById = correctedMarkdown ? textByAnchor(correctedMarkdown) : null
 
   const byId = new Map<string, LineGeometry>(geometry.map((l) => [l.id, l]))
-  const zones: Zone[] = effectiveZones(geometry.map((l) => ({ ...l, text: l.text ?? '' })), page.manualZones ?? [])
+  const zones: Zone[] = effectiveZones(geometry.map((l) => ({ ...l, text: l.text ?? '' })), page.zones ?? [])
 
   const tagIdByLabel = new Map<string, string>()
   for (const zone of zones) {

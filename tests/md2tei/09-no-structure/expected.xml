@@ -15,6 +15,18 @@
         </p>
       </sourceDesc>
     </fileDesc>
+    <encodingDesc>
+      <appInfo>
+        <application ident="cllg-editor" version="1.0">
+          <label>CLLG Editor
+          </label>
+          <ptr target="https://github.com/cllg-project/cllg-scanner"/>
+        </application>
+      </appInfo>
+      <refsDecl type="physical">
+        <citeStructure match="//pb" unit="page" use="@n"/>
+      </refsDecl>
+    </encodingDesc>
   </teiHeader>
   <text>
     <body>

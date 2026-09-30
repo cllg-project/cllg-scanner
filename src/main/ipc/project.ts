@@ -4,6 +4,7 @@ import { existsSync, mkdirSync } from 'fs'
 import { join, dirname, isAbsolute, basename, sep } from 'path'
 import { randomUUID } from 'crypto'
 import type { Project } from '@shared/types'
+import { migratePageZones } from '@shared/zones'
 
 // Detect absolute paths from either OS regardless of which OS is running now.
 // isAbsolute() only recognises the *current* OS's absolute-path syntax.
@@ -35,7 +36,8 @@ function repairProjectPaths(project: Project): Project {
   return {
     ...project,
     pages: project.pages.map((page) => ({
-      ...page,
+      // Hand-drawn zones of older projects (`manualZones`) join the page's `zones`.
+      ...migratePageZones(page),
       imagePath: repair(page.imagePath) ?? page.imagePath,
       maskedImagePath: repair(page.maskedImagePath),
     })),

@@ -23,6 +23,9 @@
           <ptr target="https://github.com/cllg-project/cllg-scanner"/>
         </application>
       </appInfo>
+      <refsDecl type="physical">
+        <citeStructure match="//pb" unit="page" use="@n"/>
+      </refsDecl>
       <refsDecl>
         <citeStructure match="/TEI/text/body/div[@type='book']" unit="book" use="@n">
           <citeStructure match="div[@type='chapter']" unit="chapter" use="@n" delim=".">

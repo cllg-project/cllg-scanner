@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { findAnchors, findAnchorAt, spanForLineIds, lineTextSpan } from '../src/renderer/src/utils/lbAnchors'
+import { findAnchors, findAnchorAt, spanForLineIds, lineTextSpan } from '../src/shared/lbAnchors'
 
 describe('findAnchors', () => {
   it('finds every <lb n="id"/> occurrence with its position', () => {

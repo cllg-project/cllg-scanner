@@ -6,16 +6,21 @@ import {
 } from '../utils/krakenDiff'
 import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
-import type { Page, PageStatus, HierarchyLevel, KrakenConfig, ManualZoneGroup } from '@shared/types'
+import type { Page, PageStatus, HierarchyLevel, KrakenConfig, KrakenStep, PageZone } from '@shared/types'
 import Sidebar from '../components/Sidebar'
 import { useProject } from '../App'
 import { convertBetaKey, finalSigmaFix } from '../utils/betaCode'
 import BetaCodeHelper from '../components/BetaCodeHelper'
 import KrakenModelPicker from '../components/KrakenModelPicker'
+import ZoneTypePicker, { type ZoneTypeOption, type ZoneTypePickerHandle } from '../components/ZoneTypePicker'
+import { zoneColor, type ManualZoneRole } from '../utils/zoneColors'
 import { renderMaskedPage } from '../utils/renderMaskedPage'
 import { TOUR_DEMO_ID } from '../data/tourDemoProject'
-import { linesInRect, blockTagForRole } from '../utils/manualZones'
-import { findAnchorAt, findAnchors, spanForLineIds, unwrapZone, unwrapLegacyZone, unwrapOrphanZones, lineTextSpan } from '../utils/lbAnchors'
+import { linesInRect } from '@shared/manualZones'
+import { findAnchorAt, findAnchors, unwrapZone, unwrapLegacyZone, unwrapOrphanZones, lineTextSpan, blockAt, zoneIdsInMarkdown } from '@shared/lbAnchors'
+import {
+  LADAS_ZONE_TYPES, blockTagForType, ladasLabelForRole, regionKind, writeZoneTags, zoneAction, zoneForLine,
+} from '@shared/zones'
 
 interface FlatLevel { depth: number; name: string; pattern: string; color?: string }
 
@@ -50,8 +55,6 @@ function levelColor(level: FlatLevel): { bg: string; fg: string } {
   return { fg, bg }
 }
 
-type ManualZoneRole = 'p' | 'quote' | 'head' | 'continuation'
-
 function groupRoleLabel(role: ManualZoneRole, t: (key: string) => string): string {
   switch (role) {
     case 'quote': return t('review.groupRoleQuote')
@@ -67,13 +70,12 @@ function groupRoleKey(role: ManualZoneRole, t: (key: string) => string): string 
   return groupRoleLabel(role, t).charAt(0).toUpperCase()
 }
 
-function manualZoneColor(role: ManualZoneRole): { bg: string; fg: string } {
-  switch (role) {
-    case 'quote': return { bg: 'rgba(122,79,174,0.10)', fg: '#7a4fae' }
-    case 'head': return { bg: 'rgba(176,74,58,0.10)', fg: '#b04a3a' }
-    case 'continuation': return { bg: 'rgba(184,140,40,0.10)', fg: '#c89328' }
-    default: return { bg: 'rgba(90,140,63,0.08)', fg: '#5a8c3f' }
-  }
+// The zone type the P/Q/H/C quick keys give.
+const ROLE_TYPE: Record<ManualZoneRole, string> = {
+  p: ladasLabelForRole('p'),
+  quote: ladasLabelForRole('quote'),
+  head: ladasLabelForRole('head'),
+  continuation: ladasLabelForRole('continuation'),
 }
 
 type ZoneRect = { x: number; y: number; width: number; height: number }
@@ -89,30 +91,6 @@ function handlePoint(r: ZoneRect, h: ZoneHandle): [number, number] {
 const HANDLE_CURSOR: Record<ZoneHandle, string> = {
   nw: 'nwse-resize', se: 'nwse-resize', ne: 'nesw-resize', sw: 'nesw-resize',
   n: 'ns-resize', s: 'ns-resize', e: 'ew-resize', w: 'ew-resize',
-}
-
-/**
- * (Re)writes a manual zone's block tags in `markdown`: removes whatever tags the zone
- * previously had (by its `zone="id"` attribute, or — for zones created before tags carried
- * an id — the bare wrapper around `previous`'s lines), then wraps the span covering the
- * zone's current lines with `<tag zone="id">…</tag>`. Returns the id of another manual
- * zone whose wrapper was replaced in the process (redrawing over an already-grouped span).
- */
-function writeZoneTags(
-  markdown: string,
-  zone: ManualZoneGroup,
-  previous?: ManualZoneGroup
-): { markdown: string; replacedZoneId?: string } {
-  let md = unwrapZone(markdown, zone.id)
-  if (md === markdown && previous) md = unwrapLegacyZone(md, previous.lineIds, blockTagForRole(previous.role))
-  if (!zone.lineIds.length) return { markdown: md }
-  const span = spanForLineIds(md, zone.lineIds)
-  if (!span) return { markdown: md }
-  // When the lines are already wrapped by another block, that wrapper is *replaced*
-  // (span covers it; only the lines themselves are re-wrapped), never nested.
-  const tag = blockTagForRole(zone.role)
-  const wrapped = `<${tag} zone="${zone.id}">\n${md.slice(span.innerStart, span.innerEnd)}\n</${tag}>`
-  return { markdown: md.slice(0, span.start) + wrapped + md.slice(span.end), replacedZoneId: span.wrapperZoneId }
 }
 
 const FORMAT_RE: Record<string, RegExp> = {
@@ -186,7 +164,7 @@ function highlightMarkdown(text: string, levelMap: Map<number, FlatLevel>): stri
     })
     .replace(/(&lt;ref(?:\s+level="(?:0|)")?&gt;)(.*?)(&lt;\/ref&gt;)/g,
       '<mark class="tag-ref-u">$1$2$3</mark>')
-    .replace(/(&lt;note&gt;)(.*?)(&lt;\/note&gt;)/g,
+    .replace(/(&lt;note(?: zone="[^"]*")?&gt;)(.*?)(&lt;\/note&gt;)/g,
       '<mark class="tag-note">$1$2$3</mark>')
     .replace(/(&lt;(?:tab\/|pb[^&]*?)&gt;)/g,
       '<mark class="tag-misc">$1</mark>')
@@ -212,7 +190,7 @@ function applyHighlights(html: string, levelMap: Map<number, FlatLevel>): string
     })
     .replace(/(&lt;ref(?:\s+level="(?:0|)")?&gt;)(.*?)(&lt;\/ref&gt;)/g,
       '<mark class="tag-ref-u">$1$2$3</mark>')
-    .replace(/(&lt;note&gt;)(.*?)(&lt;\/note&gt;)/g,
+    .replace(/(&lt;note(?: zone="[^"]*")?&gt;)(.*?)(&lt;\/note&gt;)/g,
       '<mark class="tag-note">$1$2$3</mark>')
     .replace(/(&lt;(?:tab\/|pb[^&]*?)&gt;)/g,
       '<mark class="tag-misc">$1</mark>')
@@ -319,11 +297,11 @@ function makePageState(content: string): PageState {
   return { content, dirty: false, loaded: true, original: content, history: [content], historyIdx: 0 }
 }
 
-const CURRENT_STEP = 5
+const CURRENT_STEP = 6
 
 export default function Review(): React.JSX.Element {
   const { t } = useTranslation()
-  const STEP_LABELS = [t('steps.import'), t('steps.mask'), t('steps.ocr'), t('steps.config'), t('steps.review'), t('steps.tei')]
+  const STEP_LABELS = [t('steps.import'), t('steps.document'), t('steps.mask'), t('steps.ocr'), t('steps.config'), t('steps.review'), t('steps.tei')]
   const STATUS_OPTS: { value: PageStatus; label: string; dot: string }[] = [
     { value: 'ocr_done', label: t('review.statusDone'), dot: '#5a8c3f' },
     { value: 'pending',  label: t('review.statusPending'), dot: '' },
@@ -418,7 +396,15 @@ export default function Review(): React.JSX.Element {
   const [showGeometry, setShowGeometry] = useState(() => project?.id === TOUR_DEMO_ID)
   const [activeLbLineId, setActiveLbLineId] = useState<string | null>(null)
   const [groupMode, setGroupMode] = useState(false)
-  const [groupRole, setGroupRole] = useState<'p' | 'quote' | 'head' | 'continuation'>('p')
+  // Zone type given to a newly drawn zone (and to the selected one when picked).
+  const [groupType, setGroupType] = useState<string>(ROLE_TYPE.p)
+  // Zones layer (detected + hand-drawn) on the page image.
+  const [showZones, setShowZones] = useState(true)
+  // Region types the project's layout model detects (first in the zone type picker).
+  const [regionClasses, setRegionClasses] = useState<string[]>([])
+  const zoneTypePickerRef = useRef<ZoneTypePickerHandle>(null)
+  // A Kraken step (or all of them) running on this page from the Re-OCR panel.
+  const [stepRunning, setStepRunning] = useState<KrakenStep | 'all' | null>(null)
   const [drawingRect, setDrawingRect] = useState<{ x0: number; y0: number; x1: number; y1: number } | null>(null)
   const drawingRef = useRef<{ x0: number; y0: number; x1: number; y1: number } | null>(null)
   // Editing existing manual groups (Group mode): the selected group, its live rect while
@@ -761,56 +747,64 @@ export default function Review(): React.JSX.Element {
   // markdown line — it just wraps the multi-line span covering their `<lb n>` anchors
   // with the block's open/close tags on their own lines, leaving every physical line and
   // its anchor exactly where it was.
+  //
+  // The same editing applies to every zone of the page — hand-drawn ones and those the
+  // D-FINE region model detected (Kraken's zone step): each block-typed zone's lines are
+  // wrapped in `<tag zone="id">`, so moving, resizing, retyping or deleting a zone
+  // rewrites exactly its own tags.
+  const pageZones = useMemo<PageZone[]>(() => currentPage?.zones ?? [], [currentPage])
+
+  const saveZones = (zones: PageZone[]): void => {
+    if (!project || !currentPage) return
+    const updatedPages = project.pages.map((p) =>
+      p.n === currentPage.n ? { ...p, zones, manualZones: undefined } : p
+    )
+    void saveProject({ ...project, pages: updatedPages })
+  }
+
   const applyManualGroup = useCallback(
-    (rect: { x: number; y: number; width: number; height: number }, role: 'p' | 'quote' | 'head' | 'continuation') => {
+    (rect: { x: number; y: number; width: number; height: number }, type: string) => {
       if (!project || !currentPage) return
       const lineIds = linesInRect(rect, currentPage.lineGeometry ?? [])
-      const group: ManualZoneGroup = {
+      const zone: PageZone = {
         id: `mz-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-        role,
+        type,
         rect,
         lineIds,
+        source: 'manual',
       }
-      // The open tag carries the group's id (`<p zone="mz-…">`) so deleting or editing
-      // the group can find exactly the tags it added. Redrawing over lines already
-      // wrapped by another manual group replaces that group's wrapper, so the old group
-      // is dropped too.
-      const { markdown: written, replacedZoneId } = writeZoneTags(content, group)
-      const zones = [...(currentPage.manualZones ?? []).filter((z) => z.id !== replacedZoneId), group]
+      // The open tag carries the zone's id (`<p zone="mz-…">`) so deleting or editing
+      // the zone can find exactly the tags it added. Redrawing over lines already
+      // wrapped by another zone replaces that zone's wrapper, so the old zone is
+      // dropped too.
+      const { markdown: written, replacedZoneId } = writeZoneTags(content, zone)
+      const zones = [...pageZones.filter((z) => z.id !== replacedZoneId), zone]
       const next = unwrapOrphanZones(written, new Set(zones.map((z) => z.id)))
       if (next !== content) setContent(next)
-
-      const updatedPages = project.pages.map((p) =>
-        p.n === currentPage.n ? { ...p, manualZones: zones } : p
-      )
-      void saveProject({ ...project, pages: updatedPages })
+      saveZones(zones)
     },
     [project, currentPage, content, saveProject] // eslint-disable-line react-hooks/exhaustive-deps
   )
 
-  // Moving/resizing a group recomputes which lines it covers; changing its role swaps
+  // Moving/resizing a zone recomputes which lines it covers; changing its type swaps
   // the tag. Either way its tags in the markdown are rewritten to match.
   const updateManualZone = useCallback(
-    (id: string, patch: { rect?: ZoneRect; role?: ManualZoneRole }) => {
+    (id: string, patch: { rect?: ZoneRect; type?: string }) => {
       if (!project || !currentPage) return
-      const previous = currentPage.manualZones?.find((z) => z.id === id)
+      const previous = pageZones.find((z) => z.id === id)
       if (!previous) return
-      const zone: ManualZoneGroup = {
+      const zone: PageZone = {
         ...previous,
         ...patch,
         lineIds: patch.rect ? linesInRect(patch.rect, currentPage.lineGeometry ?? []) : previous.lineIds,
       }
       const { markdown: written, replacedZoneId } = writeZoneTags(content, zone, previous)
-      const zones = (currentPage.manualZones ?? [])
+      const zones = pageZones
         .filter((z) => z.id === id || z.id !== replacedZoneId)
         .map((z) => (z.id === id ? zone : z))
       const next = unwrapOrphanZones(written, new Set(zones.map((z) => z.id)))
       if (next !== content) setContent(next)
-
-      const updatedPages = project.pages.map((p) =>
-        p.n === currentPage.n ? { ...p, manualZones: zones } : p
-      )
-      void saveProject({ ...project, pages: updatedPages })
+      saveZones(zones)
     },
     [project, currentPage, content, saveProject] // eslint-disable-line react-hooks/exhaustive-deps
   )
@@ -818,17 +812,15 @@ export default function Review(): React.JSX.Element {
   const deleteManualZone = useCallback(
     (id: string) => {
       if (!project || !currentPage) return
-      const zone = currentPage.manualZones?.find((z) => z.id === id)
-      const updatedPages = project.pages.map((p) =>
-        p.n === currentPage.n ? { ...p, manualZones: (p.manualZones ?? []).filter((z) => z.id !== id) } : p
-      )
-      void saveProject({ ...project, pages: updatedPages })
+      const zone = pageZones.find((z) => z.id === id)
+      const remaining = pageZones.filter((z) => z.id !== id)
+      saveZones(remaining)
       if (selectedZoneId === id) setSelectedZoneId(null)
 
-      // Remove the block tags this group added to the markdown (the wrapped lines stay).
+      // Remove the block tags this zone added to the markdown (the wrapped lines stay).
       let next = unwrapZone(content, id)
-      if (next === content && zone) next = unwrapLegacyZone(content, zone.lineIds, blockTagForRole(zone.role))
-      const remaining = (currentPage.manualZones ?? []).filter((z) => z.id !== id)
+      const tag = zone ? blockTagForType(zone.type) : null
+      if (next === content && zone && tag) next = unwrapLegacyZone(content, zone.lineIds, tag)
       next = unwrapOrphanZones(next, new Set(remaining.map((z) => z.id)))
       if (next !== content) setContent(next)
     },
@@ -836,10 +828,81 @@ export default function Review(): React.JSX.Element {
   )
 
   // Picking a zone type sets the type for new zones and also retypes the selected one.
-  const chooseGroupRole = (r: ManualZoneRole): void => {
-    setGroupRole(r)
-    const sel = currentPage?.manualZones?.find((z) => z.id === selectedZoneId)
-    if (sel && sel.role !== r) updateManualZone(sel.id, { role: r })
+  const chooseZoneType = (type: string): void => {
+    setGroupType(type)
+    const sel = pageZones.find((z) => z.id === selectedZoneId)
+    if (sel && sel.type !== type) updateManualZone(sel.id, { type })
+  }
+
+  // Block-typed zones whose lines carry no `zone="id"` wrapper in the text (lines read
+  // in an interleaved order, or a wrapper removed by hand): linked by their lines only.
+  const unwrappedZoneIds = useMemo(() => {
+    const tagged = zoneIdsInMarkdown(content)
+    return new Set(pageZones.filter((z) => blockTagForType(z.type) && z.lineIds.length && !tagged.has(z.id)).map((z) => z.id))
+  }, [content, pageZones])
+
+  useEffect(() => {
+    const path = krakenPaths.regionModelPath
+    if (!path) { setRegionClasses([]); return }
+    window.api.getRegionClasses(path).then(setRegionClasses).catch(() => setRegionClasses([]))
+  }, [krakenPaths.regionModelPath])
+
+  // Region types the Document step's zone policy drops: never offered as a zone type.
+  const zonePolicy = project?.krakenConfig?.zonePolicy ?? krakenPaths.zonePolicy
+  const droppedZoneTypes = useMemo(() => {
+    const all = new Set([...regionClasses, ...LADAS_ZONE_TYPES, ...Object.keys(zonePolicy ?? {})])
+    return new Set([...all].filter((type) => zoneAction(type, zonePolicy) === 'drop'))
+  }, [regionClasses, zonePolicy])
+
+  // The zone type picker's list: the layout model's own types first, then the rest of
+  // the LADaS vocabulary, then any other type already on this page — leaving out the
+  // types the zone policy drops. Each shows its group and, for the four block types,
+  // its quick key.
+  const zoneTypeOptions = useMemo<ZoneTypeOption[]>(() => {
+    const shortcutOf = new Map<string, string>(
+      (['p', 'quote', 'head', 'continuation'] as const).map((r) => [ROLE_TYPE[r], groupRoleKey(r, t)])
+    )
+    const seen = new Set<string>()
+    const out: ZoneTypeOption[] = []
+    for (const type of [...regionClasses, ...LADAS_ZONE_TYPES, ...pageZones.map((z) => z.type)]) {
+      if (seen.has(type) || droppedZoneTypes.has(type)) continue
+      seen.add(type)
+      out.push({ type, shortcut: shortcutOf.get(type), note: t(`document.groups.${regionKind(type)}`) })
+    }
+    return out
+  }, [regionClasses, pageZones, droppedZoneTypes, t])
+
+  // Scrolls the editor to a zone's first line, without moving focus (the image panel
+  // keeps its keyboard shortcuts).
+  const revealZoneInEditor = (zone: PageZone): void => {
+    const sc = scrollContainerRef.current
+    const ta = textareaRef.current
+    if (!sc || !ta) return
+    const ids = new Set(zone.lineIds)
+    const anchor = findAnchors(content).find((a) => ids.has(a.id))
+    if (!anchor) return
+    const lineIndex = (content.slice(0, anchor.start).match(/\n/g) ?? []).length
+    const cs = getComputedStyle(ta)
+    const lineHeight = parseFloat(cs.lineHeight) || parseFloat(cs.fontSize) * 1.5
+    sc.scrollTop = Math.max(0, (parseFloat(cs.paddingTop) || 0) + lineIndex * lineHeight - sc.clientHeight / 3)
+  }
+
+  const selectZone = (zone: PageZone): void => {
+    setSelectedZoneId(zone.id)
+    revealZoneInEditor(zone)
+  }
+
+  const selectedZone = pageZones.find((z) => z.id === selectedZoneId) ?? null
+
+  // Select a zone and open the type picker on it (the picker mounts with the selection,
+  // so it is opened once rendered).
+  const [typePickerRequest, setTypePickerRequest] = useState(0)
+  useEffect(() => {
+    if (typePickerRequest) zoneTypePickerRef.current?.open()
+  }, [typePickerRequest])
+  const editZoneType = (zone: PageZone): void => {
+    selectZone(zone)
+    setTypePickerRequest((n) => n + 1)
   }
 
   // ── Selected line: redraw its box, re-OCR it ──
@@ -962,9 +1025,10 @@ export default function Review(): React.JSX.Element {
       if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || (el as HTMLElement | null)?.isContentEditable) return
       const key = e.key.toUpperCase()
       if (key === 'G') { e.preventDefault(); toggleGroupMode(); return }
+      if (key === 'T' && (groupMode || selectedZoneId)) { e.preventDefault(); zoneTypePickerRef.current?.open(); return }
       if (!groupMode) return
       const role = (['p', 'quote', 'head', 'continuation'] as const).find((r) => groupRoleKey(r, t) === key)
-      if (role) { e.preventDefault(); chooseGroupRole(role) }
+      if (role && !droppedZoneTypes.has(ROLE_TYPE[role])) { e.preventDefault(); chooseZoneType(ROLE_TYPE[role]) }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
@@ -1005,8 +1069,14 @@ export default function Review(): React.JSX.Element {
     const ta = textareaRef.current
     if (!ta) return
     setCursorTag(detectCursorTag(ta.value, ta.selectionStart))
-    setActiveLbLineId(findAnchorAt(ta.value, ta.selectionStart))
+    const lineId = findAnchorAt(ta.value, ta.selectionStart)
+    setActiveLbLineId(lineId)
     setCaretPos(ta.selectionStart)
+    // Caret inside a `<p zone="id">` wrapper, or on a line a zone holds → that zone is
+    // selected on the page image.
+    const blockZoneId = blockAt(ta.value, ta.selectionStart)?.zoneId
+    const zone = (blockZoneId && pageZones.find((z) => z.id === blockZoneId)) || (lineId ? zoneForLine(pageZones, lineId) : undefined)
+    setSelectedZoneId(zone ? zone.id : null)
   }
 
   const closePopover = (): void => setCursorTag(null)
@@ -1359,7 +1429,13 @@ export default function Review(): React.JSX.Element {
       return
     }
     window.api.getKrakenBuiltinPaths().then((paths) =>
-      setKrakenPaths({ segModelPath: paths.segModelPath, recModelPath: paths.recModelPath, builtinModels: true })
+      setKrakenPaths({
+        segModelPath: paths.segModelPath,
+        recModelPath: paths.recModelPath,
+        builtinModels: true,
+        documentType: 'cllg',
+        regionModelPath: paths.regionModelPaths.cllg,
+      })
     )
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [project?.projectDir])
@@ -1372,8 +1448,48 @@ export default function Review(): React.JSX.Element {
     [project, saveProject]
   )
 
+  // Runs Kraken steps on this page (or rebuilds it from scratch, 'all'), then reloads its
+  // text, line geometry and zones. Unsaved edits are saved first: a single step keeps
+  // the page's text and only changes its own layer.
+  const runPageStep = useCallback(async (step: KrakenStep | 'all') => {
+    if (!project || !currentPage) return
+    if ((step === 'text' || step === 'all') && !window.confirm(t(step === 'all' ? 'review.stepAllConfirm' : 'review.stepTextConfirm'))) return
+    setStepRunning(step)
+    setReOcrError(null)
+    try {
+      if (currentState?.dirty) await window.api.saveMarkdown(project.projectDir, currentPage.n, content)
+      const page = currentPage.masks.length > 0
+        ? { ...currentPage, maskedImagePath: await renderMaskedPage(project.projectDir, currentPage) }
+        : currentPage
+      let failure: string | null = null
+      const unsub = window.api.onOCRProgress((e) => {
+        if (e.pageNum === currentPage.n && e.status === 'error') failure = e.errorMessage ?? 'error'
+      })
+      try {
+        await window.api.runKrakenSteps(project.projectDir, [page], krakenPaths, step === 'all' ? 'all' : [step])
+      } finally {
+        unsub()
+      }
+      const reloaded = await window.api.reloadProject(project.projectDir)
+      await saveProject(reloaded)
+      const md = await window.api.loadMarkdown(project.projectDir, currentPage.n)
+      setPages((prev) => new Map(prev).set(currentPage.n, makePageState(md)))
+      setSelectedZoneId(null)
+      if (failure) setReOcrError(failure)
+    } catch (err: unknown) {
+      setReOcrError(String(err))
+    } finally {
+      setStepRunning(null)
+    }
+  }, [project, currentPage, currentState, content, krakenPaths, saveProject]) // eslint-disable-line react-hooks/exhaustive-deps
+
   const runReOcr = useCallback(async () => {
     if (!project || !currentPage) return
+    // Kraken: the full page path (anchored lines, geometry, zones), same as an OCR run.
+    if (reOcrEngine === 'kraken') {
+      await runPageStep('all')
+      return
+    }
     setReOcrRunning(true)
     setReOcrError(null)
     try {
@@ -1386,12 +1502,7 @@ export default function Review(): React.JSX.Element {
           currentPage.maskedImagePath ?? currentPage.imagePath
         )
       }
-      let result: { text: string }
-      if (reOcrEngine === 'kraken') {
-        result = await window.api.rerunPageKraken(imgPath, krakenPaths)
-      } else {
-        result = await window.api.rerunPageLM(imgPath, project.lmConfig)
-      }
+      const result = await window.api.rerunPageLM(imgPath, project.lmConfig)
       setContent(result.text)
       await window.api.saveMarkdown(project.projectDir, currentPage.n, result.text)
       const updatedPages = project.pages.map((p) =>
@@ -1404,7 +1515,7 @@ export default function Review(): React.JSX.Element {
     } finally {
       setReOcrRunning(false)
     }
-  }, [project, currentPage, reOcrEngine, krakenPaths, saveProject]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [project, currentPage, reOcrEngine, runPageStep, saveProject]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const runKrakenCompare = useCallback(async () => {
     if (!project || !currentPage) return
@@ -1733,19 +1844,40 @@ export default function Review(): React.JSX.Element {
                 {t('review.lmEndpoint', { endpoint: project.lmConfig.endpoint, model: project.lmConfig.model || t('review.lmNoModel') })}
               </span>
             )}
+            {reOcrEngine === 'kraken' && (
+              <div className="flex items-center gap-1 shrink-0" title={t('review.stepsHint')}>
+                <span className="text-[10px] uppercase tracking-[.12em] font-semibold" style={{ color: 'var(--mute)' }}>{t('review.stepsLabel')}</span>
+                {(['zone', 'line', 'text'] as const).map((s) => {
+                  const disabled = !!stepRunning || reOcrRunning || (s === 'zone' && !krakenPaths.regionModelPath)
+                  return (
+                    <button
+                      key={s}
+                      className="btn btn-quiet text-[11px] shrink-0"
+                      style={{ padding: '3px 10px', ...(stepRunning === s ? { background: '#0369a1', color: '#fff', borderColor: '#0369a1' } : {}) }}
+                      onClick={() => void runPageStep(s)}
+                      disabled={disabled}
+                      title={s === 'zone' && !krakenPaths.regionModelPath ? t('ocr.stepZoneNoModel') : t(`ocr.step_${s}_hint`)}
+                    >
+                      {stepRunning === s ? t('review.runningReOcr') : t(`ocr.step_${s}`)}
+                    </button>
+                  )
+                })}
+              </div>
+            )}
             {reOcrError && <span className="shrink-0 text-[11px]" style={{ color: '#b04a3a' }}>{reOcrError}</span>}
             <div className="flex items-center gap-2 ml-auto shrink-0">
               <button
                 className="btn btn-primary text-[11.5px]"
                 style={{ padding: '5px 12px' }}
                 onClick={runReOcr}
-                disabled={reOcrRunning}
+                disabled={reOcrRunning || !!stepRunning}
+                title={reOcrEngine === 'kraken' ? t('review.stepAllHint') : undefined}
               >
-                {reOcrRunning
+                {reOcrRunning || stepRunning === 'all'
                   ? <><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="animate-spin"><path d="M21 12a9 9 0 1 1-6.3-8.6" /></svg>{t('review.runningReOcr')}</>
                   : <><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polygon points="5 3 19 12 5 21 5 3" /></svg>{t('review.runReOcr')}</>}
               </button>
-              <button className="tool-btn" style={{ width: 20, height: 20 }} onClick={() => { setReOcrOpen(false); setReOcrError(null) }} disabled={reOcrRunning}>
+              <button className="tool-btn" style={{ width: 20, height: 20 }} onClick={() => { setReOcrOpen(false); setReOcrError(null) }} disabled={reOcrRunning || !!stepRunning}>
                 <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6 6 18M6 6l12 12" /></svg>
               </button>
             </div>
@@ -1763,7 +1895,8 @@ export default function Review(): React.JSX.Element {
             onMouseEnter={() => { leftPanelHoverRef.current = true }}
             onMouseLeave={() => { leftPanelHoverRef.current = false }}
           >
-            <div className="px-3 py-1.5 border-b shrink-0 flex items-center gap-2" style={{ borderColor: 'var(--line)', background: 'var(--paper-2)' }}>
+            {/* Wraps rather than overflowing: an overflowing row got the pane scrolled sideways. */}
+            <div className="px-3 py-1.5 border-b shrink-0 flex items-center gap-2 flex-wrap" style={{ borderColor: 'var(--line)', background: 'var(--paper-2)' }}>
               <span className="font-mono text-[11px]" style={{ color: 'var(--mute)' }}>{t('review.source')}</span>
               {!!currentPage?.lineGeometry?.length && (
                 <button
@@ -1775,6 +1908,16 @@ export default function Review(): React.JSX.Element {
                   {t('review.showGeometry')} ({currentPage.lineGeometry.length})
                 </button>
               )}
+              {pageZones.length > 0 && (
+                <button
+                  className="btn btn-quiet text-[11px] shrink-0"
+                  style={{ padding: '2px 8px', ...(showZones ? { background: '#0d9488', color: '#fff', borderColor: '#0d9488' } : {}) }}
+                  onClick={() => setShowZones((v) => !v)}
+                  title={t('review.showZonesTitle')}
+                >
+                  {t('review.showZones')} ({pageZones.length})
+                </button>
+              )}
               {!!currentPage?.lineGeometry?.length && (
                 <button
                   className="btn btn-quiet text-[11px] shrink-0"
@@ -1783,25 +1926,25 @@ export default function Review(): React.JSX.Element {
                   title={t('review.groupToolTitle')}
                 >
                   {t('review.groupTool')} (G)
-                  {!!currentPage.manualZones?.length && (
-                    <span style={{ marginLeft: 3, background: groupMode ? 'rgba(255,255,255,.25)' : '#7a4fae', color: '#fff', borderRadius: 8, padding: '0 5px', fontSize: 10, fontWeight: 600, lineHeight: '16px' }}>
-                      {currentPage.manualZones.length}
-                    </span>
-                  )}
                 </button>
               )}
-              {groupMode && (
-                <div className="flex items-center gap-0.5 shrink-0">
-                  {(['p', 'quote', 'head', 'continuation'] as const).map((r) => (
-                    <button
-                      key={r}
-                      className="btn btn-quiet text-[10.5px] shrink-0"
-                      style={{ padding: '2px 6px', ...(groupRole === r ? { background: '#7a4fae', color: '#fff', borderColor: '#7a4fae' } : {}) }}
-                      onClick={() => chooseGroupRole(r)}
-                    >
-                      {groupRoleLabel(r, t)} ({groupRoleKey(r, t)})
-                    </button>
-                  ))}
+              {(groupMode || !!selectedZone) && (
+                // Type of the selected zone (however it was selected: on the image, from
+                // its chip, or with the caret in its text), or of the next zone drawn.
+                // T opens it; P/Q/H/C still pick those four types directly.
+                <div className="flex items-center gap-1 shrink-0 text-[11px]">
+                  <span style={{ color: 'var(--mute)' }}>
+                    {selectedZone ? t('review.zoneTypeOf', { id: selectedZone.id }) : t('review.zoneTypeNew')}
+                  </span>
+                  <ZoneTypePicker
+                    ref={zoneTypePickerRef}
+                    value={selectedZone?.type ?? groupType}
+                    options={zoneTypeOptions}
+                    onChange={chooseZoneType}
+                    hiddenTypes={droppedZoneTypes}
+                    openKey="T"
+                    title={t('review.zoneTypeTitle')}
+                  />
                 </div>
               )}
               {selectedLine && !groupMode && (
@@ -1839,18 +1982,28 @@ export default function Review(): React.JSX.Element {
                   onClick={() => setImgZoom((z) => Math.min(7.5,parseFloat((z + 0.05).toFixed(2))))}>+</button>
               </div>
             </div>
-            {!!currentPage?.manualZones?.length && (
-              <div className="px-3 py-1.5 border-b shrink-0 flex items-center gap-1.5 flex-wrap" style={{ borderColor: 'var(--line)', background: '#f6f2fb' }}>
+            {pageZones.length > 0 && showZones && (
+              <div className="px-3 py-1.5 border-b shrink-0 flex items-center gap-1.5 flex-wrap" style={{ borderColor: 'var(--line)', background: '#f6f2fb', maxHeight: 84, overflowY: 'auto' }}>
                 <span className="text-[10px] uppercase tracking-[.12em] font-semibold shrink-0" style={{ color: 'var(--mute)' }}>{t('review.manualZonesTitle')}</span>
-                {currentPage.manualZones.map((z) => (
+                {pageZones.map((z) => (
                   <span
                     key={z.id}
                     className="inline-flex items-center gap-1 rounded"
-                    style={{ padding: '2px 6px', fontSize: 11, background: '#e0dff0', border: `1px solid ${selectedZoneId === z.id ? '#3f3a7a' : '#b8b5dc'}`, color: '#3f3a7a', cursor: 'pointer', boxShadow: selectedZoneId === z.id ? '0 0 0 1px #3f3a7a' : undefined }}
-                    title={t('review.manualZoneSelect')}
-                    onClick={() => { setGroupMode(true); setSelectedZoneId(z.id) }}
+                    style={{ padding: '2px 6px', fontSize: 11, background: zoneColor(z.type).bg, border: `1px ${z.source === 'dfine' ? 'dashed' : 'solid'} ${zoneColor(z.type).fg}`, color: zoneColor(z.type).fg, cursor: 'pointer', boxShadow: selectedZoneId === z.id ? `0 0 0 1.5px ${zoneColor(z.type).fg}` : undefined }}
+                    title={`${z.id} · ${z.source === 'dfine' ? t('review.zoneDetected') : t('review.zoneManual')} — ${t('review.manualZoneSelect')}`}
+                    onClick={() => { setGroupMode(true); selectZone(z) }}
                   >
-                    {groupRoleLabel(z.role, t)}
+                    <span
+                      className="font-mono"
+                      style={{ textDecoration: 'underline dotted' }}
+                      title={t('review.zoneTypeClick')}
+                      onClick={(e) => { e.stopPropagation(); setGroupMode(true); editZoneType(z) }}
+                    >
+                      {z.type}
+                    </span>
+                    {unwrappedZoneIds.has(z.id) && (
+                      <span title={t('review.zoneNotWrapped')} style={{ fontWeight: 700 }}>⚠</span>
+                    )}
                     <span style={{ opacity: 0.7 }}>
                       {z.lineIds.length ? t('review.manualZoneLinesCount', { count: z.lineIds.length }) : t('review.manualZoneNoLines')}
                     </span>
@@ -1957,24 +2110,42 @@ export default function Review(): React.JSX.Element {
                       </svg>
                     )
                   })()}
-                  {!!currentPage?.manualZones?.length && imgNaturalWidth && imgNaturalHeight && (
+                  {pageZones.length > 0 && (showZones || groupMode) && imgNaturalWidth && imgNaturalHeight && (
                     <svg
                       style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', pointerEvents: 'none' }}
                       viewBox={`0 0 ${imgNaturalWidth} ${imgNaturalHeight}`}
                       preserveAspectRatio="none"
                     >
-                      {currentPage.manualZones.map((z) => {
+                      {pageZones.map((z) => {
                         const r = zoneDraft?.id === z.id ? zoneDraft.rect : z.rect
-                        const selected = groupMode && selectedZoneId === z.id
+                        const selected = selectedZoneId === z.id
+                        const { bg, fg } = zoneColor(z.type)
+                        const fontSize = 11 / imgZoom
                         return (
-                          <rect
-                            key={z.id}
-                            x={r.x} y={r.y} width={r.width} height={r.height}
-                            fill={manualZoneColor(z.role).bg}
-                            stroke={manualZoneColor(z.role).fg}
-                            strokeWidth={imgNaturalWidth / (selected ? 250 : 500)}
-                            strokeDasharray={selected ? undefined : `${imgNaturalWidth / 150} ${imgNaturalWidth / 300}`}
-                          />
+                          <g key={z.id}>
+                            <rect
+                              x={r.x} y={r.y} width={r.width} height={r.height}
+                              fill={bg}
+                              stroke={fg}
+                              strokeWidth={imgNaturalWidth / (selected ? 250 : 500)}
+                              // Detected zones dashed, hand-drawn ones solid; the selected one solid and bold.
+                              strokeDasharray={selected || z.source === 'manual' ? undefined : `${imgNaturalWidth / 150} ${imgNaturalWidth / 300}`}
+                            />
+                            {/* The type label: click it to select the zone and change its type. */}
+                            <text
+                              x={r.x + 2 / imgZoom} y={r.y + fontSize}
+                              fontSize={fontSize}
+                              fontFamily="ui-monospace, monospace"
+                              fill={fg}
+                              opacity={selected ? 1 : 0.75}
+                              fontWeight={selected ? 700 : 400}
+                              style={{ pointerEvents: 'auto', cursor: 'pointer', textDecoration: 'underline dotted' }}
+                              onClick={(e) => { e.stopPropagation(); editZoneType(z) }}
+                            >
+                              <title>{t('review.zoneTypeClick')}</title>
+                              {z.type}{unwrappedZoneIds.has(z.id) ? ' ⚠' : ''}
+                            </text>
+                          </g>
                         )
                       })}
                     </svg>
@@ -2040,7 +2211,7 @@ export default function Review(): React.JSX.Element {
                     </div>
                   )}
                   {groupMode && imgNaturalWidth && imgNaturalHeight && (() => {
-                    const zones = currentPage?.manualZones ?? []
+                    const zones = pageZones
                     const selected = zones.find((z) => z.id === selectedZoneId)
                     const selRect = selected ? (zoneDraft?.id === selected.id ? zoneDraft.rect : selected.rect) : null
                     // Handle size / hit tolerance: ~9 screen px, expressed in image px.
@@ -2102,7 +2273,7 @@ export default function Review(): React.JSX.Element {
                           // recomputed) only on release, and only if it actually changed.
                           if (hit) {
                             const zone = hit.kind === 'zone' ? zones.find((z) => z.id === hit.id)! : selected!
-                            setSelectedZoneId(zone.id)
+                            if (zone.id !== selectedZoneId) selectZone(zone)
                             const start = zone.rect
                             const setDraft = (rect: ZoneRect): void => {
                               zoneDraftRef.current = { id: zone.id, rect }
@@ -2159,7 +2330,7 @@ export default function Review(): React.JSX.Element {
                                 width: Math.abs(final.x1 - final.x0),
                                 height: Math.abs(final.y1 - final.y0),
                               }
-                              if (rect.width > 3 && rect.height > 3) applyManualGroup(rect, groupRole)
+                              if (rect.width > 3 && rect.height > 3) applyManualGroup(rect, groupType)
                             }
                           )
                         }}
@@ -2175,8 +2346,8 @@ export default function Review(): React.JSX.Element {
                               y={Math.min(drawingRect.y0, drawingRect.y1)}
                               width={Math.abs(drawingRect.x1 - drawingRect.x0)}
                               height={Math.abs(drawingRect.y1 - drawingRect.y0)}
-                              fill={manualZoneColor(groupRole).bg}
-                              stroke={manualZoneColor(groupRole).fg}
+                              fill={zoneColor(groupType).bg}
+                              stroke={zoneColor(groupType).fg}
                               strokeWidth={imgNaturalWidth / 500}
                             />
                           )}
@@ -2187,7 +2358,7 @@ export default function Review(): React.JSX.Element {
                                 key={h}
                                 x={hx - hs / 2} y={hy - hs / 2} width={hs} height={hs}
                                 fill="white"
-                                stroke={manualZoneColor(selected.role).fg}
+                                stroke={zoneColor(selected.type).fg}
                                 strokeWidth={1.5 / imgZoom}
                               />
                             )

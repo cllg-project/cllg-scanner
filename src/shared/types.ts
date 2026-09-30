@@ -15,7 +15,7 @@ export interface LineGeometry {
   polygon: [number, number][]      // pixel coords in the page image's space
   baseline?: [number, number][]    // verbatim ALTO <Baseline POINTS=.../>, only ever set for source:'alto'
   regionType?: string              // ALTO TextBlock/@TYPE, or Kraken's per-line `type` (whatever the loaded model's class_mapping defines)
-  blockId?: string                 // ALTO TextBlock/@ID; undefined for Kraken (no block concept)
+  blockId?: string                 // ALTO TextBlock/@ID; for Kraken, the detected region (`r<index>`) when a region model ran
   text?: string                    // ALTO ground truth, or Kraken's first-pass recognized text — immutable once set
   source: GeometrySource
 }
@@ -34,6 +34,23 @@ export interface ManualZoneGroup {
   lineIds: string[]
 }
 
+// A layout zone on a page image: detected by the D-FINE region model (`dfine`, id
+// `r<index>`) or drawn by hand in Review (`manual`, id `mz-…`). `type` is the full LADaS
+// zone type ("MainZone-P", "MarginTextZone", "RunningTitleZone", …) — decides the block
+// tag the zone's lines are wrapped in (see src/shared/zones.ts). `lineIds` is the set of
+// LineGeometry ids the zone holds; the markdown links back to the zone through
+// `<p zone="id">` wrappers and the lines' `<lb n="id"/>` anchors.
+export type ZoneSource = 'dfine' | 'manual'
+
+export interface PageZone {
+  id: string
+  type: string
+  rect: { x: number; y: number; width: number; height: number }   // page-image pixel space
+  lineIds: string[]
+  source: ZoneSource
+  score?: number
+}
+
 export interface Page {
   n: number
   imagePath: string          // relative to projectDir
@@ -46,7 +63,8 @@ export interface Page {
   tokens?: number            // output tokens from last successful OCR run
   elapsedMs?: number         // wall-clock time of last successful OCR run
   lineGeometry?: LineGeometry[]  // per-line geometry, from ALTO import or Kraken's own first segmentation pass
-  manualZones?: ManualZoneGroup[]
+  zones?: PageZone[]
+  manualZones?: ManualZoneGroup[]   // legacy (pre-`zones` projects); migrated to `zones` on load
 }
 
 export interface LMConfig {
@@ -157,10 +175,41 @@ export interface LMTestResult {
   error?: string
 }
 
+// Which kind of document a project holds; decides how Kraken lines are merged with
+// the zones a region model detects (see src/main/regionMerge.ts).
+//   cllg  — Greek scholarly edition (CLLG): margin section markers go inline as <ref>
+//   ladas — Latin document typed with the LADaS zone vocabulary: margins stay <note>s
+export type DocumentType = 'cllg' | 'ladas'
+
+// What to do with the zones of one region type the layout model detects:
+//   annotate — keep the text and the zone: tagged in the text (`<p zone="r3">`) and
+//              editable in Review
+//   keep     — keep the text only: plain lines, no tag, no zone
+//   drop     — leave the text out of the transcription (its line geometry is kept)
+export type ZoneAction = 'annotate' | 'keep' | 'drop'
+
 export interface KrakenConfig {
   segModelPath: string
   recModelPath: string
   builtinModels: boolean
+  regionModelPath?: string      // D-FINE layout model; empty/undefined = no region detection
+  documentType?: DocumentType   // default 'cllg'
+  // Per region type (as the model names it); a type left out gets defaultZoneAction()
+  // (src/shared/zones.ts). Chosen in the Document step, right after import.
+  zonePolicy?: Record<string, ZoneAction>
+}
+
+// The separable Kraken steps: zone (D-FINE layout regions), line (segmentation), text
+// (recognition). 'all' rebuilds the page from scratch, as a first OCR run does.
+export type KrakenStep = 'zone' | 'line' | 'text'
+
+export interface KrakenStepResult {
+  pageNum: number
+  zones: number
+  newLines: number
+  orphanLines: number
+  textLines: number
+  unwrappedZones: string[]   // zones whose block tag could not be written (interleaved lines)
 }
 
 export type PageExportFormat = 'plain' | 'plain-ladas' | 'alto' | 'pretei'

@@ -8,6 +8,9 @@ import type {
   TEIParams,
   TEISaveParams,
   KrakenConfig,
+  KrakenStep,
+  KrakenStepResult,
+  DocumentType,
   AltoScanResult,
   AltoLine,
   PageExportFormat
@@ -67,8 +70,8 @@ const api = {
   ): Promise<string> =>
     ipcRenderer.invoke('page:saveMasked', projectDir, pageNum, data),
 
-  loadImageAsDataUrl: (absolutePath: string): Promise<string> =>
-    ipcRenderer.invoke('page:loadImage', absolutePath),
+  loadImageAsDataUrl: (absolutePath: string, maxSide?: number): Promise<string> =>
+    ipcRenderer.invoke('page:loadImage', absolutePath, maxSide),
 
   joinPaths: (...parts: string[]): Promise<string> =>
     ipcRenderer.invoke('path:join', ...parts),
@@ -86,7 +89,11 @@ const api = {
   rerunPageLM: (imagePath: string, lmConfig: LMConfig): Promise<{ text: string }> =>
     ipcRenderer.invoke('ocr:rerun-page', imagePath, lmConfig),
 
-  getKrakenBuiltinPaths: (): Promise<{ segModelPath: string; recModelPath: string }> =>
+  getKrakenBuiltinPaths: (): Promise<{
+    segModelPath: string
+    recModelPath: string
+    regionModelPaths: Record<DocumentType, string>
+  }> =>
     ipcRenderer.invoke('kraken:getBuiltinPaths'),
 
   rerunPageKraken: (
@@ -103,11 +110,24 @@ const api = {
   ): Promise<{ text: string; lineCount: number }> =>
     ipcRenderer.invoke('kraken:ocr-line', imagePath, polygon, krakenConfig.segModelPath, krakenConfig.recModelPath),
 
-  selectKrakenModel: (kind: 'segmentation' | 'recognition'): Promise<string | null> =>
+  selectKrakenModel: (kind: 'segmentation' | 'recognition' | 'region'): Promise<string | null> =>
     ipcRenderer.invoke('dialog:selectKrakenModel', kind),
 
   runKraken: (projectDir: string, pages: Project['pages'], krakenConfig: KrakenConfig): Promise<void> =>
     ipcRenderer.invoke('kraken:run', projectDir, pages, krakenConfig),
+
+  // Region types (LADaS labels) a D-FINE region model detects.
+  getRegionClasses: (modelPath: string): Promise<string[]> =>
+    ipcRenderer.invoke('kraken:regionClasses', modelPath),
+
+  // Only some Kraken steps on already-OCRed pages, or 'all' to rebuild them from scratch.
+  runKrakenSteps: (
+    projectDir: string,
+    pages: Project['pages'],
+    krakenConfig: KrakenConfig,
+    steps: KrakenStep[] | 'all'
+  ): Promise<KrakenStepResult[]> =>
+    ipcRenderer.invoke('kraken:run-steps', projectDir, pages, krakenConfig, steps),
 
   stopKraken: (): Promise<void> =>
     ipcRenderer.invoke('kraken:stop'),

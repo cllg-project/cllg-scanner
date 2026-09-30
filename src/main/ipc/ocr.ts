@@ -1,5 +1,6 @@
 import { ipcMain, BrowserWindow } from 'electron'
 import { readFile, writeFile, appendFile, unlink } from 'fs/promises'
+import { imageDataUrl } from '../imageFormat'
 import { mkdirSync, existsSync } from 'fs'
 import { join, isAbsolute } from 'path'
 import type { Page, LMConfig, OCRProgressEvent } from '@shared/types'
@@ -61,9 +62,7 @@ export function registerOCRHandlers(): void {
       const headers: Record<string, string> = { 'Content-Type': 'application/json' }
       if (lmConfig.apiKey) headers['Authorization'] = `Bearer ${lmConfig.apiKey}`
 
-      const imageData = await readFile(imagePath)
-      const base64 = imageData.toString('base64')
-      const dataUrl = `data:image/png;base64,${base64}`
+      const dataUrl = await imageDataUrl(imagePath)
       const prompt = lmConfig.promptTemplate ?? OCR_PROMPT
 
       const body = {
@@ -156,12 +155,11 @@ export function registerOCRHandlers(): void {
           const epImgPath = ep.maskedImagePath ? resolveP(ep.maskedImagePath) : resolveP(ep.imagePath)
           const epCachePath = join(cacheDir, `page_${String(ep.n).padStart(4, '0')}.md`)
           if (!existsSync(epImgPath) || !existsSync(epCachePath)) continue
-          const epImageData = await readFile(epImgPath)
-          const epBase64 = epImageData.toString('base64')
+          const epDataUrl = await imageDataUrl(epImgPath)
           const epMarkdown = await readFile(epCachePath, 'utf-8')
           fewShotMessages.push({
             role: 'user',
-            content: [{ type: 'image_url', image_url: { url: `data:image/png;base64,${epBase64}` } }]
+            content: [{ type: 'image_url', image_url: { url: epDataUrl } }]
           })
           fewShotMessages.push({ role: 'assistant', content: epMarkdown.trim() })
           exampleTokens += Math.ceil(epMarkdown.length / 4) + IMAGE_TOKEN_OVERHEAD
@@ -257,9 +255,7 @@ export function registerOCRHandlers(): void {
 
         const t0 = Date.now()
         try {
-          const imageData = await readFile(imgPath)
-          const base64 = imageData.toString('base64')
-          const dataUrl = `data:image/png;base64,${base64}`
+          const dataUrl = await imageDataUrl(imgPath)
 
           let raw = ''
           let tokens = 0

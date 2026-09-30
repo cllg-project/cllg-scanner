@@ -30,7 +30,7 @@ async function exportOneFormat(projectDir: string, page: Page, format: PageExpor
     case 'plain-ladas': {
       const zones = effectiveZones(
         (page.lineGeometry ?? []).map((l) => ({ ...l, text: l.text ?? '' })),
-        page.manualZones ?? []
+        page.zones ?? []
       )
       return zonesToPseudoTaggedText(zones)
     }

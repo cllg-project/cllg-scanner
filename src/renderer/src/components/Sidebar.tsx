@@ -172,6 +172,17 @@ export default function Sidebar({ collapsed = false }: SidebarProps): React.JSX.
       label: t('nav.home')
     },
     {
+      path: '/document',
+      icon: (
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+          <path d="M6 3h9l4 4v14H6z" />
+          <rect x="9" y="10" width="7" height="3" />
+          <path d="M9 16h7" />
+        </svg>
+      ),
+      label: t('nav.document')
+    },
+    {
       path: '/masker',
       icon: (
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">

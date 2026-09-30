@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { buildAltoXml, approximateBaseline, textByAnchor } from '../src/main/altoExport'
-import type { Page, LineGeometry, ManualZoneGroup } from '../src/shared/types'
+import type { Page, LineGeometry, PageZone } from '../src/shared/types'
 
 function line(overrides: Partial<LineGeometry> & { id: string }): LineGeometry {
   return {
@@ -111,10 +111,10 @@ describe('buildAltoXml', () => {
     expect(xml).toContain('<Baseline POINTS="0,10 100,10"/>')
   })
 
-  it('a ManualZoneGroup override wins over the line\'s own classified role', () => {
+  it('a zone\'s type overrides the line\'s own classified role', () => {
     const p = page({
       lineGeometry: [line({ id: 'l1', blockId: 'tb1', text: 'a' })], // no regionType -> 'unknown' by default
-      manualZones: [{ id: 'mz1', role: 'quote', rect: { x: 0, y: 0, width: 10, height: 10 }, lineIds: ['l1'] }] as ManualZoneGroup[],
+      zones: [{ id: 'mz1', type: 'MainZone-PQuoted', rect: { x: 0, y: 0, width: 10, height: 10 }, lineIds: ['l1'], source: 'manual' }] as PageZone[],
     })
     const xml = buildAltoXml(p)
     expect(xml).toContain('<OtherTag ID="BT1" LABEL="MainZone-PQuoted"/>')

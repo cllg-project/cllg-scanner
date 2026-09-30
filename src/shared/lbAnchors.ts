@@ -32,10 +32,61 @@ export function findAnchorAt(markdown: string, cursorPos: number): string | null
   return last
 }
 
-// A block open tag may carry a `zone="<ManualZoneGroup id>"` attribute linking it back to
-// the manual group that produced it, so deleting the group can remove its tags.
+// A block open tag may carry a `zone="<PageZone id>"` attribute linking it back to the
+// zone (detected or hand-drawn) that produced it, so editing or deleting the zone can
+// find exactly its tags.
 const BLOCK_OPEN_LINE_RE = /^<(p|head|quote|continued)(?: zone="([^"]*)")?>$/
 const BLOCK_CLOSE_LINE_RE = /^<\/(p|head|quote|continued)>$/
+
+export interface BlockSpan {
+  tag: string
+  zoneId?: string
+  start: number       // start of the open-tag line
+  innerStart: number  // just after the open-tag line's newline
+  innerEnd: number    // end of the last inner line (before the close-tag line's newline)
+  end: number         // end of the close-tag line
+}
+
+/**
+ * Every block wrapper (`<p|head|quote|continued …>` open line … matching close line) in
+ * `markdown`, in document order. md2tei.ts's buildBody() has no nested blocks, so the
+ * next close line of the same kind closes an open one.
+ */
+export function findBlocks(markdown: string): BlockSpan[] {
+  const out: BlockSpan[] = []
+  let open: { tag: string; zoneId?: string; start: number; innerStart: number } | null = null
+  let pos = 0
+  let prevLineEnd = 0
+  while (pos <= markdown.length) {
+    const nl = markdown.indexOf('\n', pos)
+    const lineEnd = nl === -1 ? markdown.length : nl
+    const line = markdown.slice(pos, lineEnd).trim()
+    if (!open) {
+      const m = BLOCK_OPEN_LINE_RE.exec(line)
+      if (m) open = { tag: m[1], zoneId: m[2] || undefined, start: pos, innerStart: lineEnd + 1 }
+    } else {
+      const c = BLOCK_CLOSE_LINE_RE.exec(line)
+      if (c && c[1] === open.tag) {
+        out.push({ ...open, innerEnd: Math.max(open.innerStart, prevLineEnd), end: lineEnd })
+        open = null
+      }
+    }
+    if (nl === -1) break
+    prevLineEnd = lineEnd
+    pos = nl + 1
+  }
+  return out
+}
+
+/** The block wrapper enclosing `pos` (anywhere from its open line to its close line). */
+export function blockAt(markdown: string, pos: number): BlockSpan | null {
+  return findBlocks(markdown).find((b) => pos >= b.start && pos <= b.end) ?? null
+}
+
+/** True when `text` holds a block open or close line. */
+export function hasBlockTagLine(text: string): boolean {
+  return text.split('\n').some((l) => BLOCK_OPEN_LINE_RE.test(l.trim()) || BLOCK_CLOSE_LINE_RE.test(l.trim()))
+}
 
 /**
  * The character span in `markdown` covering every `<lb n="id"/>` anchor whose id is in

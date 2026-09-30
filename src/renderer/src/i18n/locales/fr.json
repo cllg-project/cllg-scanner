@@ -29,7 +29,8 @@
     "ocr": "OCR",
     "config": "Config",
     "review": "Révision",
-    "tei": "TEI"
+    "tei": "TEI",
+    "document": "Document"
   },
   "nav": {
     "home": "Accueil",
@@ -37,7 +38,8 @@
     "ocrRun": "Lancer OCR",
     "structure": "Structure",
     "review": "Révision",
-    "teiExport": "Export TEI"
+    "teiExport": "Export TEI",
+    "document": "Document"
   },
   "sidebar": {
     "currentProject": "Projet en cours",
@@ -204,7 +206,21 @@
     "running": "en cours",
     "queued": "↺ en attente",
     "cache": "cache",
-    "embeddedImage": "image intégrée"
+    "embeddedImage": "image intégrée",
+    "stepsTitle": "Étapes Kraken",
+    "stepsAll": "OCR complet",
+    "stepsOnly": "Certaines étapes seulement",
+    "step_zone": "Zones",
+    "step_line": "Lignes",
+    "step_text": "Texte",
+    "step_zone_hint": "Zones : détecter les régions de mise en page (D-FINE) et lier chacune à ses lignes et à ses balises. Le texte n'est pas modifié.",
+    "step_line_hint": "Lignes : segmenter à nouveau la page. Les lignes qui correspondent aux anciennes gardent leur texte corrigé ; les nouvelles sont ajoutées avec leur texte reconnu.",
+    "step_text_hint": "Texte : reconnaître à nouveau le texte des lignes existantes. Remplace leur texte actuel.",
+    "stepZoneNoModel": "Choisissez un modèle de régions (mise en page) pour l'étape Zones",
+    "stepsSelectAllPages": "Sélectionner toutes les pages",
+    "stepsHint": "Les étapes s'appliquent à chaque page sélectionnée, y compris celles déjà océrisées, et laissent le reste de la page tel quel. Une page jamais océrisée reçoit un OCR complet.",
+    "stepsTextConfirm": "L'étape Texte remplace le texte de {{count}} page(s) déjà océrisée(s), y compris les corrections faites dans la relecture. Continuer ?",
+    "runSteps": "Lancer les étapes"
   },
   "config": {
     "title": "Configuration de la structure",
@@ -220,7 +236,7 @@
     "addEntry": "Ajouter une entrée",
     "addFirstLevel": "Ajouter le premier niveau",
     "addFirstEntry": "Ajouter la première entrée",
-    "noLevels": "Aucun niveau défini. Ajoutez-en au moins un pour activer l'export TEI.",
+    "noLevels": "Aucun niveau défini. C'est possible : le TEI sera cité par page seulement. Ajoutez des niveaux pour citer par livre, chapitre, section…",
     "noEntries": "Aucune entrée. Les entrées sont placées dans",
     "inTeiHeader": "dans l'en-tête TEI.",
     "livePreview": "aperçu en direct",
@@ -339,12 +355,12 @@
     "unmatched": "sans correspondance",
     "showGeometry": "Afficher les zones de ligne",
     "groupTool": "Dessiner une zone",
-    "groupToolTitle": "Dessiner une zone (G, pointeur sur l'image) : tracez un rectangle pour grouper des lignes en Paragraph, Quote, Heading ou Continued · tapez la première lettre d'un type pour le choisir · cliquez sur une zone pour la sélectionner, faites-la glisser pour la déplacer, tirez ses poignées pour la redimensionner, Suppr pour l'effacer",
+    "groupToolTitle": "Dessiner une zone (G, pointeur sur l'image) : tracez un rectangle pour grouper des lignes en une zone · T ouvre la liste des types de zone (tapez pour filtrer), P/Q/H/C choisissent directement Paragraph, Quote, Heading ou Continued · cliquez sur une zone pour la sélectionner, faites-la glisser pour la déplacer, tirez ses poignées pour la redimensionner, Suppr pour l'effacer",
     "groupRoleP": "Paragraph",
     "groupRoleQuote": "Quote",
     "groupRoleHead": "Heading",
     "groupRoleContinuation": "Continued",
-    "manualZonesTitle": "Groupes manuels",
+    "manualZonesTitle": "Zones",
     "manualZoneLinesCount": "{{count}} lignes",
     "manualZoneNoLines": "aucune ligne dans le rectangle",
     "krakenEngine": "Kraken (ONNX)",
@@ -376,7 +392,7 @@
     "find": "Rechercher dans la page (⌘F)",
     "linePopup": "Ligne",
     "linePopupTitle": "Afficher l'image de la ligne courante au-dessus du curseur pendant l'édition",
-    "manualZoneSelect": "Sélectionner ce groupe pour le déplacer ou le redimensionner (Suppr pour l'effacer)",
+    "manualZoneSelect": "Sélectionner cette zone pour la déplacer, la redimensionner ou changer son type (Suppr pour l'effacer)",
     "hideImagePane": "Masquer l'image de la page",
     "showImagePane": "Afficher l'image de la page",
     "lineSelected": "Ligne",
@@ -389,7 +405,24 @@
     "reOcrLineSeveral": "{{count}} lignes vues dans le cadre — celle qui y est centrée a été gardée ; tracez un cadre plus serré si ce n'est pas la bonne",
     "reOcrLineReplaceTitle": "Remplacer le texte de cette ligne (les balises de la ligne sont remplacées aussi)",
     "betacodeShowHelp": "Afficher l'aide",
-    "betacodeHideHelp": "Masquer l'aide"
+    "betacodeHideHelp": "Masquer l'aide",
+    "showZones": "Zones",
+    "showZonesTitle": "Afficher les zones (détectées et dessinées) sur la page",
+    "zoneTypeTitle": "Type de zone, pour la zone sélectionnée ou la prochaine dessinée (T pour ouvrir, puis tapez pour filtrer)",
+    "zoneDetected": "détectée",
+    "zoneManual": "dessinée",
+    "zoneNotWrapped": "Ses lignes n'ont pas pu être entourées d'une balise (lues en alternance avec une autre zone, ou dans un autre bloc) : liée par ses lignes seulement",
+    "stepsLabel": "Seulement",
+    "stepsHint": "Lancer une seule étape Kraken sur cette page ; le reste de la page est conservé",
+    "stepAllHint": "Reconstruire cette page de zéro : zones, lignes et texte",
+    "stepTextConfirm": "Remplacer le texte des lignes de cette page par une nouvelle lecture Kraken ? Les corrections faites sur ces lignes seront perdues.",
+    "stepAllConfirm": "Reconstruire cette page de zéro ? Son texte, corrections comprises, sera remplacé par une nouvelle lecture Kraken.",
+    "zoneTypeUse": "Utiliser",
+    "zoneTypeNoMatch": "Aucun type de zone ne correspond",
+    "zoneTypeKeysHint": "Tapez pour filtrer · ↑↓ pour se déplacer · Entrée pour choisir · Échap pour fermer",
+    "zoneTypeOf": "Zone {{id}} :",
+    "zoneTypeNew": "Nouvelle zone :",
+    "zoneTypeClick": "Cliquer pour changer le type de zone"
   },
   "krakenModel": {
     "builtin": "Intégré",
@@ -401,7 +434,19 @@
     "threads": "Threads CPU",
     "threadsAuto": "automatique",
     "threadsReset": "Réinitialiser ({{n}})",
-    "threadsHint": "Plus de threads : OCR plus rapide, mais moins de CPU pour les autres programmes. S'applique dès la page suivante ; enregistré pour cet ordinateur."
+    "threadsHint": "Plus de threads : OCR plus rapide, mais moins de CPU pour les autres programmes. S'applique dès la page suivante ; enregistré pour cet ordinateur.",
+    "documentType": "Document",
+    "documentTypes": {
+      "cllg": "Grec (CLLG)",
+      "ladas": "Latin (LADaS)"
+    },
+    "documentTypeHint": {
+      "cllg": "Édition savante grecque : les repères de section en marge sont fusionnés dans le texte en <ref>",
+      "ladas": "Document latin avec zones LADaS : le texte en marge est conservé en <note>"
+    },
+    "detectRegions": "Détecter les régions",
+    "regionsHint": "Utilise un modèle de mise en page D-FINE pour regrouper les lignes en zones (paragraphes, titres, marges…) et écarter titres courants et numéros de page",
+    "regionModel": "Modèle de régions"
   },
   "tour": {
     "startTour": "Visite guidée",
@@ -413,7 +458,7 @@
     "steps": {
       "welcome": {
         "title": "CLLG — Visite guidée",
-        "body": "CLLG transforme des numérisations d'éditions savantes grecques et latines en XML TEI structuré, en six étapes : import, masquage, OCR, structure, révision et export. La reconnaissance tourne localement avec Kraken. Le projet de démonstration est le début de l'édition princeps du De propriis placitis de Galien (V. Boudon-Millot et A. Pietrobelli, Revue des Études Grecques 118, 2005), diffusée par Persée sous licence CC BY-NC-ND. Il regorge de petits défis ; rien de ce que vous faites pendant la visite n'est enregistré."
+        "body": "CLLG transforme des numérisations d'éditions savantes grecques et latines en XML TEI structuré, en sept étapes : import, document, masquage, OCR, structure, révision et export. La reconnaissance tourne localement avec Kraken. Le projet de démonstration est le début de l'édition princeps du De propriis placitis de Galien (V. Boudon-Millot et A. Pietrobelli, Revue des Études Grecques 118, 2005), diffusée par Persée sous licence CC BY-NC-ND. Il regorge de petits défis ; rien de ce que vous faites pendant la visite n'est enregistré."
       },
       "home-new-project": {
         "title": "Étape 1 · Importer votre document",
@@ -423,8 +468,16 @@
         "title": "Autres sources",
         "body": "Vous pouvez aussi partir d'un dossier d'images, ou de fichiers ALTO XML avec leurs images (par exemple exportés d'eScriptorium). L'import ALTO conserve la géométrie de chaque ligne ; si l'ALTO porte des types de zones LADaS, paragraphes, citations et titres sont détectés automatiquement."
       },
+      "document-type": {
+        "title": "Étape 2 · Dire ce qu'est le document",
+        "body": "Choisissez le type de document : une édition savante grecque (CLLG) ou un document latin ou général typé avec les zones LADaS. Ce choix fixe le modèle de mise en page qui détecte les zones de chaque page, et le traitement des marges : CLLG fusionne les numéros de section des marges dans le texte en <ref>, LADaS garde le texte en marge comme une <note> à part. La démo est le grec de Galien : CLLG. Vous pourrez changer ce choix plus tard, ici ou sur la page OCR."
+      },
+      "document-zones": {
+        "title": "Quelles zones garder",
+        "body": "Le modèle de mise en page connaît une liste de types de zones (9 pour CLLG, 37 pour LADaS). Pour chacun, choisissez « Annoter » (le texte est gardé et balisé, p. ex. <p zone=\"r3\">, et la zone se modifie dans la relecture), « Garder le texte » (lignes simples, sans balise) ou « Écarter » (hors de la transcription). Par défaut, titres courants, numéros de page et bruit sont écartés. Page 2 de la démo, « 172  V. BOUDON-MILLOT ET A. PIETROBELLI » est un titre courant : une fois détecté, il reste hors du texte même sans masque."
+      },
       "masker-canvas": {
-        "title": "Étape 2 · Masquer ce qui ne doit pas être lu",
+        "title": "Étape 3 · Masquer ce qui ne doit pas être lu",
         "body": "Dessinez des rectangles blancs sur tout ce qui n'est pas le texte principal : les zones masquées sont blanchies avant que Kraken ne lise la page. La page 2 de la démo en a trois : le titre courant («172  V. BOUDON-MILLOT ET A. PIETROBELLI»), les numéros de ligne dans la marge gauche (5, 10, 15…) et les notes de bas de page. Défi : la page 3 imprime ses numéros de ligne dans la marge droite — faut-il aussi un masque ?"
       },
       "masker-tools": {
@@ -432,28 +485,32 @@
         "body": "Le Masque rectangulaire (D) dessine, le Pointeur (S) sélectionne, Suppr efface. «Copier vers toutes les pages» répète une mise en page sur tout le livre ; survolez une miniature et cliquez sur ⊘ pour ignorer une page (comme la couverture). «Générer des masques depuis les régions ALTO» crée les masques à partir des zones importées et «Exporter COCO» les enregistre comme données d'entraînement."
       },
       "ocr-models": {
-        "title": "Étape 3 · Choisir les modèles Kraken",
-        "body": "Kraken utilise un modèle de segmentation (qui trouve les lignes) et un modèle de reconnaissance (qui les lit). Les modèles intégrés pour le grec ancien fonctionnent directement ; choisissez Personnalisé pour charger les vôtres. «Threads CPU» règle la part de l'ordinateur que l'OCR peut utiliser — enregistré pour cet ordinateur."
+        "title": "Étape 4 · Choisir les modèles Kraken",
+        "body": "Kraken utilise un modèle de segmentation (trouve les lignes) et un modèle de reconnaissance (les lit) ; avec « Détecter les régions », un modèle de mise en page trouve aussi les zones choisies à l'étape 2. Les modèles intégrés pour le grec ancien fonctionnent tels quels ; choisissez Personnalisé pour charger les vôtres. « Threads CPU » règle la part de l'ordinateur que l'OCR peut utiliser — enregistré pour cet ordinateur."
       },
       "ocr-run": {
         "title": "Lancer l'OCR",
         "body": "Cliquez sur «Lancer OCR» pour reconnaître les pages en file une par une ; les résultats sont mis en cache, vous pouvez arrêter et reprendre à tout moment. Chaque ligne est ancrée par <lb n=\"…\"/> pour que le texte reste lié à sa place sur l'image. Ci-dessous : la sortie brute de Kraken pour le début de la page 2 — un ν minuscule dans le titre, un υ parasite, un «(ἐν)» perdu et un iota souscrit manquant."
       },
+      "ocr-steps": {
+        "title": "Ne lancer que certaines étapes",
+        "body": "L'OCR a trois étapes : Zones (mise en page), Lignes (segmentation) et Texte (reconnaissance). « Certaines étapes seulement » relance uniquement celles que vous cochez sur les pages sélectionnées — y compris des pages déjà relues — et garde tout le reste : l'étape Zones, par exemple, ajoute ou met à jour les zones sans toucher à un mot corrigé. La relecture propose les mêmes boutons pour la page courante, dans son panneau Re-OCR."
+      },
       "config-hierarchy": {
-        "title": "Étape 4 · Définir la structure du document",
-        "body": "Décrivez comment le texte est divisé et numéroté. Ce traité est divisé en sections 1, 2, 3…, la démo a donc un seul niveau, «section», en chiffres arabes. La hiérarchie pilote la structure <div> de la TEI ; la section Bibliographie remplit le sourceDesc de l'en-tête TEI (la démo cite déjà l'article)."
+        "title": "Étape 5 · Définir la structure du document",
+        "body": "Décrivez comment le texte est divisé et numéroté. Ce traité est divisé en sections 1, 2, 3…, la démo a donc un seul niveau, « section », en chiffres arabes. La hiérarchie produit les <div> du TEI ; elle est facultative : sans elle, le TEI est cité par page seulement. La section Bibliographie remplit le sourceDesc de l'en-tête TEI (la démo cite déjà l'article)."
       },
       "config-format": {
         "title": "Motifs de référence",
         "body": "Choisissez le système de numérotation de chaque niveau : romain (I II III), arabe (1 2 3), grec (α β γ) ou une regex personnalisée. Options : missing_first (le premier numéro n'est pas imprimé), allow_gaps, et milestone (un repère dans le texte, comme un renvoi de page, plutôt qu'une division)."
       },
       "review-editor": {
-        "title": "Étape 5 · Réviser et corriger",
+        "title": "Étape 6 · Réviser et corriger",
         "body": "La numérisation est à gauche, la transcription à droite ; le bouton à gauche de la barre de page masque la numérisation. Corrigez directement et enregistrez avec ⌘S (⌘Z / ⌘⇧Z annulent et rétablissent) ; changez de page avec les flèches en haut à droite ou Ctrl+↑ / Ctrl+↓. Ci-dessous : les mêmes lignes qu'à l'étape OCR, après révision. Défi : la page 3 cache encore deux erreurs d'OCR — trouvez «ομὲν» et «τῆν»."
       },
       "review-image": {
-        "title": "Lignes et zones",
-        "body": "«Afficher les zones de ligne» dessine le cadre de chaque ligne ; cliquez-en une pour la retrouver dans l'éditeur. «Dessiner une zone» (G, pointeur sur l'image) regroupe des lignes : appuyez sur P, Q, H ou C pour Paragraph, Quote, Heading ou Continued, puis tracez ; cliquez sur une zone pour la déplacer ou la redimensionner, Suppr l'efface. Dans la démo, le titre de la page 2 est un Heading, et la page 3 s'ouvre sur une zone Continued : la section 2 se poursuit depuis la page 2, et l'export les réunit. Pour corriger une ligne mal segmentée, sélectionnez-la, appuyez sur R au-dessus de l'image et tracez son nouveau cadre ; «Relancer l'OCR de la ligne» relit cette ligne."
+        "title": "Boîtes de ligne et zones",
+        "body": "« Afficher les zones de ligne » entoure chaque ligne ; cliquez-en une pour la retrouver dans l'éditeur. « Zones » montre les zones de la page, détectées (tirets) ou dessinées (trait plein) ; chacune est liée à sa balise dans le texte, et placer le curseur dans le texte sélectionne sa zone. Pour changer le type d'une zone, cliquez son étiquette sur l'image ou dans la liste des zones, ou appuyez sur T : tapez pour filtrer (« head », « mzh »…), Entrée pour choisir ; P, Q, H et C choisissent directement Paragraph, Quote, Heading et Continued. « Dessiner une zone » (G, pointeur sur l'image) trace de nouvelles zones, les déplace ou les redimensionne ; Suppr en efface une. Dans la démo, la page 3 s'ouvre sur une zone Continued : la section 2 se poursuit depuis la page 2, et l'export les réunit. Pour corriger une ligne mal segmentée, sélectionnez-la, appuyez sur R au-dessus de l'image et tracez sa nouvelle boîte ; « Relancer l'OCR de la ligne » relit cette ligne."
       },
       "review-tag-ref": {
         "title": "Baliser les numéros de section",
@@ -464,8 +521,8 @@
         "body": "«2e lecture» relance Kraken et souligne les désaccords ; «Ligne» affiche l'image de la ligne courante au-dessus du curseur ; la loupe (⌘F) cherche dans la page ; «Latin» signale les lettres latines dans le grec. β (⌘K) est un clavier bêtacode, diacritiques d'abord : «)a» donne ἀ, «:» l'ano teleia ·, «?» le point d'interrogation grec, et «<» «>» les crochets de Leyde ⟨ ⟩ que cette édition emploie pour les mots suppléés (page 2 : «περὶ ⟨ὧν⟩»)."
       },
       "export-generate": {
-        "title": "Étape 6 · Exporter",
-        "body": "«Générer» produit un fichier TEI P5 unique pour tout le document : chaque section ouvre un <div>, les zones deviennent <head> et <p>, et une zone Continued est fusionnée avec le paragraphe qu'elle poursuit — par-dessus le <pb/> — comme dans la sortie réelle ci-dessous. Les mots coupés en fin de ligne, comme «διά-» / «νοιαν», sont réunis par <lb break=\"no\"/>. L'onglet Par page exporte du texte brut, du texte balisé LADaS, de l'ALTO ou du pré-TEI ; vous pouvez aussi exporter un PDF interrogeable ou partager le projet en zip."
+        "title": "Étape 7 · Exporter",
+        "body": "« Générer » produit un seul fichier TEI P5 pour tout le document : chaque section ouvre une <div>, les zones deviennent <head> et <p>, et une zone Continued est fusionnée avec le paragraphe qu'elle prolonge — par-delà le <pb/> — comme dans l'extrait réel ci-dessous. Tout fichier peut être cité par page (un citeStructure sur <pb>), et par section s'il y a une hiérarchie. Les mots coupés en fin de ligne, comme « διά- » / « νοιαν », sont réunis avec <lb break=\"no\"/>. L'onglet Par page exporte le texte brut, le texte balisé LADaS, l'ALTO ou le pré-TEI ; vous pouvez aussi exporter un PDF interrogeable ou partager le projet en zip."
       },
       "finale": {
         "title": "Vous êtes prêt·e !",
@@ -493,7 +550,7 @@
     "zipping": "Compression…",
     "exportPdf": "Exporter en PDF consultable…",
     "pdfExporting": "Génération du PDF…",
-    "noHierarchy": "Aucune hiérarchie définie — revenez à la configuration de la structure.",
+    "noHierarchy": "Pas de hiérarchie de références : le TEI est cité par page seulement (<pb n>).",
     "perPageTab": "Par page",
     "perPagePicker": "Page",
     "formatPlain": "Texte brut",
@@ -504,5 +561,43 @@
     "perPageSave": "Enregistrer cette page…",
     "perPageExportAll": "Exporter toutes les pages…",
     "perPageExportingAll": "Export en cours…"
+  },
+  "document": {
+    "title": "Document",
+    "subtitle": "Le type de document, et les zones de la page à conserver dans la transcription. Vous pourrez revenir modifier ces choix à tout moment.",
+    "continue": "Continuer vers le masquage",
+    "typeTitle": "Type de document",
+    "typeDescription": {
+      "cllg": "Une édition savante grecque. Les repères de section en marge (Estienne, Bekker, numéros de chapitre…) sont fusionnés dans le texte en <ref>, le texte de marge plus long en <note> dans la ligne. Utilise le modèle de mise en page CLLG.",
+      "ladas": "Un document latin ou général, typé avec le vocabulaire de zones LADaS. Le texte en marge reste une <note> à part. Utilise le modèle de mise en page LADaS, qui connaît beaucoup plus de types de zones."
+    },
+    "zonesTitle": "Zones",
+    "zonesSubtitle": "Les types de zones que détecte le modèle de mise en page. Pour chacun, choisissez ce que garde la transcription.",
+    "noRegionModel": "La détection des zones est désactivée : chaque ligne est transcrite telle quelle, sans zones. Activez « Détecter les régions » pour choisir les zones.",
+    "resetDefaults": "Rétablir les valeurs par défaut",
+    "setAll": "Appliquer à tous les types de ce groupe",
+    "policyNote": "S'applique aux prochains OCR. Sur les pages déjà océrisées, lancez l'étape Zones (page OCR) pour mettre leurs zones à jour ; elle ne supprime jamais le texte déjà transcrit.",
+    "action": {
+      "annotate": "Annoter",
+      "keep": "Garder le texte",
+      "drop": "Écarter"
+    },
+    "actionHint": {
+      "annotate": "Garder le texte et la zone : balisée dans le texte et modifiable dans la relecture",
+      "keep": "Garder seulement le texte, en lignes simples : ni balise, ni zone",
+      "drop": "Laisser ce texte hors de la transcription (les boîtes de ligne sont conservées)"
+    },
+    "groups": {
+      "main": "Texte principal",
+      "margin": "Marges",
+      "dropcap": "Lettrines",
+      "other": "Illustrations, pages de titre et autres zones",
+      "skip": "Titres courants, numérotation et bruit"
+    },
+    "outcomeDropped": "— écartée",
+    "outcomeDropcap": "collée au début de la ligne voisine",
+    "outcomeMarginCllg": "<ref> / <note> dans la ligne voisine",
+    "outcomeLines": "lignes simples",
+    "outcomeLinesZone": "lignes simples, liées à une zone"
   }
 }

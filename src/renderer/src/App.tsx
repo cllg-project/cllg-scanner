@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState } from 'react'
 import { Routes, Route, useNavigate } from 'react-router-dom'
 import type { Project } from '@shared/types'
 import Home from './pages/Home'
+import DocumentSetup from './pages/DocumentSetup'
 import Masker from './pages/Masker'
 import OCRRun from './pages/OCRRun'
 import Config from './pages/Config'
@@ -68,6 +69,7 @@ export default function App(): React.JSX.Element {
         <div className="h-screen flex flex-col">
           <Routes>
             <Route path="/" element={<Home />} />
+            <Route path="/document" element={<DocumentSetup />} />
             <Route path="/masker" element={<Masker />} />
             <Route path="/ocr" element={<OCRRun />} />
             <Route path="/config" element={<Config />} />

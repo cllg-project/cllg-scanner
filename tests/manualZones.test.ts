@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { linesInRect, blockTagForRole } from '../src/renderer/src/utils/manualZones'
+import { linesInRect, blockTagForRole } from '../src/shared/manualZones'
 import type { LineGeometry } from '../src/shared/types'
 
 function line(id: string, polygon: [number, number][]): LineGeometry {

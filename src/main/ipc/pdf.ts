@@ -3,11 +3,25 @@ import { writeFile, readFile, readdir, copyFile, unlink } from 'fs/promises'
 import { mkdirSync, existsSync } from 'fs'
 import { join, extname, basename, isAbsolute, relative } from 'path'
 import type { Project } from '@shared/types'
+import { needsPngConversion, convertToPng, imageDataUrl } from '../imageFormat'
 
 const IMAGE_EXTS = new Set(['.jpg', '.jpeg', '.png', '.tif', '.tiff', '.bmp', '.webp'])
 
 function withTrailingNewline(content: string): string {
   return content.length === 0 || content.endsWith('\n') ? content : content + '\n'
+}
+
+/** Rebuilds ocr_output.md from every page cache file, in page order. */
+export async function rebuildCombinedMarkdown(projectDir: string): Promise<void> {
+  const entries = await readdir(join(projectDir, 'pages'))
+  const mdFiles = entries
+    .filter((e) => /^page_\d+\.md$/.test(e))
+    .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
+  const parts: string[] = []
+  for (const f of mdFiles) {
+    try { parts.push(withTrailingNewline(await readFile(join(projectDir, 'pages', f), 'utf-8'))) } catch { /* skip */ }
+  }
+  await writeFile(join(projectDir, 'ocr_output.md'), parts.join(''), 'utf-8')
 }
 
 export function registerPDFHandlers(): void {
@@ -51,12 +65,11 @@ export function registerPDFHandlers(): void {
   })
 
   // Load an image file and return as base64 data URL
-  ipcMain.handle('page:loadImage', async (_event, absolutePath: string) => {
+  // maxSide: a small JPEG preview instead of the full page (thumbnails).
+  ipcMain.handle('page:loadImage', async (_event, absolutePath: string, maxSide?: number) => {
     if (absolutePath.startsWith('data:')) return absolutePath   // pre-encoded (e.g. tour demo)
-    const data = await readFile(absolutePath)
-    const ext = absolutePath.split('.').pop()?.toLowerCase()
-    const mime = ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg' : 'image/png'
-    return `data:${mime};base64,${data.toString('base64')}`
+    // Converts TIFF & co., so pages imported before import-time conversion still load.
+    return imageDataUrl(absolutePath, maxSide)
   })
 
   // Load a PDF file and return its raw bytes (for pdfjs in renderer).
@@ -104,13 +117,21 @@ export function registerPDFHandlers(): void {
   ipcMain.handle(
     'page:copyImage',
     async (_event, srcPath: string, projectDir: string, pageNum: number) => {
+      const pagesDir = join(projectDir, 'pages')
+      // TIFF & co. — convert to a PNG in pages/, even for an image already inside the
+      // project: every consumer (canvas, LM Studio, mask export) needs PNG or JPEG.
+      if (needsPngConversion(srcPath)) {
+        mkdirSync(pagesDir, { recursive: true })
+        const fileName = `page_${String(pageNum).padStart(4, '0')}.png`
+        await convertToPng(srcPath, join(pagesDir, fileName))
+        return `pages/${fileName}`
+      }
       const rel = relative(projectDir, srcPath)
       // relative() returns a path without leading '..' when srcPath is inside projectDir
       if (!rel.startsWith('..') && !isAbsolute(rel)) {
         return rel.replace(/\\/g, '/')
       }
       // External image — copy into pages/
-      const pagesDir = join(projectDir, 'pages')
       mkdirSync(pagesDir, { recursive: true })
       const ext = extname(srcPath).toLowerCase() || '.png'
       const fileName = `page_${String(pageNum).padStart(4, '0')}${ext}`
@@ -135,16 +156,7 @@ export function registerPDFHandlers(): void {
     // text). The renderer's textarea commonly hands back content with no trailing
     // newline after a manual edit, so this can't be assumed upstream.
     await writeFile(cachePath, withTrailingNewline(content), 'utf-8')
-    // Rebuild combined output from all cache files in page order
-    const entries = await readdir(join(projectDir, 'pages'))
-    const mdFiles = entries
-      .filter((e) => /^page_\d+\.md$/.test(e))
-      .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
-    const parts: string[] = []
-    for (const f of mdFiles) {
-      try { parts.push(withTrailingNewline(await readFile(join(projectDir, 'pages', f), 'utf-8'))) } catch { /* skip */ }
-    }
-    await writeFile(join(projectDir, 'ocr_output.md'), parts.join(''), 'utf-8')
+    await rebuildCombinedMarkdown(projectDir)
   })
 
   // Delete the per-page markdown cache and reset its status to 'pending' in project.cllg.json

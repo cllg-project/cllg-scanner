@@ -9,37 +9,9 @@
 // (confirmed: Kraken's segmenter output is not hardcoded to
 // 'DefaultLine'/'DefaultLine-Margin' — it's whatever the loaded model defines). So
 // the same classification function applies to both sources.
-export type ZoneRole = 'p' | 'quote' | 'head' | 'continuation' | 'unknown'
-
-export function classifyLadasType(regionType?: string): ZoneRole {
-  if (!regionType) return 'unknown'
-  if (/^MainZone[-:]PQuoted/.test(regionType)) return 'quote'
-  if (/^MainZone[-:]Continued/.test(regionType)) return 'continuation'
-  if (/^MainZone[-:]Head/.test(regionType)) return 'head'
-  if (/^MainZone[-:]P/.test(regionType)) return 'p' // PQuoted already matched above
-  return 'unknown'
-}
-
-// Inverse of classifyLadasType — used when exporting/round-tripping zone typing
-// (e.g. back into ALTO) from a role that was determined some other way (manual
-// tagging, a Kraken run with no ALTO involved at all).
-export function ladasTypeForRole(role: ZoneRole): string {
-  return {
-    p: 'MainZone:P',
-    quote: 'MainZone:PQuoted',
-    head: 'MainZone:Head',
-    continuation: 'MainZone:Continued',
-    unknown: 'MainZone:P',
-  }[role]
-}
-
-// Hyphen-separated form matching eScriptorium's real-world LADaS LABEL convention (see
-// the module doc comment above) — used wherever a label/type is written into an actual
-// ALTO export (OtherTag/@LABEL, or a pseudo-tag naming convention derived from it), as
-// opposed to ladasTypeForRole()'s colon form used for CLLG's own internal regionType.
-export function ladasLabelForRole(role: ZoneRole): string {
-  return ladasTypeForRole(role).replace(':', '-')
-}
+// The classification itself lives in src/shared/zones.ts (the renderer needs it too).
+import { classifyLadasType, type ZoneRole } from '@shared/zones'
+export { classifyLadasType, ladasTypeForRole, ladasLabelForRole, type ZoneRole } from '@shared/zones'
 
 export function isLadasCompatible(lines: { regionType?: string }[]): boolean {
   return lines.some((l) => classifyLadasType(l.regionType) !== 'unknown')
@@ -91,20 +63,26 @@ export function groupIntoZones(
   return zones
 }
 
-// Convenience wrapper around groupIntoZones() that applies ManualZoneGroup overrides
-// (Review's manual region-grouping tool) before grouping — shared by every consumer
-// that needs a page's *effective* zones (raw LADaS classification, corrected by any
-// manual tagging), e.g. the ALTO round-trip export and the "Plain Text + LADaS" export.
-// Without funnelling the override through groupIntoZones itself, a manually regrouped
-// run of lines would only get relabeled while staying fragmented into one zone per
-// original block — the whole point of a manual regroup is to merge them into one.
+// Convenience wrapper around groupIntoZones() that applies the page's zone typing
+// (detected D-FINE zones, as edited in Review, and hand-drawn ones) before grouping —
+// shared by every consumer that needs a page's *effective* zones (raw LADaS
+// classification, corrected by any zone editing), e.g. the ALTO round-trip export and
+// the "Plain Text + LADaS" export. Without funnelling the override through
+// groupIntoZones itself, a manually regrouped run of lines would only get relabeled
+// while staying fragmented into one zone per original block — the whole point of a
+// manual regroup is to merge them into one. A zone is given either as a legacy
+// `role` or as a LADaS `type`; a type with no block role (margin, running title…)
+// overrides nothing. Hand-drawn zones win over detected ones.
 export function effectiveZones(
   lines: { blockId?: string; regionType?: string; text: string; id: string }[],
-  manualZones: { role: ZoneRole; lineIds: string[] }[] = []
+  zones: ({ role: ZoneRole; lineIds: string[] } | { type: string; lineIds: string[]; source?: string })[] = []
 ): Zone[] {
   const overrideById = new Map<string, ZoneRole>()
-  for (const group of manualZones) {
-    for (const id of group.lineIds) overrideById.set(id, group.role)
+  const ordered = [...zones].sort((a, b) => Number('source' in a && a.source === 'manual') - Number('source' in b && b.source === 'manual'))
+  for (const group of ordered) {
+    const role = 'role' in group ? group.role : classifyLadasType(group.type)
+    if (role === 'unknown') continue
+    for (const id of group.lineIds) overrideById.set(id, role)
   }
   return groupIntoZones(lines.map((l) => ({ ...l, roleOverride: overrideById.get(l.id) })))
 }

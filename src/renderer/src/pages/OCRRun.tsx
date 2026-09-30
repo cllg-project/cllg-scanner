@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
-import type { KrakenConfig, OCRProgressEvent, Page } from '@shared/types'
+import type { KrakenConfig, KrakenStep, OCRProgressEvent, Page } from '@shared/types'
 import Sidebar from '../components/Sidebar'
 import { useProject } from '../App'
 import { renderMaskedPage } from '../utils/renderMaskedPage'
@@ -20,11 +20,13 @@ interface PageRow {
 
 type Filter = 'all' | 'pending' | 'done' | 'errors'
 
-const CURRENT_STEP = 3 // 1-based
+const KRAKEN_STEPS: KrakenStep[] = ['zone', 'line', 'text']
+
+const CURRENT_STEP = 4 // 1-based
 
 export default function OCRRun(): React.JSX.Element {
   const { t } = useTranslation()
-  const STEP_LABELS = [t('steps.import'), t('steps.mask'), t('steps.ocr'), t('steps.config'), t('steps.review'), t('steps.tei')]
+  const STEP_LABELS = [t('steps.import'), t('steps.document'), t('steps.mask'), t('steps.ocr'), t('steps.config'), t('steps.review'), t('steps.tei')]
   const { project, saveProject } = useProject()
   const navigate = useNavigate()
 
@@ -36,6 +38,9 @@ export default function OCRRun(): React.JSX.Element {
   const [excluded, setExcluded] = useState<Set<number>>(
     () => new Set((project?.pages ?? []).filter((p) => p.status === 'ocr_done').map((p) => p.n))
   )
+  // Full OCR run ('all') or only some Kraken steps on the selected pages.
+  const [stepMode, setStepMode] = useState<'all' | 'steps'>('all')
+  const [steps, setSteps] = useState<Set<KrakenStep>>(() => new Set(['zone']))
   const [log, setLog] = useState<string[]>([])
   const [filter, setFilter] = useState<Filter>('all')
   const [search, setSearch] = useState('')
@@ -79,7 +84,7 @@ export default function OCRRun(): React.JSX.Element {
         if (e.fromCache) {
           addLog(`[${ts}] page[${e.pageNum}] done · (cache)`)
         } else {
-          addLog(`[${ts}] page[${e.pageNum}] done · ${((e.elapsedMs ?? 0) / 1000).toFixed(1)} s`)
+          addLog(`[${ts}] page[${e.pageNum}] done · ${((e.elapsedMs ?? 0) / 1000).toFixed(1)} s${e.logMessage ? ` · ${e.logMessage}` : ''}`)
         }
       } else if (e.status === 'error') {
         addLog(`[${ts}] page[${e.pageNum}] ERROR · ${e.errorMessage}`)
@@ -101,7 +106,13 @@ export default function OCRRun(): React.JSX.Element {
   useEffect(() => {
     if (project?.krakenConfig) return
     window.api.getKrakenBuiltinPaths().then((paths) =>
-      setKrakenConfig({ segModelPath: paths.segModelPath, recModelPath: paths.recModelPath, builtinModels: true })
+      setKrakenConfig({
+        segModelPath: paths.segModelPath,
+        recModelPath: paths.recModelPath,
+        builtinModels: true,
+        documentType: 'cllg',
+        regionModelPath: paths.regionModelPaths.cllg,
+      })
     )
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [project?.projectDir])
@@ -142,21 +153,7 @@ export default function OCRRun(): React.JSX.Element {
     addLog(`[info] Starting OCR · ${pagesForOCR.filter((p) => p.status !== 'skipped').length} pages`)
     if (forcedNs.size > 0) addLog(`[info] Force-reprocessing ${forcedNs.size} page(s): ${[...forcedNs].join(', ')}`)
 
-    const toMask = pagesForOCR.filter((p) => p.masks.length > 0)
-    if (toMask.length > 0) {
-      addLog(`[info] Applying masks to ${toMask.length} pages…`)
-      const maskedPaths = new Map<number, string>()
-      for (const p of toMask) {
-        try {
-          maskedPaths.set(p.n, await renderMaskedPage(project.projectDir, p))
-        } catch (err) {
-          addLog(`[warn] Mask apply failed for page ${p.n}: ${err}`)
-        }
-      }
-      pagesForOCR = pagesForOCR.map((p) =>
-        maskedPaths.has(p.n) ? { ...p, maskedImagePath: maskedPaths.get(p.n) } : p
-      )
-    }
+    pagesForOCR = await applyMasks(pagesForOCR)
 
     await window.api.runKraken(project.projectDir, pagesForOCR, krakenConfig)
 
@@ -165,7 +162,58 @@ export default function OCRRun(): React.JSX.Element {
 
     setRunning(false)
     addLog('[info] OCR run complete')
-  }, [project, krakenConfig, rows, excluded, saveProject])
+  }, [project, krakenConfig, rows, excluded, saveProject]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Kraken reads the masked render of a page that has masks.
+  const applyMasks = async (pages: Page[]): Promise<Page[]> => {
+    if (!project) return pages
+    const toMask = pages.filter((p) => p.masks.length > 0)
+    if (toMask.length === 0) return pages
+    addLog(`[info] Applying masks to ${toMask.length} pages…`)
+    const maskedPaths = new Map<number, string>()
+    for (const p of toMask) {
+      try {
+        maskedPaths.set(p.n, await renderMaskedPage(project.projectDir, p))
+      } catch (err) {
+        addLog(`[warn] Mask apply failed for page ${p.n}: ${err}`)
+      }
+    }
+    return pages.map((p) => (maskedPaths.has(p.n) ? { ...p, maskedImagePath: maskedPaths.get(p.n) } : p))
+  }
+
+  // Only the chosen steps, on every selected page — already-OCRed ones included, that
+  // is the point: the page keeps its corrected text, only the step's layer changes.
+  const startSteps = useCallback(async () => {
+    if (!project || steps.size === 0) return
+    const chosen = KRAKEN_STEPS.filter((s) => steps.has(s) && (s !== 'zone' || !!krakenConfig.regionModelPath))
+    if (chosen.length === 0) return
+    let pagesForSteps = project.pages.filter((p) => !excluded.has(p.n) && p.status !== 'skipped')
+    if (chosen.includes('text')) {
+      const reviewed = pagesForSteps.filter((p) => p.status === 'ocr_done').length
+      if (reviewed > 0 && !window.confirm(t('ocr.stepsTextConfirm', { count: reviewed }))) return
+    }
+    setRunning(true)
+    addLog(`[info] Running ${chosen.join(' + ')} · ${pagesForSteps.length} pages`)
+    try {
+      pagesForSteps = await applyMasks(pagesForSteps)
+      await window.api.runKrakenSteps(project.projectDir, pagesForSteps, krakenConfig, chosen)
+      addLog('[info] Steps complete')
+    } catch (err) {
+      addLog(`[error] ${err}`)
+    } finally {
+      const reloaded = await window.api.reloadProject(project.projectDir)
+      await saveProject(reloaded)
+      setRunning(false)
+    }
+  }, [project, krakenConfig, steps, excluded, saveProject]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const toggleStep = (s: KrakenStep): void => {
+    setSteps((prev) => {
+      const next = new Set(prev)
+      if (next.has(s)) next.delete(s); else next.add(s)
+      return next
+    })
+  }
 
   const stopOCR = useCallback(async () => {
     await window.api.stopKraken()
@@ -282,9 +330,14 @@ export default function OCRRun(): React.JSX.Element {
                     </svg>
                     {t('ocr.resume')}
                   </button>
-                  <button className="btn btn-primary" data-tour="ocr-run" onClick={startOCR} disabled={running}>
+                  <button
+                    className="btn btn-primary"
+                    data-tour="ocr-run"
+                    onClick={stepMode === 'all' ? startOCR : startSteps}
+                    disabled={running || (stepMode === 'steps' && steps.size === 0)}
+                  >
                     <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M6 4l14 8-14 8z" /></svg>
-                    {t('ocr.runOcr')}
+                    {stepMode === 'all' ? t('ocr.runOcr') : t('ocr.runSteps')}
                   </button>
                 </>
               )}
@@ -302,6 +355,53 @@ export default function OCRRun(): React.JSX.Element {
               <h3 className="font-serif text-[15px] leading-none mb-2">{t('review.krakenEngine')}</h3>
               <KrakenModelPicker value={krakenConfig} onChange={updateKrakenConfig} />
               <KrakenThreadsSetting />
+            </div>
+          </section>
+
+          {/* ── Kraken steps: a full run, or only zone / line / text ── */}
+          <section data-tour="ocr-steps">
+            <div className="panel px-3 py-2.5 flex items-center gap-3 flex-wrap text-[12px]">
+              <h3 className="font-serif text-[15px] leading-none">{t('ocr.stepsTitle')}</h3>
+              <div className="flex p-0.5 rounded-md border gap-0.5" style={{ background: 'var(--paper-3)', borderColor: 'var(--line-2)' }}>
+                {(['all', 'steps'] as const).map((m) => (
+                  <button
+                    key={m}
+                    className="px-2.5 py-1 rounded text-[11.5px]"
+                    style={stepMode === m ? { background: 'var(--paper)', color: 'var(--ink)', fontWeight: 600 } : { color: 'var(--mute)' }}
+                    onClick={() => setStepMode(m)}
+                    disabled={running}
+                  >
+                    {m === 'all' ? t('ocr.stepsAll') : t('ocr.stepsOnly')}
+                  </button>
+                ))}
+              </div>
+              {stepMode === 'steps' && (
+                <>
+                  {KRAKEN_STEPS.map((s) => {
+                    const noRegionModel = s === 'zone' && !krakenConfig.regionModelPath
+                    return (
+                      <label
+                        key={s}
+                        className="inline-flex items-center gap-1.5"
+                        style={{ opacity: noRegionModel ? 0.5 : 1 }}
+                        title={noRegionModel ? t('ocr.stepZoneNoModel') : t(`ocr.step_${s}_hint`)}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={steps.has(s) && !noRegionModel}
+                          disabled={running || noRegionModel}
+                          onChange={() => toggleStep(s)}
+                        />
+                        {t(`ocr.step_${s}`)}
+                      </label>
+                    )
+                  })}
+                  <button className="btn btn-quiet text-[11px]" style={{ padding: '2px 8px' }} onClick={() => setExcluded(new Set())} disabled={running}>
+                    {t('ocr.stepsSelectAllPages')}
+                  </button>
+                  <span className="text-[11px] w-full" style={{ color: 'var(--mute)' }}>{t('ocr.stepsHint')}</span>
+                </>
+              )}
             </div>
           </section>
 

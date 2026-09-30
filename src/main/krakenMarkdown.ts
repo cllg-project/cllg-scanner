@@ -1,4 +1,6 @@
 import { groupIntoZones, type Zone } from './ladas'
+import { mergeRegionLines, type PlacedLine } from './regionMerge'
+import type { DocumentType, ZoneAction } from '@shared/types'
 
 export interface KrakenLineOut {
   text: string
@@ -30,7 +32,30 @@ export interface KrakenLineOut {
  */
 export function krakenLinesToPageMarkdown(pageN: number, lines: KrakenLineOut[]): string {
   const zones = groupIntoZones(lines)
-  const body = zones.map(zoneToMarkdown).join('\n')
+  const body = zones.map((z) => zoneToMarkdown(z)).join('\n')
+  return `<pb n="${pageN}"/>\n${body}\n\n`
+}
+
+/**
+ * Like krakenLinesToPageMarkdown(), for lines already assigned to the layout regions a
+ * D-FINE region model detected (regionMerge.ts's assignLinesToRegions()): one block per
+ * region, with margins, drop capitals and running titles handled according to the
+ * document type — see regionMerge.ts. Each region's block tag carries its zone id
+ * (`<p zone="r3">`, `<note zone="r5">`), linking it to the page zone Review edits.
+ */
+export function regionLinesToPageMarkdown(
+  pageN: number,
+  lines: PlacedLine[],
+  documentType: DocumentType,
+  policy?: Record<string, ZoneAction>
+): string {
+  const body = mergeRegionLines(lines, documentType, policy)
+    .map((b) =>
+      b.kind === 'note'
+        ? `<lb n="${b.lines[0].id}"/><note${zoneAttr(b.blockId)}>${b.lines.map((l) => l.text.trim()).join(' ')}</note>`
+        : zoneToMarkdown({ blockId: '', role: b.role, lines: b.lines }, b.blockId)
+    )
+    .join('\n')
   return `<pb n="${pageN}"/>\n${body}\n\n`
 }
 
@@ -38,17 +63,20 @@ function anchoredLines(zone: Zone): string {
   return zone.lines.map((l) => `<lb n="${l.id}"/>${l.text}`).join('\n')
 }
 
-function zoneToMarkdown(zone: Zone): string {
+const zoneAttr = (zoneId?: string): string => (zoneId ? ` zone="${zoneId}"` : '')
+
+function zoneToMarkdown(zone: Zone, zoneId?: string): string {
   const inner = anchoredLines(zone)
+  const z = zoneAttr(zoneId)
   switch (zone.role) {
     case 'quote':
-      return `<quote>\n${inner}\n</quote>`
+      return `<quote${z}>\n${inner}\n</quote>`
     case 'head':
-      return `<head>\n${inner}\n</head>`
+      return `<head${z}>\n${inner}\n</head>`
     case 'continuation':
-      return `<continued>\n${inner}\n</continued>`
+      return `<continued${z}>\n${inner}\n</continued>`
     case 'p':
-      return `<p>\n${inner}\n</p>`
+      return `<p${z}>\n${inner}\n</p>`
     case 'unknown':
     default:
       return inner

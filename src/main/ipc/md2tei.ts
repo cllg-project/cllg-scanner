@@ -117,7 +117,7 @@ type LineToken =
 
 function tokenizeLine(s: string): LineToken[] {
   const tokens: LineToken[] = []
-  const re = /(<lb[^>]*\/>|<ref[^>]*>.*?<\/ref>|<note>.*?<\/note>|<cit>.*?<\/cit>|<bibl>.*?<\/bibl>)/gs
+  const re = /(<lb[^>]*\/>|<ref[^>]*>.*?<\/ref>|<note(?: zone="[^"]*")?>.*?<\/note>|<cit>.*?<\/cit>|<bibl>.*?<\/bibl>)/gs
   let last = 0
   let m: RegExpExecArray | null
   while ((m = re.exec(s)) !== null) {
@@ -128,7 +128,7 @@ function tokenizeLine(s: string): LineToken[] {
       const am = /^<ref([^>]*)>(.*?)<\/ref>$/s.exec(tag)
       if (am) tokens.push({ kind: 'ref', attrStr: am[1], inner: am[2] })
     } else if (tag.startsWith('<note')) {
-      const nm = /^<note>(.*?)<\/note>$/s.exec(tag)
+      const nm = /^<note(?: zone="[^"]*")?>(.*?)<\/note>$/s.exec(tag)
       if (nm) tokens.push({ kind: 'note', inner: nm[1] })
     } else if (tag.startsWith('<cit')) {
       const cm = /^<cit>(.*?)<\/cit>$/s.exec(tag)
@@ -639,6 +639,24 @@ function buildCiteStructure(doc: Document, structNode: Record<string, unknown>, 
   return el
 }
 
+// The physical citation structure: pages, by their <pb n>. Every document has one,
+// whatever its reference hierarchy — including none at all.
+function buildPhysicalRefsDecl(doc: Document): Element {
+  const refsDecl = doc.createElementNS(NS, 'refsDecl')
+  refsDecl.setAttribute('type', 'physical')
+  const cite = doc.createElementNS(NS, 'citeStructure')
+  cite.setAttribute('match', '//pb')
+  cite.setAttribute('unit', 'page')
+  cite.setAttribute('use', '@n')
+  refsDecl.appendChild(cite)
+  return refsDecl
+}
+
+/**
+ * Declares the document's citation structures in <encodingDesc>: always the physical
+ * one (pages, `//pb`), then the reference hierarchy's own (`div`/`milestone` levels)
+ * when the project has one.
+ */
 function addCiteStructure(doc: Document, config: Record<string, unknown>): void {
   const root = doc.documentElement
   let header = root.getElementsByTagNameNS(NS, 'teiHeader')[0] as Element | undefined
@@ -663,12 +681,14 @@ function addCiteStructure(doc: Document, config: Record<string, unknown>): void 
     encDesc.insertBefore(appInfo, encDesc.firstChild)
   }
 
-  const old = encDesc.getElementsByTagNameNS(NS, 'refsDecl')[0] as Element | undefined
-  if (old) encDesc.removeChild(old)
+  for (const old of Array.from(encDesc.getElementsByTagNameNS(NS, 'refsDecl'))) encDesc.removeChild(old)
 
-  const refsDecl = doc.createElementNS(NS, 'refsDecl')
-  refsDecl.appendChild(buildCiteStructure(doc, config.structure as Record<string, unknown>))
-  encDesc.appendChild(refsDecl)
+  encDesc.appendChild(buildPhysicalRefsDecl(doc))
+  if (config.structure) {
+    const refsDecl = doc.createElementNS(NS, 'refsDecl')
+    refsDecl.appendChild(buildCiteStructure(doc, config.structure as Record<string, unknown>))
+    encDesc.appendChild(refsDecl)
+  }
 }
 
 // ── Simple pretty-printer ─────────────────────────────────────────────────────
@@ -809,7 +829,8 @@ export function runMd2Tei({ markdownText, yamlConfigText, bibliography = [], log
 
   // A project can legitimately have no reference hierarchy configured (e.g. a quick
   // transcription with no citation scheme) — TEI generation must still succeed, just
-  // without any <div> nesting or <citeStructure>, rather than erroring on undefined.
+  // without any <div> nesting — cited by page only (the physical <citeStructure>, see
+  // addCiteStructure) — rather than erroring on undefined.
   const hasStructure = !!config.structure
   const levels = hasStructure ? buildLevels(config.structure as Record<string, unknown>) : []
   const lm = levelMap(levels)
@@ -852,12 +873,8 @@ ${body}
   log('[md2tei] Replacing hyphenation with <lb/>')
   replaceHyphenation(doc)
 
-  if (hasStructure) {
-    log('[md2tei] Injecting citeStructure')
-    addCiteStructure(doc, config)
-  } else {
-    log('[md2tei] No hierarchy configured — skipping citeStructure')
-  }
+  log(hasStructure ? '[md2tei] Injecting citeStructure' : '[md2tei] No hierarchy configured — physical citeStructure (pages) only')
+  addCiteStructure(doc, config)
 
   log('[md2tei] Serializing')
   const raw = new XMLSerializer().serializeToString(doc)

@@ -45,6 +45,20 @@ export const TOUR_STEPS: TourStep[] = [
     route: '/',
   },
   {
+    id: 'document-type',
+    selector: '[data-tour="document-type"]',
+    position: 'bottom',
+    route: '/document',
+  },
+  {
+    id: 'document-zones',
+    selector: '[data-tour="document-zones"]',
+    position: 'top',
+    route: '/document',
+    illustration: page2,
+    illustrationView: { zoom: 1.1, position: '0% 0%' },
+  },
+  {
     id: 'masker-canvas',
     selector: '[data-tour="masker-canvas"]',
     position: 'left',
@@ -71,6 +85,12 @@ export const TOUR_STEPS: TourStep[] = [
     route: '/ocr',
     // Raw Kraken output for the demo's page 2, before review
     demo: '<pb n="2"/>\n<lb n="k0"/>ΓΑΛΗνΟΥ\n<lb n="k1"/>Περὶ τῶν ἑαυτῷ δοκούντων\n<lb n="k2"/> Παραπλήσιόν τί μοι συμβεβηκέναι δοκεῖ τῷ γενομένῳ\n<lb n="k3"/>υποθ\', ὥς φασιν, Παρθενίῳ τῷ ποιητῇ· ζῶντος γὰρ ἔτι τἀνδρὸς\n<lb n="k4"/>ἐξέπεσεν εἰς πόλλα τῶν ἐθνῶν τὰ ποιήματα αὐτοῦ. καί ποτε\n<lb n="k5"/>διερχόμενος πόλιν ἐπέστη δύο γραμματικοῖς διδασκαλία',
+  },
+  {
+    id: 'ocr-steps',
+    selector: '[data-tour="ocr-steps"]',
+    position: 'bottom',
+    route: '/ocr',
   },
   {
     id: 'config-hierarchy',

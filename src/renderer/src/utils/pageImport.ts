@@ -72,10 +72,18 @@ export async function djvuThumbnail(doc: any, pageNum: number): Promise<string> 
   return thumb.toDataURL('image/jpeg', 0.88)
 }
 
+// An unreadable image gives an empty thumbnail ('') rather than a rejection or a
+// promise that never settles, which would stall the whole filmstrip at that page.
 export async function imageThumbnail(filePath: string): Promise<string> {
-  const dataUrl = await window.api.loadImageAsDataUrl(filePath)
+  let dataUrl: string
+  try {
+    dataUrl = await window.api.loadImageAsDataUrl(filePath, THUMB_H * 2)
+  } catch {
+    return ''
+  }
   return new Promise((resolve) => {
     const img = new Image()
+    img.onerror = () => resolve('')
     img.onload = () => {
       const scale = THUMB_H / img.naturalHeight
       const canvas = document.createElement('canvas')

@@ -1,4 +1,5 @@
 import type { Project, LineGeometry, ManualZoneGroup, Mask, PageStatus } from '@shared/types'
+import { manualGroupToZone } from '@shared/zones'
 import md2 from '../assets/tour/galien_p2.md?raw'
 import md3 from '../assets/tour/galien_p3.md?raw'
 import img1 from '../assets/tour/galien_p1.png'
@@ -55,7 +56,7 @@ export async function buildTourDemoProject(): Promise<Project> {
         status: l.status as PageStatus,
         markdown: MARKDOWNS[i],
         lineGeometry: l.lineGeometry.length ? (l.lineGeometry as LineGeometry[]) : undefined,
-        manualZones: l.manualZones.length ? (l.manualZones as ManualZoneGroup[]) : undefined,
+        zones: l.manualZones.length ? (l.manualZones as ManualZoneGroup[]).map(manualGroupToZone) : undefined,
       }
     }),
     metadata: {

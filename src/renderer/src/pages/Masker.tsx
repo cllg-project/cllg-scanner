@@ -27,7 +27,7 @@ type Tool = 'pointer' | 'rect'
 
 const FILL_WHITE = '#ffffff'
 const MAX_EXAMPLES = 3
-const CURRENT_STEP = 2
+const CURRENT_STEP = 3
 
 function StatusBadge({ status }: { status: Page['status'] }): React.JSX.Element {
   const { t } = useTranslation()
@@ -248,7 +248,7 @@ function AddPagesModal({
 
 export default function Masker(): React.JSX.Element {
   const { t } = useTranslation()
-  const STEP_LABELS = [t('steps.import'), t('steps.mask'), t('steps.ocr'), t('steps.config'), t('steps.review'), t('steps.tei')]
+  const STEP_LABELS = [t('steps.import'), t('steps.document'), t('steps.mask'), t('steps.ocr'), t('steps.config'), t('steps.review'), t('steps.tei')]
   const { project, saveProject } = useProject()
   const navigate = useNavigate()
 

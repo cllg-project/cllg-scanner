@@ -238,7 +238,7 @@ export default function Home(): React.JSX.Element {
         doc: null,
         imagePaths: files.map((f) => f.path),
         totalPages: files.length,
-        rangeText: ''
+        rangeText: `1-${files.length}`
       })
     } finally {
       setImportStep(null)
@@ -295,7 +295,8 @@ export default function Home(): React.JSX.Element {
       setImportStep(t('home.savingProject'))
       await saveProject(updated)
       setProject(updated)
-      navigate('/masker')
+      // A new project goes through the Document step first (document type, zones).
+      navigate('/document')
     } finally {
       setImportStep(null)
       setImportProgress(null)
@@ -323,7 +324,7 @@ export default function Home(): React.JSX.Element {
         altoPaths: paired.map((r) => r.altoPath),
         altoLadasCount: paired.filter((r) => r.ladasCompatible).length,
         totalPages: paired.length,
-        rangeText: ''
+        rangeText: `1-${paired.length}`
       })
     } finally {
       setImportStep(null)

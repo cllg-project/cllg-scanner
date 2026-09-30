@@ -481,11 +481,11 @@ export function hierarchyToYAML(hierarchy: HierarchyLevel[], metadata: ProjectMe
   return stringify(doc)
 }
 
-const CURRENT_STEP = 4
+const CURRENT_STEP = 5
 
 export default function Config(): React.JSX.Element {
   const { t } = useTranslation()
-  const STEP_LABELS = [t('steps.import'), t('steps.mask'), t('steps.ocr'), t('steps.config'), t('steps.review'), t('steps.tei')]
+  const STEP_LABELS = [t('steps.import'), t('steps.document'), t('steps.mask'), t('steps.ocr'), t('steps.config'), t('steps.review'), t('steps.tei')]
   const { project, saveProject } = useProject()
   const navigate = useNavigate()
   const [metadata, setMetadata] = useState<ProjectMetadata>(

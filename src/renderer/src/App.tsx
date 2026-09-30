@@ -66,14 +66,9 @@ export default function App(): React.JSX.Element {
     setProjectState(p)
   }
 
-  // Web demo: first-time visitors land in the tour.
+  // Web demo: every visit lands in the tour.
   useEffect(() => {
-    if (!WEB_DEMO) return
-    try {
-      if (localStorage.getItem('cllg:demoTourSeen')) return
-      localStorage.setItem('cllg:demoTourSeen', '1')
-    } catch { /* storage unavailable: show the tour */ }
-    tour.start()
+    if (WEB_DEMO) tour.start()
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 

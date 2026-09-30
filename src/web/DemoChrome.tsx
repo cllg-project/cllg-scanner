@@ -43,7 +43,7 @@ function SmallScreenWarning(): React.JSX.Element | null {
       style={{
         position: 'fixed',
         inset: 0,
-        zIndex: 10000,   // above the tour (9900), which starts on a first visit
+        zIndex: 10000,   // above the tour (9900), which starts on every visit
         background: 'rgba(0,0,0,0.65)',
         display: 'flex',
         alignItems: 'center',

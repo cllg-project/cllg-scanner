@@ -9,6 +9,12 @@ import type { Project } from '@shared/types'
 
 interface Rect { top: number; left: number; width: number; height: number }
 
+// Each language under its own name, readable whichever language is active.
+const LANGUAGES = [
+  { code: 'en', name: 'English' },
+  { code: 'fr', name: 'Français' },
+] as const
+
 const PADDING = 8   // px around the spotlight highlight
 const PANEL_W = 340 // tooltip panel width
 const MARGIN = 8    // min px between the panel and the viewport edge
@@ -96,8 +102,14 @@ function panelPosition(
 }
 
 export default function TourOverlay({ tour }: { tour: TourState }): React.JSX.Element | null {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const { active, stepIndex, next, prev, skip, total } = tour
+
+  // Same persistence as the sidebar's language switch.
+  const changeLanguage = (lang: string): void => {
+    i18n.changeLanguage(lang)
+    try { localStorage.setItem('cllg:language', lang) } catch { /* keep it for this session */ }
+  }
   const step = TOUR_STEPS[stepIndex]
   const navigate = useNavigate()
   const location = useLocation()
@@ -274,9 +286,36 @@ export default function TourOverlay({ tour }: { tour: TourState }): React.JSX.El
 
         {/* Body */}
         <div style={{ padding: '1rem 1.1rem', flex: 1, minHeight: 0, overflowY: 'auto' }}>
-          {/* Step counter */}
-          <div style={{ fontFamily: 'ui-monospace, monospace', fontSize: 10, letterSpacing: '.14em', textTransform: 'uppercase', color: 'var(--mute)', marginBottom: 6 }}>
-            {t('tour.stepOf', { current: stepIndex + 1, total })}
+          {/* Step counter; the welcome step also picks the language */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 6 }}>
+            <div style={{ fontFamily: 'ui-monospace, monospace', fontSize: 10, letterSpacing: '.14em', textTransform: 'uppercase', color: 'var(--mute)' }}>
+              {t('tour.stepOf', { current: stepIndex + 1, total })}
+            </div>
+            {step.id === 'welcome' && (
+              <div role="group" aria-label={t('language.label')} style={{ display: 'flex', gap: 4 }}>
+                {LANGUAGES.map(({ code, name }) => {
+                  const active = i18n.language === code
+                  return (
+                    <button
+                      key={code}
+                      lang={code}
+                      aria-pressed={active}
+                      onClick={() => changeLanguage(code)}
+                      style={{
+                        fontSize: 11.5,
+                        padding: '2px 9px',
+                        borderRadius: 999,
+                        border: `1px solid ${active ? 'var(--oxblood, #8b3a2a)' : 'var(--line)'}`,
+                        background: active ? 'var(--oxblood, #8b3a2a)' : 'transparent',
+                        color: active ? 'var(--paper)' : 'var(--ink)',
+                      }}
+                    >
+                      {name}
+                    </button>
+                  )
+                })}
+              </div>
+            )}
           </div>
 
           <h3 style={{ fontFamily: 'Georgia, serif', fontSize: 15, fontWeight: 600, color: 'var(--ink)', marginBottom: 8, lineHeight: 1.3 }}>

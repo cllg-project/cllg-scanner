@@ -105,19 +105,74 @@ function startValue(format: string): string {
 // <continued> block's merge target — never written to the persisted per-page markdown.
 const MARKER = '__CONTINUATION__'
 
+// ── Inline TEI allowlist ──────────────────────────────────────────────────────
+//
+// Content of <cit>/<note>/<bibl> is OCR/editor text that may legitimately carry nested
+// TEI phrase-level markup. Everything is escaped EXCEPT tags in this allowlist, and only
+// when they are properly balanced (an unmatched or unknown tag stays escaped text), so
+// the result is always well-formed.
+const INLINE_TEI = new Set([
+  'bibl', 'quote', 'q', 'cit', 'note', 'lb', 'milestone', 'hi', 'emph', 'foreign', 'term',
+  'title', 'name', 'persName', 'placeName', 'geogName', 'orgName', 'date', 'num', 'gap',
+  'unclear', 'supplied', 'sic', 'corr', 'add', 'del', 'abbr', 'expan', 'choice', 'orig',
+  'reg', 'ref', 'ptr', 'mentioned', 'l', 'seg', 'w', 'idno', 'biblScope',
+])
+const VOID_TEI = new Set(['lb', 'milestone', 'gap', 'ptr'])
+
+function cleanAttrs(attrStr: string): string {
+  let out = ''
+  const re = /([A-Za-z_][\w:.-]*)\s*=\s*"([^"]*)"/g
+  let m: RegExpExecArray | null
+  while ((m = re.exec(attrStr)) !== null) {
+    if (m[1] === 'zone') continue   // Review's zone link: ignored here, as on block tags
+    out += ` ${m[1]}="${escAttr(m[2])}"`
+  }
+  return out
+}
+
+function renderInline(s: string): string {
+  const out: string[] = []
+  const stack: { name: string; idx: number; raw: string }[] = []
+  const tagRe = /<(\/?)([A-Za-z][\w-]*)((?:\s[^<>]*?)?)(\/?)>/g
+  let last = 0
+  let m: RegExpExecArray | null
+  while ((m = tagRe.exec(s)) !== null) {
+    if (m.index > last) out.push(esc(s.slice(last, m.index)))
+    last = m.index + m[0].length
+    const [raw, close, name, attrs, selfClose] = m
+    if (!INLINE_TEI.has(name)) { out.push(esc(raw)); continue }
+    if (close) {
+      const at = stack.map(e => e.name).lastIndexOf(name)
+      if (at < 0) { out.push(esc(raw)); continue }
+      // Anything opened after the match is unbalanced: demote it to text.
+      for (const e of stack.splice(at + 1)) out[e.idx] = esc(e.raw)
+      stack.pop()
+      out.push(`</${name}>`)
+    } else if (selfClose || VOID_TEI.has(name)) {
+      out.push(`<${name}${cleanAttrs(attrs)}/>`)
+    } else {
+      stack.push({ name, idx: out.length, raw })
+      out.push(`<${name}${cleanAttrs(attrs)}>`)
+    }
+  }
+  if (last < s.length) out.push(esc(s.slice(last)))
+  for (const e of stack) out[e.idx] = esc(e.raw)
+  return out.join('')
+}
+
 // ── Line tokeniser ────────────────────────────────────────────────────────────
 
 type LineToken =
   | { kind: 'text'; value: string }
   | { kind: 'ref';  attrStr: string; inner: string }
-  | { kind: 'note'; inner: string }
+  | { kind: 'note'; attrs: string; inner: string }
   | { kind: 'cit';  inner: string }
   | { kind: 'bibl'; inner: string }
   | { kind: 'lb';   raw: string }
 
 function tokenizeLine(s: string): LineToken[] {
   const tokens: LineToken[] = []
-  const re = /(<lb[^>]*\/>|<ref[^>]*>.*?<\/ref>|<note(?: zone="[^"]*")?>.*?<\/note>|<cit>.*?<\/cit>|<bibl>.*?<\/bibl>)/gs
+  const re = /(<lb[^>]*\/>|<ref[^>]*>.*?<\/ref>|<note(?:\s[^>]*)?>.*?<\/note>|<cit>.*?<\/cit>|<bibl>.*?<\/bibl>)/gs
   let last = 0
   let m: RegExpExecArray | null
   while ((m = re.exec(s)) !== null) {
@@ -128,8 +183,8 @@ function tokenizeLine(s: string): LineToken[] {
       const am = /^<ref([^>]*)>(.*?)<\/ref>$/s.exec(tag)
       if (am) tokens.push({ kind: 'ref', attrStr: am[1], inner: am[2] })
     } else if (tag.startsWith('<note')) {
-      const nm = /^<note(?: zone="[^"]*")?>(.*?)<\/note>$/s.exec(tag)
-      if (nm) tokens.push({ kind: 'note', inner: nm[1] })
+      const nm = /^<note((?:\s[^>]*)?)>(.*?)<\/note>$/s.exec(tag)
+      if (nm) tokens.push({ kind: 'note', attrs: nm[1], inner: nm[2] })
     } else if (tag.startsWith('<cit')) {
       const cm = /^<cit>(.*?)<\/cit>$/s.exec(tag)
       if (cm) tokens.push({ kind: 'cit', inner: cm[1] })
@@ -204,7 +259,7 @@ function buildBody(
   // that gap is almost always OCR noise (a catchword, signature mark, running
   // header…) that got left outside the <continued> wrapper by mistake — it silently
   // becomes its own <p> and steals the *next* page's <continued> merge target
-  // (mergeContinuations() just grabs the nearest preceding <p>), splitting what
+  // (mergeContinuations() just grabs the nearest preceding <p>/<quote>), splitting what
   // should be one running sentence across two paragraphs with no visible error.
   let justClosedContinued = false
 
@@ -272,13 +327,11 @@ function buildBody(
           parts.push(tok.raw)
           break
         case 'note':
-          parts.push(`<note>${esc(tok.inner.trim())}</note>`)
+          parts.push(`<note${cleanAttrs(tok.attrs)}>${renderInline(tok.inner.trim())}</note>`)
           break
         case 'cit':
-          parts.push(`<cit>${esc(tok.inner.trim())}</cit>`)
-          break
         case 'bibl':
-          parts.push(`<bibl>${esc(tok.inner.trim())}</bibl>`)
+          parts.push(`<${tok.kind}>${renderInline(tok.inner.trim())}</${tok.kind}>`)
           break
         case 'ref': {
           const lvlStr = parseAttrStr(tok.attrStr, 'level')
@@ -319,7 +372,7 @@ function buildBody(
   // this has happened in practice when two page cache files got concatenated without
   // a newline in between. Split them back onto separate lines before parsing; this is
   // a no-op for any already-well-formed input.
-  const normalizedMd = md.replace(/(<\/(?:p|head|quote|continued)>|<pb[^>]*\/?>)(?=<)/g, '$1\n')
+  const normalizedMd = md.replace(/(<\/(?:p|head|quote|continued)>|<pb[^>]*\/?>)(?=<(?:p|head|quote|continued|pb)\b)/g, '$1\n')
 
   for (const rawLine of normalizedMd.split('\n')) {
     const s = rawLine.trim()
@@ -379,13 +432,11 @@ function buildBody(
           pParts.push(tok.raw)
           break
         case 'note':
-          pParts.push(`<note>${esc(tok.inner.trim())}</note>`)
+          pParts.push(`<note${cleanAttrs(tok.attrs)}>${renderInline(tok.inner.trim())}</note>`)
           break
         case 'cit':
-          pParts.push(`<cit>${esc(tok.inner.trim())}</cit>`)
-          break
         case 'bibl':
-          pParts.push(`<bibl>${esc(tok.inner.trim())}</bibl>`)
+          pParts.push(`<${tok.kind}>${renderInline(tok.inner.trim())}</${tok.kind}>`)
           break
         case 'ref': {
           const lvlStr = parseAttrStr(tok.attrStr, 'level')
@@ -455,7 +506,7 @@ function mergeContinuations(doc: Document): void {
         let prevP: Element | null = null
         if (pbElem) {
           for (let k = pbIdx - 1; k >= 0; k--) {
-            if (isTag(kids[k], 'p')) { prevP = kids[k]; break }
+            if (isTag(kids[k], 'p') || isTag(kids[k], 'quote')) { prevP = kids[k]; break }
             break
           }
         }
@@ -500,7 +551,7 @@ function mergeContinuations(doc: Document): void {
 const HYPHEN_RE = /^(.*\p{L}[\p{L}\p{M}]*)[-\u2010\u2011\u00AD]\s*$/su
 
 function replaceHyphenation(doc: Document): void {
-  const pElems = allElems(doc.documentElement, 'p')
+  const pElems = ['p', 'head', 'quote'].flatMap(tag => allElems(doc.documentElement, tag))
   for (const p of pElems) {
     let i = 0
     while (i < p.childNodes.length) {
@@ -627,8 +678,10 @@ function buildCiteStructure(doc: Document, structNode: Record<string, unknown>, 
   const name = String(structNode.name)
   const isMilestone = !!structNode.is_milestone
   const match = isRoot
-    ? (isMilestone ? `/TEI/text/body/milestone[@unit='${name}']` : `/TEI/text/body/div[@type='${name}']`)
-    : (isMilestone ? `milestone[@unit='${name}']` : `div[@type='${name}']`)
+    // Generated divisions sit inside the untyped wrapper <div> of <body>, and milestones
+    // are emitted inside <p>, hence the descendant axes.
+    ? (isMilestone ? `/TEI/text/body/div//milestone[@unit='${name}']` : `/TEI/text/body/div/div[@type='${name}']`)
+    : (isMilestone ? `.//milestone[@unit='${name}']` : `div[@type='${name}']`)
 
   const el = doc.createElementNS(NS, 'citeStructure')
   el.setAttribute('match', match)
@@ -695,47 +748,42 @@ function addCiteStructure(doc: Document, config: Record<string, unknown>): void 
 
 // ── Simple pretty-printer ─────────────────────────────────────────────────────
 
-function prettyPrint(xml: string, space = '  '): string {
-  const tokens = xml.match(/(<[^>]+>)|([^<]+)/g) ?? []
+// Indents element-only containers; any element that holds text (mixed content) or is a
+// text-bearing leaf is serialized verbatim, so no whitespace is ever added to text.
+const TEXT_LEAVES = new Set(['p', 'head', 'quote', 'note', 'cit', 'bibl', 'title', 'label', 'author'])
+
+function prettyPrint(doc: Document, space = '  '): string {
+  const ser = new XMLSerializer()
   const lines: string[] = []
-  let depth = 0
-  let inline = false  // true while inside <p> or <head>
-
-  function tagName(t: string): string {
-    return t.replace(/^<\/?/, '').split(/[\s/>]/)[0].toLowerCase()
+  // The root keeps its namespace declaration; nested elements inherit it.
+  const verbatim = (el: Element, isRoot = false): string => {
+    const x = ser.serializeToString(el as unknown as Parameters<XMLSerializer['serializeToString']>[0])
+    return isRoot ? x : x.replace(` xmlns="${NS}"`, '')
   }
 
-  for (const tok of tokens) {
-    const t = tok.trim()
-    if (!t) continue
-
-    if (t.startsWith('<?') || t.startsWith('<!')) {
-      lines.push(t)
-    } else if (inline) {
-      // Inside <p>/<head>: keep everything on the same line; preserve raw whitespace
-      if (t.startsWith('</') && (tagName(t) === 'p' || tagName(t) === 'head')) {
-        depth--
-        inline = false
-        lines.push(space.repeat(depth) + t)
-      } else {
-        if (lines.length) lines[lines.length - 1] += tok
-        else lines.push(tok)
-      }
-    } else if (t.startsWith('</')) {
-      depth = Math.max(0, depth - 1)
-      lines.push(space.repeat(depth) + t)
-    } else if (t.endsWith('/>')) {
-      lines.push(space.repeat(depth) + t)
-    } else if (t.startsWith('<')) {
-      lines.push(space.repeat(depth) + t)
-      depth++
-      if (tagName(t) === 'p' || tagName(t) === 'head') inline = true
-    } else {
-      if (lines.length) lines[lines.length - 1] += t
-      else lines.push(t)
+  function hasText(el: Element): boolean {
+    for (let i = 0; i < el.childNodes.length; i++) {
+      const n = el.childNodes[i]
+      if ((n.nodeType === TEXT || n.nodeType === 4) && (n.nodeValue ?? '').trim()) return true
     }
+    return false
   }
-  return lines.join('\n')
+
+  function walk(el: Element, depth: number): void {
+    const pad = space.repeat(depth)
+    const kids = childElems(el)
+    if (!kids.length || TEXT_LEAVES.has(el.localName ?? '') || hasText(el)) {
+      lines.push(pad + verbatim(el))
+      return
+    }
+    const open = verbatim(el.cloneNode(false) as Element, depth === 0).replace(/\/>$/, '>')
+    lines.push(pad + open)
+    for (const k of kids) walk(k, depth + 1)
+    lines.push(`${pad}</${el.nodeName}>`)
+  }
+
+  walk(doc.documentElement, 0)
+  return '<?xml version="1.0" encoding="UTF-8"?>\n' + lines.join('\n')
 }
 
 // ── Reference scanner ─────────────────────────────────────────────────────────
@@ -811,8 +859,8 @@ function buildBiblEntry(e: BibEntry): string {
   return `<biblStruct${n}><monogr>${parts.join('')}</monogr></biblStruct>`
 }
 
-function buildSourceDesc(bibliography: BibEntry[]): string {
-  if (!bibliography.length) return `<sourceDesc><p>Born-digital OCR</p></sourceDesc>`
+function buildSourceDesc(bibliography: BibEntry[], source = ''): string {
+  if (!bibliography.length) return `<sourceDesc><p>${esc(source || 'Born-digital OCR')}</p></sourceDesc>`
   return `<sourceDesc><listBibl>${bibliography.map(buildBiblEntry).join('')}</listBibl></sourceDesc>`
 }
 
@@ -844,16 +892,22 @@ export function runMd2Tei({ markdownText, yamlConfigText, bibliography = [], log
   // joins in particular — sees composed letters.
   const body = buildBody(markdownText.normalize('NFC'), lm, ms, levels, log)
 
+  const meta = (config.metadata ?? {}) as Record<string, unknown>
+  const metaStr = (k: string): string => (typeof meta[k] === 'string' ? (meta[k] as string).trim() : '')
+  const title = metaStr('title') || 'OCR Document'
+  const author = metaStr('author')
+  const language = metaStr('language')
+
   const teiStr = `<?xml version="1.0" encoding="UTF-8"?>
 <TEI xmlns="http://www.tei-c.org/ns/1.0">
   <teiHeader>
     <fileDesc>
-      <titleStmt><title>OCR Document</title></titleStmt>
+      <titleStmt><title>${esc(title)}</title>${author ? `<author>${esc(author)}</author>` : ''}</titleStmt>
       <publicationStmt><p>Generated by CLLG Desktop</p></publicationStmt>
-      ${buildSourceDesc(bibliography)}
+      ${buildSourceDesc(bibliography, metaStr('source'))}
     </fileDesc>
   </teiHeader>
-  <text>
+  <text${language ? ` xml:lang="${escAttr(language)}"` : ''}>
     <body>
       <div>
 ${body}
@@ -879,8 +933,7 @@ ${body}
   addCiteStructure(doc, config)
 
   log('[md2tei] Serializing')
-  const raw = new XMLSerializer().serializeToString(doc)
-  const pretty = prettyPrint(raw)
+  const pretty = prettyPrint(doc)
   log('[md2tei] Done')
   return pretty
 }

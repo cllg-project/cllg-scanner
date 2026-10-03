@@ -1,0 +1,8 @@
+metadata:
+  title: "Tom & Jerry <1>"
+  author: "A. Author"
+  source: "Teubner 1900"
+structure:
+  name: section
+  format: Arabic
+  missing_first: false

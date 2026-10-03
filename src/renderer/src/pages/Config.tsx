@@ -474,7 +474,8 @@ export function hierarchyToYAML(hierarchy: HierarchyLevel[], metadata: ProjectMe
     metadata: {
       title: metadata.title,
       author: metadata.author,
-      source: metadata.edition
+      source: metadata.edition,
+      language: metadata.language
     }
   }
   if (hierarchy.length > 0) doc['structure'] = levelToObj(hierarchy[0])

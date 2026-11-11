@@ -26,6 +26,30 @@
       "size": 13890313,
       "sha256": "88e8d3196b4d651b4ddcec0f4c3c8bc562fe496e8f7354979b80e1f2cd015847",
       "description": "D-FINE layout zones (LADaS, Latin and general documents)"
+    },
+    {
+      "file": "cllg3_seg.js_mlmodel",
+      "size": 4706779,
+      "sha256": "9bc4400cd64e31a7050388e08200d21057a2eb5a549e02be845027ca9fc630ae",
+      "description": "CLLG 3 line segmentation (Default / Apparatus / Heading / Margin lines)"
+    },
+    {
+      "file": "cllg3_rec.js_mlmodel",
+      "size": 58143297,
+      "sha256": "a6690a8739141856c1c938a4d1e56162f28a8a45f60c9fcc08931d8c13a4871a",
+      "description": "CLLG 3 recognition (Greek, Latin and apparatus)"
+    },
+    {
+      "file": "cllg3_ro.js_mlmodel",
+      "size": 4738,
+      "sha256": "152d40b634d38a4bd99d37fc9ad40923eb46a08fd269bfd5d51bafdf99ae9efd",
+      "description": "CLLG 3 reading order (neural, Kraken ROMLP)"
+    },
+    {
+      "file": "cllg3_dfine.js_mlmodel",
+      "size": 72828105,
+      "sha256": "a26270fc13fd906482165765c338c683c9e921b9ff7944ed237d485bcdd51305",
+      "description": "CLLG 3 D-FINE layout zones (12 region types)"
     }
   ]
 }

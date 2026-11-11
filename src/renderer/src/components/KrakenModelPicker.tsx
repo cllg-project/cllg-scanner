@@ -21,11 +21,27 @@ export default function KrakenModelPicker({ value, onChange }: KrakenModelPicker
       segModelPath: paths.segModelPath,
       recModelPath: paths.recModelPath,
       builtinModels: true,
+      roModelPath: paths.roModelPath,
       regionModelPath: regionsOn ? paths.regionModelPaths[documentType] : '',
     })
   }
 
-  const browse = async (kind: 'segmentation' | 'recognition' | 'region'): Promise<void> => {
+  // Legacy: the previous built-in set (no reading-order model). Stored as plain paths.
+  const isLegacy = !value.builtinModels && /ppocr_v6_tau090\.js_mlmodel$/.test(value.recModelPath)
+  const useLegacy = async (): Promise<void> => {
+    const { legacy } = await window.api.getKrakenBuiltinPaths()
+    onChange({
+      ...value,
+      builtinModels: false,
+      documentType: 'cllg',
+      segModelPath: legacy.segModelPath,
+      recModelPath: legacy.recModelPath,
+      roModelPath: '',
+      regionModelPath: regionsOn ? legacy.regionModelPath : '',
+    })
+  }
+
+  const browse = async (kind: 'segmentation' | 'recognition' | 'region' | 'reading_order'): Promise<void> => {
     const picked = await window.api.selectKrakenModel(kind)
     if (!picked) return
     onChange({
@@ -33,6 +49,7 @@ export default function KrakenModelPicker({ value, onChange }: KrakenModelPicker
       builtinModels: false,
       segModelPath: kind === 'segmentation' ? picked : value.segModelPath,
       recModelPath: kind === 'recognition' ? picked : value.recModelPath,
+      roModelPath: kind === 'reading_order' ? picked : value.roModelPath,
       regionModelPath: kind === 'region' ? picked : value.regionModelPath,
     })
   }
@@ -58,7 +75,7 @@ export default function KrakenModelPicker({ value, onChange }: KrakenModelPicker
     }
   }
 
-  const modelRow = (label: string, path: string | undefined, kind: 'segmentation' | 'recognition' | 'region'): React.JSX.Element => (
+  const modelRow = (label: string, path: string | undefined, kind: 'segmentation' | 'recognition' | 'region' | 'reading_order'): React.JSX.Element => (
     <div className="flex items-center gap-2">
       <span className="shrink-0" style={{ color: 'var(--mute)', minWidth: 130 }}>{label}</span>
       <span className="font-mono text-[11px] truncate" style={{ color: 'var(--mute)' }}>
@@ -67,6 +84,11 @@ export default function KrakenModelPicker({ value, onChange }: KrakenModelPicker
       <button type="button" className="btn btn-quiet text-[11px] shrink-0 ml-auto" style={{ padding: '2px 8px' }} onClick={() => browse(kind)}>
         {t('krakenModel.browse')}
       </button>
+      {kind === 'reading_order' && path && (
+        <button type="button" className="btn btn-quiet text-[11px] shrink-0" style={{ padding: '2px 8px' }} onClick={() => onChange({ ...value, roModelPath: '' })}>
+          {t('krakenModel.clear')}
+        </button>
+      )}
     </div>
   )
 
@@ -100,7 +122,16 @@ export default function KrakenModelPicker({ value, onChange }: KrakenModelPicker
         <button
           type="button"
           className="btn btn-quiet text-[11px] shrink-0"
-          style={{ padding: '3px 10px', ...(!value.builtinModels ? activeStyle : {}) }}
+          style={{ padding: '3px 10px', ...(isLegacy ? activeStyle : {}) }}
+          title={t('krakenModel.legacyHint')}
+          onClick={useLegacy}
+        >
+          {t('krakenModel.legacy')}
+        </button>
+        <button
+          type="button"
+          className="btn btn-quiet text-[11px] shrink-0"
+          style={{ padding: '3px 10px', ...(!value.builtinModels && !isLegacy ? activeStyle : {}) }}
           onClick={() => onChange({ ...value, builtinModels: false })}
         >
           {t('krakenModel.custom')}
@@ -115,6 +146,7 @@ export default function KrakenModelPicker({ value, onChange }: KrakenModelPicker
         <div className="flex flex-col gap-1.5">
           {modelRow(t('krakenModel.segmentationModel'), value.segModelPath, 'segmentation')}
           {modelRow(t('krakenModel.recognitionModel'), value.recModelPath, 'recognition')}
+          {modelRow(t('krakenModel.readingOrderModel'), value.roModelPath, 'reading_order')}
           {regionsOn && modelRow(t('krakenModel.regionModel'), value.regionModelPath, 'region')}
         </div>
       )}

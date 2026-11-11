@@ -90,7 +90,7 @@ describe('applyZoneStep', () => {
 })
 
 describe('applyLineStep', () => {
-  it('keeps matched lines\' ids and corrected text, inserts new lines, drops unmatched geometry', () => {
+  it('keeps matched lines\' ids and corrected text, inserts new lines, removes unmatched lines', () => {
     const processed: ProcessedLine[] = [
       { text: 'Chaptr', polygon: box(101, 101, 801, 131), type: 'default' },
       { text: 'a new line', polygon: box(100, 150, 800, 180), type: 'default' },
@@ -101,7 +101,7 @@ describe('applyLineStep', () => {
     expect(r.geometry[0].polygon).toEqual(processed[0].polygon)
     expect(r.newLines).toBe(1)
     expect(r.orphanLines).toBe(1)
-    expect(r.markdown).toBe('<pb n="1"/>\n<lb n="k0"/>Chapter\n<lb n="k3"/>a new line\n<lb n="k1"/>first line\n<lb n="k2"/>second line\n\n')
+    expect(r.markdown).toBe('<pb n="1"/>\n<lb n="k0"/>Chapter\n<lb n="k3"/>a new line\n<lb n="k1"/>first line\n\n')
   })
 
   it('recomputes zone lines and rewrites their tags', () => {

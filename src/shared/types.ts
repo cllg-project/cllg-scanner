@@ -192,6 +192,7 @@ export interface KrakenConfig {
   segModelPath: string
   recModelPath: string
   builtinModels: boolean
+  roModelPath?: string          // neural reading-order model (Kraken ROMLP); empty/undefined = top-to-bottom order
   regionModelPath?: string      // D-FINE layout model; empty/undefined = no region detection
   documentType?: DocumentType   // default 'cllg'
   // Per region type (as the model names it); a type left out gets defaultZoneAction()

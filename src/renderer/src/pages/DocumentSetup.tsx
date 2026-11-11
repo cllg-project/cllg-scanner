@@ -59,6 +59,7 @@ export default function DocumentSetup(): React.JSX.Element {
       setConfig({
         segModelPath: paths.segModelPath,
         recModelPath: paths.recModelPath,
+        roModelPath: paths.roModelPath,
         builtinModels: true,
         documentType: 'cllg',
         regionModelPath: paths.regionModelPaths.cllg,

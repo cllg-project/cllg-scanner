@@ -94,7 +94,9 @@ const api = {
   getKrakenBuiltinPaths: (): Promise<{
     segModelPath: string
     recModelPath: string
+    roModelPath: string
     regionModelPaths: Record<DocumentType, string>
+    legacy: { segModelPath: string; recModelPath: string; regionModelPath: string }
   }> =>
     ipcRenderer.invoke('kraken:getBuiltinPaths'),
 
@@ -102,7 +104,7 @@ const api = {
     imagePath: string,
     krakenConfig: KrakenConfig
   ): Promise<{ text: string; lines: { text: string; corners: [number, number][] }[] }> =>
-    ipcRenderer.invoke('kraken:rerun-page', imagePath, krakenConfig.segModelPath, krakenConfig.recModelPath),
+    ipcRenderer.invoke('kraken:rerun-page', imagePath, krakenConfig.segModelPath, krakenConfig.recModelPath, krakenConfig.roModelPath),
 
   // Re-OCR one line: only `polygon` (page-image pixels) of the page is kept.
   ocrLineKraken: (
@@ -110,9 +112,9 @@ const api = {
     polygon: [number, number][],
     krakenConfig: KrakenConfig
   ): Promise<{ text: string; lineCount: number }> =>
-    ipcRenderer.invoke('kraken:ocr-line', imagePath, polygon, krakenConfig.segModelPath, krakenConfig.recModelPath),
+    ipcRenderer.invoke('kraken:ocr-line', imagePath, polygon, krakenConfig.segModelPath, krakenConfig.recModelPath, krakenConfig.roModelPath),
 
-  selectKrakenModel: (kind: 'segmentation' | 'recognition' | 'region'): Promise<string | null> =>
+  selectKrakenModel: (kind: 'segmentation' | 'recognition' | 'region' | 'reading_order'): Promise<string | null> =>
     ipcRenderer.invoke('dialog:selectKrakenModel', kind),
 
   runKraken: (projectDir: string, pages: Project['pages'], krakenConfig: KrakenConfig): Promise<void> =>

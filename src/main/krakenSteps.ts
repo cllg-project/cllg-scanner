@@ -159,7 +159,8 @@ export interface LineStepResult {
  * Line step: `processed` (a fresh segmentation, with its recognized text) becomes the
  * page's geometry. Matched lines keep their id, anchor and text; new lines get a fresh
  * `k<n>` id and are inserted, with their recognized text, after the line read before
- * them. Old lines with no match keep their text but lose their geometry (orphans).
+ * them. Old lines with no match are removed, text included (the new segmentation
+ * replaces the old one); `orphanLines` counts them.
  */
 export function applyLineStep(
   markdown: string,
@@ -220,8 +221,20 @@ export function applyLineStep(
     md = md.slice(0, insertAt) + '\n' + text + md.slice(insertAt)
   })
 
+  // The old segmentation is replaced: lines the new one no longer finds are removed,
+  // text included (their `<lb/>` anchor and line text), and an emptied line goes with them.
   const kept = new Set(next.map((l) => l.id))
-  const orphanLines = geometry.filter((l) => !kept.has(l.id)).length
+  const dropped = geometry.filter((l) => !kept.has(l.id))
+  for (const l of dropped) {
+    const anchor = findAnchors(md).find((x) => x.id === l.id)
+    const span = anchor && lineTextSpan(md, l.id)
+    if (!anchor || !span) continue
+    const from = anchor.start
+    let to = span.end
+    if ((from === 0 || md[from - 1] === '\n') && (to >= md.length || md[to] === '\n')) to = Math.min(md.length, to + 1)
+    md = md.slice(0, from) + md.slice(to)
+  }
+  const orphanLines = dropped.length
 
   let nextZones = zones
   let unwrapped: string[] = []

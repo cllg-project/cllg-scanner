@@ -17,15 +17,25 @@ import { loadSettings, updateSettings } from '../settings'
 import sharp from 'sharp'
 import { assertModelPresent, builtinModelPath, resolveModelPath } from '../models'
 
-const BUILTIN_SEG = 'segmentation.js_mlmodel'
-const BUILTIN_REC = 'ppocr_v6_tau090.js_mlmodel'
-// D-FINE layout (region) models, one per document type: CLLG's own model for Greek
+// Built-in model set: CLLG 3 (eScriptorium's cllg-3 recognition + cllg-combined:
+// segmenter with Default/Apparatus/Heading/Margin line classes, neural reading order,
+// D-FINE zones).
+const BUILTIN_SEG = 'cllg3_seg.js_mlmodel'
+const BUILTIN_REC = 'cllg3_rec.js_mlmodel'
+const BUILTIN_RO = 'cllg3_ro.js_mlmodel'
+// D-FINE layout (region) models, one per document type: the CLLG 3 model for Greek
 // editions, the LADaS nano model for Latin documents.
 const BUILTIN_REGION: Record<DocumentType, string> = {
-  cllg: 'dfine_cllg.js_mlmodel',
+  cllg: 'cllg3_dfine.js_mlmodel',
   ladas: 'dfine_ladas.js_mlmodel',
 }
 
+// The previous built-in set, still shipped and selectable as "Legacy".
+const LEGACY = {
+  seg: 'segmentation.js_mlmodel',
+  rec: 'ppocr_v6_tau090.js_mlmodel',
+  region: 'dfine_cllg.js_mlmodel',
+}
 
 type Obb = { cx: number; cy: number; w: number; h: number; angle: number; corners: [number, number][] }
 type KrakenPipelineT = {
@@ -51,7 +61,7 @@ type KrakenPipelineT = {
 // the page (no "skip segmentation, reuse existing geometry" shortcut). Geometry is
 // still persisted (see persistPageGeometry below) for other uses — archival, future
 // LADaS/zone tooling, exports — just not to skip segmentation on a later pass.
-let cachedPipeline: { segPath: string; recPath: string; threads: number; promise: Promise<KrakenPipelineT> } | null = null
+let cachedPipeline: { segPath: string; recPath: string; roPath: string; threads: number; promise: Promise<KrakenPipelineT> } | null = null
 
 // CPU limits for the ONNX sessions. kraken-js otherwise uses ONNX Runtime's defaults —
 // one thread per physical core, busy-waiting between inferences — which kept every core
@@ -107,11 +117,14 @@ async function getRegionSegmenter(storedPath: string): Promise<RegionSegmenterT>
   return cachedRegionSegmenter.promise
 }
 
-async function getPipeline(storedSegPath: string, storedRecPath: string): Promise<KrakenPipelineT> {
+async function getPipeline(storedSegPath: string, storedRecPath: string, storedRoPath?: string): Promise<KrakenPipelineT> {
   const segModelPath = resolveModelPath(storedSegPath)
   const recModelPath = resolveModelPath(storedRecPath)
+  // Optional neural reading-order model; none = the segmenter's top-to-bottom order.
+  const roModelPath = storedRoPath ? resolveModelPath(storedRoPath) : ''
   assertModelPresent(segModelPath)
   assertModelPresent(recModelPath)
+  if (roModelPath) assertModelPresent(roModelPath)
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const { KrakenPipeline } = require('kraken-js') as {
     KrakenPipeline: {
@@ -121,6 +134,7 @@ async function getPipeline(storedSegPath: string, storedRecPath: string): Promis
         opts?: {
           threads?: number
           allowSpinning?: boolean
+          readingOrder?: string
           segmenter?: { sessionOptions?: object }
           recognizer?: { sessionOptions?: object }
         }
@@ -134,15 +148,18 @@ async function getPipeline(storedSegPath: string, storedRecPath: string): Promis
     !cachedPipeline ||
     cachedPipeline.segPath !== segModelPath ||
     cachedPipeline.recPath !== recModelPath ||
+    cachedPipeline.roPath !== roModelPath ||
     cachedPipeline.threads !== threads
   ) {
-    const entry: { segPath: string; recPath: string; threads: number; promise: Promise<KrakenPipelineT> } = {
+    const entry: { segPath: string; recPath: string; roPath: string; threads: number; promise: Promise<KrakenPipelineT> } = {
       segPath: segModelPath,
       recPath: recModelPath,
+      roPath: roModelPath,
       threads,
       promise: KrakenPipeline.create(segModelPath, recModelPath, {
         threads,
         allowSpinning: false,
+        ...(roModelPath ? { readingOrder: roModelPath } : {}),
         segmenter: { sessionOptions: SESSION_OPTIONS },
         recognizer: { sessionOptions: SESSION_OPTIONS },
       }),
@@ -197,20 +214,27 @@ export function registerKrakenHandlers(): void {
   ipcMain.handle('kraken:getBuiltinPaths', () => ({
     segModelPath: builtinModelPath(BUILTIN_SEG),
     recModelPath: builtinModelPath(BUILTIN_REC),
+    roModelPath: builtinModelPath(BUILTIN_RO),
     regionModelPaths: {
       cllg: builtinModelPath(BUILTIN_REGION.cllg),
       ladas: builtinModelPath(BUILTIN_REGION.ladas),
+    },
+    legacy: {
+      segModelPath: builtinModelPath(LEGACY.seg),
+      recModelPath: builtinModelPath(LEGACY.rec),
+      regionModelPath: builtinModelPath(LEGACY.region),
     },
   }))
 
   ipcMain.handle(
     'dialog:selectKrakenModel',
-    async (_event, kind: 'segmentation' | 'recognition' | 'region'): Promise<string | null> => {
+    async (_event, kind: 'segmentation' | 'recognition' | 'region' | 'reading_order'): Promise<string | null> => {
       const result = await dialog.showOpenDialog({
         title: {
           segmentation: 'Select segmentation model',
           recognition: 'Select recognition model',
           region: 'Select region (layout) model',
+          reading_order: 'Select reading-order model',
         }[kind],
         filters: [{ name: 'Kraken model', extensions: ['js_mlmodel'] }],
         properties: ['openFile'],
@@ -225,9 +249,10 @@ export function registerKrakenHandlers(): void {
       _event,
       imagePath: string,
       segModelPath: string,
-      recModelPath: string
+      recModelPath: string,
+      roModelPath?: string
     ): Promise<{ text: string; lines: { text: string; corners: [number, number][] }[] }> => {
-      const pipeline = await getPipeline(segModelPath, recModelPath)
+      const pipeline = await getPipeline(segModelPath, recModelPath, roModelPath)
       const rawLines = await pipeline.process(imagePath)
       const lines = rawLines.map((l) => ({ text: l.text, corners: l.obb.corners }))
       const text = lines.map((l) => l.text).join('\n')
@@ -247,7 +272,8 @@ export function registerKrakenHandlers(): void {
       imagePath: string,
       polygon: [number, number][],
       segModelPath: string,
-      recModelPath: string
+      recModelPath: string,
+      roModelPath?: string
     ): Promise<{ text: string; lineCount: number }> => {
       const meta = await sharp(imagePath).metadata()
       const W = meta.width ?? 0
@@ -272,7 +298,7 @@ export function registerKrakenHandlers(): void {
         .png()
         .toBuffer()
 
-      const pipeline = await getPipeline(segModelPath, recModelPath)
+      const pipeline = await getPipeline(segModelPath, recModelPath, roModelPath)
       const found = (await pipeline.process(isolated)).filter((l) => l.text.trim())
       if (found.length === 0) return { text: '', lineCount: 0 }
       // A box drawn with some margin can catch the edge of a neighbouring line, which the
@@ -408,7 +434,7 @@ async function runKrakenLoop(
   const cacheDir = join(projectDir, 'pages')
   mkdirSync(cacheDir, { recursive: true })
 
-  const pipeline = await getPipeline(krakenConfig.segModelPath, krakenConfig.recModelPath)
+  const pipeline = await getPipeline(krakenConfig.segModelPath, krakenConfig.recModelPath, krakenConfig.roModelPath)
   const regionSegmenter = krakenConfig.regionModelPath ? await getRegionSegmenter(krakenConfig.regionModelPath) : null
   const documentType: DocumentType = krakenConfig.documentType ?? 'cllg'
 
@@ -487,7 +513,7 @@ async function runKrakenStepsLoop(
     throw new Error('The zone step needs a region (layout) model')
   }
   const needsPipeline = wants('line') || wants('text')
-  const pipeline = needsPipeline ? await getPipeline(krakenConfig.segModelPath, krakenConfig.recModelPath) : null
+  const pipeline = needsPipeline ? await getPipeline(krakenConfig.segModelPath, krakenConfig.recModelPath, krakenConfig.roModelPath) : null
   const regionSegmenter =
     wants('zone') && krakenConfig.regionModelPath ? await getRegionSegmenter(krakenConfig.regionModelPath) : null
   const documentType: DocumentType = krakenConfig.documentType ?? 'cllg'
@@ -512,7 +538,7 @@ async function runKrakenStepsLoop(
         let summary: string
         if (steps === 'all' || !existsSync(cachePath)) {
           // Nothing to keep: the page is (re)built from scratch, as a first run does.
-          const full = pipeline ?? (await getPipeline(krakenConfig.segModelPath, krakenConfig.recModelPath))
+          const full = pipeline ?? (await getPipeline(krakenConfig.segModelPath, krakenConfig.recModelPath, krakenConfig.roModelPath))
           const regions = regionSegmenter ?? (krakenConfig.regionModelPath ? await getRegionSegmenter(krakenConfig.regionModelPath) : null)
           const pageMarkdown = await ocrPageFull(projectDir, page, imgPath, full, regions, documentType, krakenConfig.zonePolicy)
           await writeFile(cachePath, pageMarkdown, 'utf-8')
@@ -540,7 +566,7 @@ async function runKrakenStepsLoop(
             result.newLines = r.newLines
             result.orphanLines = r.orphanLines
             result.unwrappedZones = r.unwrapped
-            parts.push(`${geometry.length} lines (${r.newLines} new, ${r.orphanLines} orphaned)`)
+            parts.push(`${geometry.length} lines (${r.newLines} new, ${r.orphanLines} removed)`)
           }
           if (wants('zone') && regionSegmenter) {
             const regions = await detectRegions(regionSegmenter, imgPath)

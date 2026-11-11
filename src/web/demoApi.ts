@@ -136,12 +136,18 @@ async function toDataUrl(data: ArrayBuffer): Promise<string> {
 }
 
 const BUILTIN_PATHS = {
-  segModelPath: 'segmentation.js_mlmodel',
-  recModelPath: 'ppocr_v6_tau090.js_mlmodel',
+  segModelPath: 'cllg3_seg.js_mlmodel',
+  recModelPath: 'cllg3_rec.js_mlmodel',
+  roModelPath: 'cllg3_ro.js_mlmodel',
   regionModelPaths: {
-    cllg: 'dfine_cllg.js_mlmodel',
+    cllg: 'cllg3_dfine.js_mlmodel',
     ladas: 'dfine_ladas.js_mlmodel',
   } as Record<DocumentType, string>,
+  legacy: {
+    segModelPath: 'segmentation.js_mlmodel',
+    recModelPath: 'ppocr_v6_tau090.js_mlmodel',
+    regionModelPath: 'dfine_cllg.js_mlmodel',
+  },
 }
 
 // Region classes of the built-in D-FINE models (their metadata.json class_mapping).

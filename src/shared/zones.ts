@@ -11,7 +11,7 @@ export type ZoneRole = 'p' | 'quote' | 'head' | 'continuation' | 'unknown'
 
 export function classifyLadasType(regionType?: string): ZoneRole {
   if (!regionType) return 'unknown'
-  if (/^MainZone[-:]PQuoted/.test(regionType)) return 'quote'
+  if (/^MainZone[-:](PQuoted|Quote)/.test(regionType)) return 'quote'
   if (/^MainZone[-:]Continued/.test(regionType)) return 'continuation'
   if (/^MainZone[-:]Head/.test(regionType)) return 'head'
   if (/^MainZone[-:]P/.test(regionType)) return 'p' // PQuoted already matched above

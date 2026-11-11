@@ -15,6 +15,7 @@ import KrakenModelPicker from '../components/KrakenModelPicker'
 import ZoneTypePicker, { type ZoneTypeOption, type ZoneTypePickerHandle } from '../components/ZoneTypePicker'
 import { zoneColor, type ManualZoneRole } from '../utils/zoneColors'
 import { renderMaskedPage } from '../utils/renderMaskedPage'
+import LightTagPanel from '../components/LightTagPanel'
 import { TOUR_DEMO_ID } from '../data/tourDemoProject'
 import { linesInRect } from '@shared/manualZones'
 import { findAnchorAt, findAnchors, unwrapZone, unwrapLegacyZone, unwrapOrphanZones, lineTextSpan, blockAt, zoneIdsInMarkdown } from '@shared/lbAnchors'
@@ -331,6 +332,7 @@ export default function Review(): React.JSX.Element {
   const [findCase, setFindCase] = useState(false)
   const [findIdx, setFindIdx] = useState(0)
   const [scanInfo, setScanInfo] = useState<ScanInfo | null>(null)
+  const [lightTagOpen, setLightTagOpen] = useState(false)
   const [fontSize, setFontSize] = useState(() => {
     const saved = localStorage.getItem('review:fontSize')
     return saved ? parseInt(saved, 10) : 13
@@ -961,6 +963,24 @@ export default function Review(): React.JSX.Element {
     if (lineOcr?.status !== 'done') return
     const span = lineTextSpan(content, lineOcr.lineId)
     if (span) setContent(content.slice(0, span.start) + lineOcr.text + content.slice(span.end))
+    else {
+      // No anchor yet: insert `<lb n="id"/>text` after the closest earlier line (in
+      // geometry order) that has one, else right after the page's <pb/> line, else first.
+      const geo = currentPage?.lineGeometry ?? []
+      const anchors = findAnchors(content)
+      const at = geo.findIndex((l) => l.id === lineOcr.lineId)
+      let insertAt = -1
+      for (let k = at - 1; k >= 0 && insertAt < 0; k--) {
+        const a = anchors.find((x) => x.id === geo[k].id)
+        if (a) { const nl = content.indexOf('\n', a.end); insertAt = nl === -1 ? content.length : nl }
+      }
+      const line = `<lb n="${lineOcr.lineId}"/>${lineOcr.text}`
+      if (insertAt < 0) {
+        const pb = /^<pb[^>]*\/>[^\n]*$/m.exec(content)
+        insertAt = pb ? pb.index + pb[0].length : -1
+      }
+      setContent(insertAt < 0 ? line + '\n' + content : content.slice(0, insertAt) + '\n' + line + content.slice(insertAt))
+    }
     setLineOcr(null)
   }
 
@@ -1096,7 +1116,9 @@ export default function Review(): React.JSX.Element {
     const sc = scrollContainerRef.current
     if (!ta || !sc) return
     const anchor = findAnchors(content).find((a) => a.id === lineId)
-    if (!anchor) return
+    // A line with a box but no text line in the markdown (its text was removed): it can
+    // still be selected, to redraw its box or re-OCR it (the text is then inserted).
+    if (!anchor) { setActiveLbLineId(lineId); return }
     const nl = content.indexOf('\n', anchor.end)
     const lineTextEnd = nl === -1 ? content.length : nl
     ta.focus()
@@ -1432,6 +1454,7 @@ export default function Review(): React.JSX.Element {
       setKrakenPaths({
         segModelPath: paths.segModelPath,
         recModelPath: paths.recModelPath,
+        roModelPath: paths.roModelPath,
         builtinModels: true,
         documentType: 'cllg',
         regionModelPath: paths.regionModelPaths.cllg,
@@ -1817,6 +1840,16 @@ export default function Review(): React.JSX.Element {
               <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6 6 18M6 6l12 12" /></svg>
             </button>
           </div>
+        )}
+
+        {/* Light-tagger suggestions */}
+        {lightTagOpen && (
+          <LightTagPanel
+            key={currentPage?.n}
+            content={content}
+            onApply={setContent}
+            onClose={() => setLightTagOpen(false)}
+          />
         )}
 
         {/* Re-OCR panel */}
@@ -2524,6 +2557,15 @@ export default function Review(): React.JSX.Element {
                 >
                   <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg>
                   {t('review.scanRefs')}
+                </button>
+                <button
+                  className="btn btn-quiet text-[11.5px]"
+                  style={{ padding: '4px 8px' }}
+                  title={t('review.lightTagTitle')}
+                  onClick={() => setLightTagOpen(true)}
+                >
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M20.6 13.4 13.4 20.6a2 2 0 0 1-2.8 0L3 13V3h10l7.6 7.6a2 2 0 0 1 0 2.8z" /><circle cx="7.5" cy="7.5" r="1" /></svg>
+                  {t('review.lightTag')}
                 </button>
 
                 <div className="w-px h-4" style={{ background: 'var(--line-2)' }} />

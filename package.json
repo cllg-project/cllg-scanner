@@ -26,7 +26,7 @@
     "djvujs-dist": "^0.5.4",
     "i18next": "^26.3.0",
     "konva": "^9.3.6",
-    "kraken-js": "github:cllg-project/kraken-js#8cd80c1623cdcd5c95c43d6998d0f7b17daaaa2e",
+    "kraken-js": "github:cllg-project/kraken-js#dc7e2c36a63c121bf3db148a484774508b3ec0c2",
     "pdf-lib": "^1.17.1",
     "pdfjs-dist": "^4.4.168",
     "react": "^18.3.1",

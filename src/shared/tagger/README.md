@@ -6,6 +6,6 @@ Source: https://github.com/cllg-project/light-tagger @ b7ddcc4c8593acf5232a0ae73
 
 Local changes: the three `.js` files were converted from CommonJS to ES modules (`require`/`module.exports` -> `import`/`export`); `tagger.d.ts` was added. Nothing else.
 
-**License:** the upstream package is marked `UNLICENSED`/private. Confirm a license with its authors before a public release of the app.
+**License:** written by the CLLG maintainers; vendored here with their consent (the upstream package.json still says `UNLICENSED`/private).
 
 The app uses it through `../lightTag.ts`.

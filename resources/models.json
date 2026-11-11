@@ -1,7 +1,7 @@
 {
   "repo": "cllg-project/cllg-scanner",
-  "modelsRepo": "PonteIneptique/kraken-js-models",
-  "modelsTag": "v1.0.0",
+  "modelsRepo": "cllg-project/kraken-js-models",
+  "modelsTag": "26.11",
   "files": [
     {
       "file": "segmentation.js_mlmodel",

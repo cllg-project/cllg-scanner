@@ -66,7 +66,7 @@ If the application fails to start with a sandbox error, add the `--no-sandbox` f
 ## Requirements
 
 - A scanned document: PDF, DjVu, a folder of page images (PNG, JPEG, TIFF…), or ALTO XML files with their images (e.g. exported from eScriptorium)
-- An internet connection on first launch: the built-in Kraken models (Ancient Greek segmentation and recognition, and the CLLG and LADaS layout models, ~190 MB) are downloaded once from the GitHub release, checked against their SHA-256, and kept in the app's user-data folder. Importing and masking work while they download. The models are published in their own repository, [kraken-js-models](https://github.com/PonteIneptique/kraken-js-models). Your own Kraken models (`.js_mlmodel`) can be loaded instead.
+- An internet connection on first launch: the built-in Kraken models (Ancient Greek segmentation and recognition, and the CLLG and LADaS layout models, ~190 MB) are downloaded once from the GitHub release, checked against their SHA-256, and kept in the app's user-data folder. Importing and masking work while they download. The models are published in their own repository, [kraken-js-models](https://github.com/cllg-project/kraken-js-models). Your own Kraken models (`.js_mlmodel`) can be loaded instead.
 
 A guided tour (home screen or sidebar) walks through every step on a demo project.
 
@@ -202,7 +202,7 @@ npm test           # unit tests (vitest)
 
 Requires Node 20+ and npm 10+.
 
-The Kraken models are not in this repository. `npm run dev` downloads them on first launch like the released application; to work offline, put the `.js_mlmodel` files from [kraken-js-models](https://github.com/PonteIneptique/kraken-js-models) (Git LFS) in `resources/models/`, where they are used as they are. `resources/models.json` pins the models release and their checksums; the release workflow attaches the models to every application release.
+The Kraken models are not in this repository. `npm run dev` downloads them on first launch like the released application; to work offline, put the `.js_mlmodel` files from [kraken-js-models](https://github.com/cllg-project/kraken-js-models) (Git LFS) in `resources/models/`, where they are used as they are. `resources/models.json` pins the models release and their checksums; the release workflow attaches the models to every application release.
 
 ---
 

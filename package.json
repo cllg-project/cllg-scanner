@@ -22,7 +22,6 @@
     "@pdf-lib/fontkit": "^1.1.1",
     "@xmldom/xmldom": "^0.9.10",
     "archiver": "^8.0.0",
-    "diff": "^9.0.0",
     "djvujs-dist": "^0.5.4",
     "i18next": "^26.3.0",
     "konva": "^9.3.6",
@@ -40,7 +39,6 @@
   "devDependencies": {
     "@electron-toolkit/tsconfig": "^1.0.1",
     "@types/archiver": "^7.0.0",
-    "@types/diff": "^7.0.2",
     "@types/node": "^20.14.9",
     "@types/react": "^18.3.3",
     "@types/react-dom": "^18.3.0",

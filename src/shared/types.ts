@@ -17,6 +17,7 @@ export interface LineGeometry {
   regionType?: string              // ALTO TextBlock/@TYPE, or Kraken's per-line `type` (whatever the loaded model's class_mapping defines)
   blockId?: string                 // ALTO TextBlock/@ID; for Kraken, the detected region (`r<index>`) when a region model ran
   text?: string                    // ALTO ground truth, or Kraken's first-pass recognized text — immutable once set
+  conf?: { text: string; c: number[] }   // Kraken's confidence (0–100) per UTF-16 unit of `text` as it was read; see shared/confidence.ts
   source: GeometrySource
 }
 
@@ -55,7 +56,8 @@ export interface Page {
   n: number
   imagePath: string          // relative to projectDir
   maskedImagePath?: string   // relative to projectDir, set after apply-masks
-  masks: Mask[]
+  masks: Mask[]              // legacy: rectangles to hide (always applied)
+  selections?: Mask[]        // rectangles of content to keep; everything outside them is hidden (see pageMask.ts)
   status: PageStatus
   markdown?: string
   errorMessage?: string

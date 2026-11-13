@@ -34,3 +34,25 @@ export function regionsToMasks(
   }
   return masks
 }
+
+const MAIN_REGION_RE = /^MainZone/
+
+/**
+ * The positive counterpart of regionsToMasks: one selection rectangle around the
+ * main-text lines of a page (those with no regionType, or a MainZone* one), i.e.
+ * everything but margins and the other zones.
+ */
+export function regionsToSelections(
+  lines: AltoLine[],
+  marginRegionTypes: string[] = DEFAULT_MARGIN_REGION_TYPES
+): Mask[] {
+  const main = lines.filter((l) => !l.regionType || MAIN_REGION_RE.test(l.regionType) || !marginRegionTypes.includes(l.regionType))
+  const xs = main.flatMap((l) => l.polygon.map((p) => p[0]))
+  const ys = main.flatMap((l) => l.polygon.map((p) => p[1]))
+  if (!xs.length) return []
+  const x = Math.min(...xs)
+  const y = Math.min(...ys)
+  const width = Math.max(...xs) - x
+  const height = Math.max(...ys) - y
+  return width > 0 && height > 0 ? [{ x, y, width, height, fill: '#ffffff' }] : []
+}

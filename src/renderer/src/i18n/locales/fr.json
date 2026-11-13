@@ -25,7 +25,7 @@
   },
   "steps": {
     "import": "Import",
-    "mask": "Masque",
+    "mask": "Sélection",
     "ocr": "OCR",
     "config": "Config",
     "review": "Révision",
@@ -34,7 +34,7 @@
   },
   "nav": {
     "home": "Accueil",
-    "masker": "Masquage",
+    "masker": "Sélection",
     "ocrRun": "Lancer OCR",
     "structure": "Structure",
     "review": "Révision",
@@ -73,7 +73,7 @@
   "home": {
     "welcomeBack": "Bienvenue",
     "heroTitle": "Débutez une nouvelle édition, ou reprenez votre travail.",
-    "heroSubtitle": "Importez un PDF, DjVu, ou un dossier d'images — CLLG les prépare pour le masquage et l'OCR.",
+    "heroSubtitle": "Importez un PDF, DjVu, ou un dossier d'images — CLLG les prépare pour la sélection et l'OCR.",
     "newProject": "Nouveau projet (PDF / DjVu)",
     "imageFolder": "Dossier d'images…",
     "altoFolder": "ALTO + images…",
@@ -141,7 +141,7 @@
     "importingPage": "Importation de la page {{cur}} sur {{total}}…",
     "importPages": "Importer {{count}} pages",
     "pages": "Pages",
-    "pagesStats": "{{total}} total · {{masked}} masquées",
+    "pagesStats": "{{total}} total · {{masked}} sélectionnées",
     "maxExamples": "Max {{count}} pages exemple",
     "removeExample": "Retirer comme page exemple",
     "setExample": "Définir comme page exemple OCR (max {{max}})",
@@ -151,21 +151,21 @@
     "skipPage": "Ignorer cette page",
     "unskipPage": "Réintégrer cette page",
     "toolPointer": "Pointeur",
-    "toolRect": "Masque rectangulaire",
-    "altoAutoMask": "Générer des masques depuis les régions ALTO",
+    "toolRect": "Sélectionner une zone à garder",
+    "altoAutoMask": "Sélectionner le texte principal depuis les régions ALTO",
     "deleteSelected": "Supprimer la sélection",
     "copyToAll": "Copier vers toutes les pages",
-    "copyToAllTitle": "Copier les masques de la page actuelle vers toutes les pages",
-    "instructionsBefore": "Dessiner des rectangles pour couvrir",
+    "copyToAllTitle": "Copier la sélection de la page actuelle vers toutes les pages",
+    "instructionsBefore": "Dessinez un rectangle autour du texte à lire, en laissant de côté",
     "apparatusCriticus": "l'apparat critique",
-    "instructionsAfter": "et les marginalia — les zones masquées sont blanchies avant l'OCR",
-    "pagesMasked": " · {{count}} pages masquées",
+    "instructionsAfter": "et les marginalia — tout ce qui est hors de la sélection est blanchi avant l'OCR",
+    "pagesMasked": " · {{count}} pages sélectionnées",
     "exportCoco": "Exporter COCO",
-    "exportCocoTitle": "Exporter tous les masques en JSON COCO (classe : ApparatusCriticus)",
-    "masksCount": "{{count}} masques",
+    "exportCocoTitle": "Exporter toutes les sélections en JSON COCO (classe : MainText)",
+    "masksCount": "{{count}} zones",
     "loading": "Chargement…",
     "statusPend": "Att.",
-    "statusMask": "Masq.",
+    "statusMask": "Sél.",
     "statusOcr": "OCR",
     "statusSkip": "Ign.",
     "statusErr": "Err."
@@ -328,7 +328,6 @@
     "tagBibl": "Entourer la sélection dans <bibl> (⌘B)",
     "fixHyphens": "Corriger les tirets",
     "fixHyphensCount": "Corriger les tirets ({{count}})",
-    "scanRefs": "Scanner les réf.",
     "betacode": "bêtacode",
     "betacodeEnable": "Activer",
     "betacodeEnabled": "Activé",
@@ -354,11 +353,6 @@
     "lightTagFound": "{{count}} balises proposées",
     "lightTagStale": "Page modifiée depuis — fermer et relancer",
     "lightTagApply": "Appliquer {{count}} balises",
-    "unclassifiedRefs": "{{count}} <ref> non classifiés trouvés",
-    "unclassifiedRef": "{{count}} <ref> non classifié trouvé",
-    "noUnclassified": "Aucune balise <ref> non classifiée sur cette page.",
-    "annotateMatched": "Annoter {{count}} correspondances",
-    "unmatched": "sans correspondance",
     "showGeometry": "Afficher les zones de ligne",
     "groupTool": "Dessiner une zone",
     "groupToolTitle": "Dessiner une zone (G, pointeur sur l'image) : tracez un rectangle pour grouper des lignes en une zone · T ouvre la liste des types de zone (tapez pour filtrer), P/Q/H/C choisissent directement Paragraph, Quote, Heading ou Continued · cliquez sur une zone pour la sélectionner, faites-la glisser pour la déplacer, tirez ses poignées pour la redimensionner, Suppr pour l'effacer",
@@ -376,14 +370,12 @@
     "lmNoModel": "(aucun modèle défini)",
     "runReOcr": "Lancer",
     "runningReOcr": "En cours…",
-    "compare": "2e lecture",
     "compareKraken": "KRAKEN",
-    "compareRefresh": "Actualiser",
-    "compareRunning": "Kraken en cours…",
-    "compareStale": "Cliquez sur Actualiser pour lancer Kraken sur cette page",
     "suggestionAccept": "Accepter",
     "suggestionDismiss": "Ignorer",
-    "suggestionDelete": "(supprimer)",
+    "confidence": "Douteux",
+    "confidenceTitle": "Surligner les caractères dont le modèle d'OCR n'était pas sûr (son propre score de confiance, conservé avec la géométrie des lignes)",
+    "confidenceThreshold": "Seuil de confiance",
     "latin": "Latin",
     "latinTitle": "Détecter les caractères latins pouvant être des confusions OCR avec le grec",
     "latinLabel": "LATIN",
@@ -468,7 +460,7 @@
     "steps": {
       "welcome": {
         "title": "CLLG — Visite guidée",
-        "body": "CLLG transforme des numérisations d'éditions savantes grecques et latines en XML TEI structuré, en sept étapes : import, document, masquage, OCR, structure, révision et export. La reconnaissance tourne localement avec Kraken. Le projet de démonstration est le début de l'édition princeps du De propriis placitis de Galien (V. Boudon-Millot et A. Pietrobelli, Revue des Études Grecques 118, 2005), diffusée par Persée sous licence CC BY-NC-ND. Il regorge de petits défis ; rien de ce que vous faites pendant la visite n'est enregistré."
+        "body": "CLLG transforme des numérisations d'éditions savantes grecques et latines en XML TEI structuré, en sept étapes : import, document, sélection, OCR, structure, révision et export. La reconnaissance tourne localement avec Kraken. Le projet de démonstration est le début de l'édition princeps du De propriis placitis de Galien (V. Boudon-Millot et A. Pietrobelli, Revue des Études Grecques 118, 2005), diffusée par Persée sous licence CC BY-NC-ND. Il regorge de petits défis ; rien de ce que vous faites pendant la visite n'est enregistré."
       },
       "home-new-project": {
         "title": "Étape 1 · Importer votre document",
@@ -484,15 +476,15 @@
       },
       "document-zones": {
         "title": "Quelles zones garder",
-        "body": "Le modèle de mise en page connaît une liste de types de zones (9 pour CLLG, 37 pour LADaS). Pour chacun, choisissez « Annoter » (le texte est gardé et balisé, p. ex. <p zone=\"r3\">, et la zone se modifie dans la relecture), « Garder le texte » (lignes simples, sans balise) ou « Écarter » (hors de la transcription). Par défaut, titres courants, numéros de page et bruit sont écartés. Page 2 de la démo, « 172  V. BOUDON-MILLOT ET A. PIETROBELLI » est un titre courant : une fois détecté, il reste hors du texte même sans masque."
+        "body": "Le modèle de mise en page connaît une liste de types de zones (9 pour CLLG, 37 pour LADaS). Pour chacun, choisissez « Annoter » (le texte est gardé et balisé, p. ex. <p zone=\"r3\">, et la zone se modifie dans la relecture), « Garder le texte » (lignes simples, sans balise) ou « Écarter » (hors de la transcription). Par défaut, titres courants, numéros de page et bruit sont écartés. Page 2 de la démo, « 172  V. BOUDON-MILLOT ET A. PIETROBELLI » est un titre courant : une fois détecté, il reste hors du texte même hors de la sélection."
       },
       "masker-canvas": {
-        "title": "Étape 3 · Masquer ce qui ne doit pas être lu",
-        "body": "Dessinez des rectangles blancs sur tout ce qui n'est pas le texte principal : les zones masquées sont blanchies avant que Kraken ne lise la page. La page 2 de la démo en a trois : le titre courant («172  V. BOUDON-MILLOT ET A. PIETROBELLI»), les numéros de ligne dans la marge gauche (5, 10, 15…) et les notes de bas de page. Défi : la page 3 imprime ses numéros de ligne dans la marge droite — faut-il aussi un masque ?"
+        "title": "Étape 3 · Sélectionner ce qu'il faut lire",
+        "body": "Dessinez un rectangle autour du texte à transcrire : tout le reste est blanchi avant que Kraken ne lise la page. Page 2 de la démo, la sélection n'entoure que le texte grec, en laissant de côté le titre courant («172  V. BOUDON-MILLOT ET A. PIETROBELLI»), les numéros de ligne de la marge gauche (5, 10, 15…) et les notes de bas de page. Défi : la page 3 imprime ses numéros de ligne dans la marge droite — votre sélection les laisse-t-elle dehors ?"
       },
       "masker-tools": {
-        "title": "Outils de masquage",
-        "body": "Le Masque rectangulaire (D) dessine, le Pointeur (S) sélectionne, Suppr efface. «Copier vers toutes les pages» répète une mise en page sur tout le livre ; survolez une miniature et cliquez sur ⊘ pour ignorer une page (comme la couverture). «Générer des masques depuis les régions ALTO» crée les masques à partir des zones importées et «Exporter COCO» les enregistre comme données d'entraînement."
+        "title": "Outils de sélection",
+        "body": "Le Rectangle (D) dessine une sélection, le Pointeur (S) la déplace ou la redimensionne, Suppr l'efface. «Copier vers toutes les pages» répète une mise en page sur tout le livre ; survolez une miniature et cliquez sur ⊘ pour ignorer une page (comme la couverture). «Sélectionner le texte principal depuis les régions ALTO» crée la sélection à partir des zones importées et «Exporter COCO» l'enregistre comme données d'entraînement."
       },
       "ocr-models": {
         "title": "Étape 4 · Choisir les modèles Kraken",
@@ -528,7 +520,7 @@
       },
       "review-tools": {
         "title": "Outils de vérification et saisie du grec",
-        "body": "«2e lecture» relance Kraken et souligne les désaccords ; «Ligne» affiche l'image de la ligne courante au-dessus du curseur ; la loupe (⌘F) cherche dans la page ; «Latin» signale les lettres latines dans le grec. β (⌘K) est un clavier bêtacode, diacritiques d'abord : «)a» donne ἀ, «:» l'ano teleia ·, «?» le point d'interrogation grec, et «<» «>» les crochets de Leyde ⟨ ⟩ que cette édition emploie pour les mots suppléés (page 2 : «περὶ ⟨ὧν⟩»)."
+        "body": "«Ligne» affiche l'image de la ligne courante au-dessus du curseur ; la loupe (⌘F) cherche dans la page ; «Latin» signale les lettres latines dans le grec. β (⌘K) est un clavier bêtacode, diacritiques d'abord : «)a» donne ἀ, «:» l'ano teleia ·, «?» le point d'interrogation grec, et «<» «>» les crochets de Leyde ⟨ ⟩ que cette édition emploie pour les mots suppléés (page 2 : «περὶ ⟨ὧν⟩»)."
       },
       "export-generate": {
         "title": "Étape 7 · Exporter",
@@ -575,7 +567,7 @@
   "document": {
     "title": "Document",
     "subtitle": "Le type de document, et les zones de la page à conserver dans la transcription. Vous pourrez revenir modifier ces choix à tout moment.",
-    "continue": "Continuer vers le masquage",
+    "continue": "Continuer vers la sélection",
     "typeTitle": "Type de document",
     "typeDescription": {
       "cllg": "Une édition savante grecque. Les repères de section en marge (Estienne, Bekker, numéros de chapitre…) sont fusionnés dans le texte en <ref>, le texte de marge plus long en <note> dans la ligne. Utilise le modèle de mise en page CLLG.",
@@ -612,7 +604,7 @@
   },
   "models": {
     "title": "Téléchargement des modèles Kraken",
-    "intro": "Les modèles d'OCR intégrés ne font pas partie de l'application : ils sont téléchargés une fois depuis la publication sur GitHub ({{size}} Mo) et conservés pour les prochains lancements. L'import et le masquage fonctionnent en attendant ; l'OCR en a besoin.",
+    "intro": "Les modèles d'OCR intégrés ne font pas partie de l'application : ils sont téléchargés une fois depuis la publication sur GitHub ({{size}} Mo) et conservés pour les prochains lancements. L'import et la sélection fonctionnent en attendant ; l'OCR en a besoin.",
     "error": "Le téléchargement a échoué :",
     "retry": "Réessayer",
     "continueWithout": "Continuer sans",

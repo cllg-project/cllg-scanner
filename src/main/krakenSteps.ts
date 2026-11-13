@@ -25,6 +25,7 @@ export interface ProcessedLine {
   text: string
   polygon: [number, number][]
   type?: string
+  conf?: LineGeometry['conf']
 }
 
 // Share of the union two line boxes must overlap to be "the same line".
@@ -187,9 +188,10 @@ export function applyLineStep(
         baseline: undefined,
         regionType: old.blockId ? old.regionType : p.type ?? old.regionType,
         source: 'kraken',
+        ...(p.conf ? { conf: p.conf } : {}),
       }
     }
-    return { id: freshId(), polygon: p.polygon, regionType: p.type, source: 'kraken', text: p.text }
+    return { id: freshId(), polygon: p.polygon, regionType: p.type, source: 'kraken', text: p.text, ...(p.conf ? { conf: p.conf } : {}) }
   })
   for (const l of next) if (l.baseline === undefined) delete l.baseline
 
@@ -249,6 +251,7 @@ export function applyLineStep(
 
 export interface TextStepResult {
   markdown: string
+  geometry: LineGeometry[]   // the lines re-read now carry the confidences of that reading
   textLines: number
   unmatched: number
 }
@@ -284,5 +287,8 @@ export function applyTextStep(markdown: string, geometry: LineGeometry[], proces
   })
   let md = markdown
   for (const e of edits.sort((a, b) => b.start - a.start)) md = md.slice(0, e.start) + e.text + md.slice(e.end)
-  return { markdown: md, textLines: edits.length, unmatched: processed.length - edits.length }
+  const conf = new Map<string, LineGeometry['conf']>()
+  matched.forEach((old, j) => { if (old && processed[j].conf) conf.set(old.id, processed[j].conf) })
+  const nextGeometry = geometry.map((l) => (conf.has(l.id) ? { ...l, conf: conf.get(l.id) } : l))
+  return { markdown: md, geometry: nextGeometry, textLines: edits.length, unmatched: processed.length - edits.length }
 }

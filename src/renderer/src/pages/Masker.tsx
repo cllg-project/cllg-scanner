@@ -4,7 +4,8 @@ import { useTranslation } from 'react-i18next'
 import { Stage, Layer, Image as KonvaImage, Rect, Transformer } from 'react-konva'
 import type Konva from 'konva'
 import type { Page, Mask } from '@shared/types'
-import { regionsToMasks } from '../utils/altoMasking'
+import { regionsToSelections } from '../utils/altoMasking'
+import { hasMasking } from '@shared/pageMask'
 import Sidebar from '../components/Sidebar'
 import { useProject } from '../App'
 import {
@@ -26,6 +27,9 @@ import type * as pdfjs from 'pdfjs-dist'
 type Tool = 'pointer' | 'rect'
 
 const FILL_WHITE = '#ffffff'
+
+// A rectangle on the canvas: a selection (content to keep) or a legacy mask (content to hide).
+interface Item { kind: 'sel' | 'mask'; rect: Mask }
 const MAX_EXAMPLES = 3
 const CURRENT_STEP = 3
 
@@ -336,12 +340,19 @@ export default function Masker(): React.JSX.Element {
     transformerRef.current.getLayer()?.batchDraw()
   }, [selectedRectId])
 
-  const updateMasks = useCallback(
-    async (masks: Mask[]) => {
+  const items: Item[] = [
+    ...(page?.selections ?? []).map((rect): Item => ({ kind: 'sel', rect })),
+    ...(page?.masks ?? []).map((rect): Item => ({ kind: 'mask', rect })),
+  ]
+
+  const updateItems = useCallback(
+    async (next: Item[]) => {
       if (!project || !page) return
+      const selections = next.filter((it) => it.kind === 'sel').map((it) => it.rect)
+      const masks = next.filter((it) => it.kind === 'mask').map((it) => it.rect)
       const updatedPages = project.pages.map((p, i) =>
         i === selectedPageIdx
-          ? { ...p, masks, status: masks.length > 0 ? ('masked' as const) : ('pending' as const) }
+          ? { ...p, selections, masks, status: selections.length + masks.length > 0 ? ('masked' as const) : ('pending' as const) }
           : p
       )
       const updated = { ...project, pages: updatedPages }
@@ -393,32 +404,33 @@ export default function Masker(): React.JSX.Element {
       const w = Math.abs(x2 - x1)
       const h = Math.abs(y2 - y1)
       if (w < 4 || h < 4) return
-      const newMask: Mask = {
+      const newSel: Mask = {
         x: Math.min(x1, x2),
         y: Math.min(y1, y2),
         width: w,
         height: h,
         fill: FILL_WHITE
       }
-      updateMasks([...(page?.masks ?? []), newMask])
+      updateItems([...items, { kind: 'sel', rect: newSel }])
     },
-    [isDrawing, zoom, page, updateMasks]
+    [isDrawing, zoom, items, updateItems]
   )
 
   const deleteSelected = useCallback(() => {
     if (selectedRectId === null || !page) return
-    const newMasks = page.masks.filter((_, i) => i !== selectedRectId)
     setSelectedRectId(null)
-    updateMasks(newMasks)
-  }, [selectedRectId, page, updateMasks])
+    updateItems(items.filter((_, i) => i !== selectedRectId))
+  }, [selectedRectId, page, items, updateItems])
 
   const copyMasksToAll = useCallback(async () => {
     if (!project || !page) return
     const srcMasks = page.masks
+    const srcSelections = page.selections ?? []
     const updatedPages = project.pages.map((p) => ({
       ...p,
       masks: srcMasks,
-      status: (srcMasks.length > 0 ? 'masked' : p.status) as Page['status']
+      selections: srcSelections,
+      status: (srcMasks.length + srcSelections.length > 0 ? 'masked' : p.status) as Page['status']
     }))
     await saveProject({ ...project, pages: updatedPages })
   }, [project, page, saveProject])
@@ -446,7 +458,7 @@ export default function Masker(): React.JSX.Element {
     const target = project?.pages[pageIdx]
     if (!project || !target) return
     const newStatus: Page['status'] =
-      target.status === 'skipped' ? (target.masks.length > 0 ? 'masked' : 'pending') : 'skipped'
+      target.status === 'skipped' ? (hasMasking(target) ? 'masked' : 'pending') : 'skipped'
     const updatedPages = project.pages.map((p, i) =>
       i === pageIdx ? { ...p, status: newStatus } : p
     )
@@ -676,7 +688,7 @@ export default function Masker(): React.JSX.Element {
                     </svg>
                   </div>
                 )}
-                {p.masks.length > 0 && (
+                {hasMasking(p) && (
                   <div
                     className="absolute bottom-0 left-0 right-0 h-1/4 opacity-40"
                     style={{ background: 'repeating-linear-gradient(45deg, var(--oxblood) 0 4px, transparent 4px 8px)' }}
@@ -779,9 +791,9 @@ export default function Masker(): React.JSX.Element {
           <span>
             {t('masker.instructionsBefore')} <span style={{ color: 'var(--ink)', fontStyle: 'italic' }}>{t('masker.apparatusCriticus')}</span> {t('masker.instructionsAfter')}
           </span>
-          {project?.pages.some((p) => p.masks.length > 0) && (
+          {project?.pages.some((p) => hasMasking(p)) && (
             <span className="font-mono shrink-0" style={{ color: 'var(--moss, #5a8c3f)' }}>
-              {t('masker.pagesMasked', { count: project.pages.filter((p) => p.masks.length > 0).length })}
+              {t('masker.pagesMasked', { count: project.pages.filter((p) => hasMasking(p)).length })}
             </span>
           )}
         </div>
@@ -816,7 +828,7 @@ export default function Masker(): React.JSX.Element {
           {!!page?.lineGeometry?.length && (
             <button
               className="tool-btn"
-              onClick={() => updateMasks([...(page?.masks ?? []), ...regionsToMasks(page.lineGeometry!)])}
+              onClick={() => updateItems([...items.filter((it) => it.kind !== 'sel'), ...regionsToSelections(page.lineGeometry!).map((rect): Item => ({ kind: 'sel', rect }))])}
               title={t('masker.altoAutoMask')}
             >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
@@ -852,7 +864,7 @@ export default function Masker(): React.JSX.Element {
             className="btn btn-quiet !py-1.5 text-[12px]"
             onClick={() => project && window.api.exportCOCO(project)}
             title={t('masker.exportCocoTitle')}
-            disabled={!project?.pages.some((p) => p.masks.length > 0)}
+            disabled={!project?.pages.some((p) => hasMasking(p))}
           >
             {t('masker.exportCoco')}
           </button>
@@ -862,7 +874,7 @@ export default function Masker(): React.JSX.Element {
               p. <span className="font-mono font-semibold" style={{ color: 'var(--ink)' }}>{page?.n}</span>
             </span>
             <span>·</span>
-            <span>{t('masker.masksCount', { count: page?.masks.length ?? 0 })}</span>
+            <span>{t('masker.masksCount', { count: items.length })}</span>
           </div>
         </div>
 
@@ -889,7 +901,18 @@ export default function Masker(): React.JSX.Element {
             >
               <Layer>
                 <KonvaImage image={konvaImg} width={stageW} height={stageH} />
-                {(page?.masks ?? []).map((mask, i) => (
+              </Layer>
+                {/* Everything outside the selections is dimmed: that is what OCR will not see. */}
+                {items.some((it) => it.kind === 'sel') && (
+                  <Layer listening={false}>
+                    <Rect x={0} y={0} width={stageW} height={stageH} fill="#ffffff" opacity={0.78} />
+                    {items.filter((it) => it.kind === 'sel').map((it, i) => (
+                      <Rect key={i} x={it.rect.x * zoom} y={it.rect.y * zoom} width={it.rect.width * zoom} height={it.rect.height * zoom} fill="#000" globalCompositeOperation="destination-out" />
+                    ))}
+                  </Layer>
+                )}
+              <Layer>
+                {items.map(({ kind, rect: mask }, i) => (
                   <Rect
                     key={i}
                     ref={(node) => {
@@ -900,29 +923,33 @@ export default function Masker(): React.JSX.Element {
                     y={mask.y * zoom}
                     width={mask.width * zoom}
                     height={mask.height * zoom}
-                    fill={FILL_WHITE}
-                    opacity={0.8}
-                    stroke={selectedRectId === i ? 'var(--oxblood)' : '#aaa'}
+                    fill={kind === 'sel' ? 'transparent' : FILL_WHITE}
+                    opacity={kind === 'sel' ? 1 : 0.8}
+                    stroke={selectedRectId === i ? '#c0392b' : kind === 'sel' ? '#5a8c3f' : '#aaa'}
+                    dash={kind === 'mask' ? [4, 3] : undefined}
                     strokeWidth={1.5}
                     draggable={tool === 'pointer'}
                     onClick={() => { if (tool === 'pointer') setSelectedRectId(i) }}
                     onDragEnd={(e) => {
-                      const newMasks = [...(page?.masks ?? [])]
-                      newMasks[i] = { ...newMasks[i], x: e.target.x() / zoom, y: e.target.y() / zoom }
-                      updateMasks(newMasks)
+                      const next = [...items]
+                      next[i] = { kind, rect: { ...next[i].rect, x: e.target.x() / zoom, y: e.target.y() / zoom } }
+                      updateItems(next)
                     }}
                     onTransformEnd={(e) => {
                       const node = e.target as Konva.Rect
-                      const newMasks = [...(page?.masks ?? [])]
-                      newMasks[i] = {
-                        ...newMasks[i],
-                        x: node.x() / zoom,
-                        y: node.y() / zoom,
-                        width: (node.width() * node.scaleX()) / zoom,
-                        height: (node.height() * node.scaleY()) / zoom
+                      const next = [...items]
+                      next[i] = {
+                        kind,
+                        rect: {
+                          ...next[i].rect,
+                          x: node.x() / zoom,
+                          y: node.y() / zoom,
+                          width: (node.width() * node.scaleX()) / zoom,
+                          height: (node.height() * node.scaleY()) / zoom
+                        }
                       }
                       node.scaleX(1); node.scaleY(1)
-                      updateMasks(newMasks)
+                      updateItems(next)
                     }}
                   />
                 ))}
@@ -932,9 +959,8 @@ export default function Masker(): React.JSX.Element {
                     y={draftRect.y * zoom}
                     width={draftRect.width * zoom}
                     height={draftRect.height * zoom}
-                    fill={FILL_WHITE}
-                    opacity={0.4}
-                    stroke="#888"
+                    fill="transparent"
+                    stroke="#5a8c3f"
                     strokeWidth={1.5}
                     dash={[6, 3]}
                     listening={false}

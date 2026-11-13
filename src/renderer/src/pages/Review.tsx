@@ -1,12 +1,8 @@
 import React, { useState, useEffect, useLayoutEffect, useCallback, useRef, useMemo } from 'react'
-import {
-  computeDiff, computeSuggestionRanges, acceptSuggestion,
-  detectLatinChars, applyLatinSuggestion,
-  type DiffTokens, type SuggestionRange, type LatinChar,
-} from '../utils/krakenDiff'
+import { detectLatinChars, applyLatinSuggestion, type LatinChar } from '../utils/krakenDiff'
 import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
-import type { Page, PageStatus, HierarchyLevel, KrakenConfig, KrakenStep, PageZone } from '@shared/types'
+import type { Page, PageStatus, KrakenConfig, KrakenStep, PageZone } from '@shared/types'
 import Sidebar from '../components/Sidebar'
 import { useProject } from '../App'
 import { convertBetaKey, finalSigmaFix } from '../utils/betaCode'
@@ -15,6 +11,9 @@ import KrakenModelPicker from '../components/KrakenModelPicker'
 import ZoneTypePicker, { type ZoneTypeOption, type ZoneTypePickerHandle } from '../components/ZoneTypePicker'
 import { zoneColor, type ManualZoneRole } from '../utils/zoneColors'
 import { renderMaskedPage } from '../utils/renderMaskedPage'
+import { hasMasking } from '@shared/pageMask'
+import { DEFAULT_CONFIDENCE_THRESHOLD, lowConfidenceRanges } from '@shared/confidence'
+import { annotateRefLevels, flattenHierarchy, type FlatLevel } from '@shared/refLevels'
 import LightTagPanel from '../components/LightTagPanel'
 import { TOUR_DEMO_ID } from '../data/tourDemoProject'
 import { linesInRect } from '@shared/manualZones'
@@ -22,18 +21,6 @@ import { findAnchorAt, findAnchors, unwrapZone, unwrapLegacyZone, unwrapOrphanZo
 import {
   LADAS_ZONE_TYPES, blockTagForType, ladasLabelForRole, regionKind, writeZoneTags, zoneAction, zoneForLine,
 } from '@shared/zones'
-
-interface FlatLevel { depth: number; name: string; pattern: string; color?: string }
-
-function flattenHierarchy(levels: HierarchyLevel[]): FlatLevel[] {
-  const out: FlatLevel[] = []
-  function walk(node: HierarchyLevel, depth: number): void {
-    out.push({ depth, name: node.name, pattern: node.pattern, color: node.color })
-    for (const child of node.children ?? []) walk(child, depth + 1)
-  }
-  for (const l of levels) walk(l, 1)
-  return out
-}
 
 const LEVEL_COLORS_DEFAULT = [
   { fg: '#c0392b' },
@@ -94,30 +81,8 @@ const HANDLE_CURSOR: Record<ZoneHandle, string> = {
   n: 'ns-resize', s: 'ns-resize', e: 'ew-resize', w: 'ew-resize',
 }
 
-const FORMAT_RE: Record<string, RegExp> = {
-  Roman:     /^M{0,4}(?:CM|CD|D?C{0,3})(?:XC|XL|L?X{0,3})(?:IX|IV|V?I{0,3})$/i,
-  Arabic:    /^\d+$/,
-  Greek:     /^[Ͱ-Ͽἀ-῿]+$/,
-  Alpha:     /^[a-z]{1,2}$/,
-  Stephanus: /^\d+[a-e]$/,
-}
-
-function matchLevel(token: string, levels: FlatLevel[]): FlatLevel | null {
-  for (const l of levels) {
-    const re = FORMAT_RE[l.pattern] ?? (() => { try { return new RegExp(`^${l.pattern}$`) } catch { return null } })()
-    if (re?.test(token)) return l
-  }
-  return null
-}
-
-const UNCLASSIFIED_REF = /<ref(?:\s+level="(?:0|)")?>(.*?)<\/ref>/gs
-
 function annotateContent(text: string, levels: FlatLevel[]): string {
-  return text.replace(UNCLASSIFIED_REF, (match, inner) => {
-    const token = inner.trim()
-    const level = matchLevel(token, levels)
-    return level ? `<ref level="${level.depth}">${inner}</ref>` : match
-  })
+  return annotateRefLevels(text, levels)
 }
 
 type TagInfo =
@@ -175,11 +140,11 @@ function highlightMarkdown(text: string, levelMap: Map<number, FlatLevel>): stri
       '<mark class="tag-lb">$1</mark>')
 }
 
-// Highlight markdown with integrated wavy-underline diff suggestions and Latin char detection.
-// Uses private-use Unicode chars as placeholders that survive HTML escaping.
-const DIFF_OPEN = '\uE001', DIFF_SEP = '\uE002', DIFF_CLOSE = '\uE003'
+// Highlight markdown with Latin-char and low-confidence marks. Both are single characters,
+// wrapped one at a time in private-use placeholders that survive HTML escaping.
 const LATIN_OPEN = '\uE004', LATIN_CLOSE = '\uE005'
-const DIFF_TOKEN_RE = new RegExp(`${DIFF_OPEN}(\\d+)${DIFF_SEP}([\\s\\S]*?)${DIFF_CLOSE}`, 'g')
+const CONF_OPEN = '\uE006', CONF_CLOSE = '\uE007'
+const CONF_TOKEN_RE = new RegExp(`${CONF_OPEN}([\\s\\S])${CONF_CLOSE}`, 'g')
 const LATIN_TOKEN_RE = new RegExp(`${LATIN_OPEN}([\\s\\S])${LATIN_CLOSE}`, 'g')
 
 function applyHighlights(html: string, levelMap: Map<number, FlatLevel>): string {
@@ -203,46 +168,25 @@ function applyHighlights(html: string, levelMap: Map<number, FlatLevel>): string
 function highlightMarkdownWithDiff(
   text: string,
   levelMap: Map<number, FlatLevel>,
-  ranges: SuggestionRange[],
-  latinChars: LatinChar[] = []
+  latinChars: LatinChar[] = [],
+  lowConf: { start: number; end: number }[] = []
 ): string {
-  if (!ranges.length && !latinChars.length) return highlightMarkdown(text, levelMap)
+  if (!latinChars.length && !lowConf.length) return highlightMarkdown(text, levelMap)
+  const latinAt = new Set(latinChars.map((c) => c.origStart))
+  const confAt = new Set<number>()
+  for (const r of lowConf) for (let p = r.start; p < r.end; p++) confAt.add(p)
 
-  const diffStarts = new Map<number, number>()
-  const diffEnds = new Set<number>()
-  const diffCovered = new Set<number>()
-  for (const r of ranges) {
-    diffStarts.set(r.origStart, r.tokenIdx)
-    diffEnds.add(r.origEnd)
-    for (let p = r.origStart; p < r.origEnd; p++) diffCovered.add(p)
-  }
-
-  const latinOpenSet = new Set<number>()
-  const latinCloseSet = new Set<number>()
-  for (const lc of latinChars) {
-    if (!diffCovered.has(lc.origStart)) {
-      latinOpenSet.add(lc.origStart)
-      latinCloseSet.add(lc.origStart + 1)
-    }
-  }
-
-  let marked = '', inDiff = false, inLatin = false
+  let marked = ''
   for (let pos = 0; pos < text.length; pos++) {
-    if (diffEnds.has(pos) && inDiff)        { marked += DIFF_CLOSE;  inDiff  = false }
-    if (latinCloseSet.has(pos) && inLatin)  { marked += LATIN_CLOSE; inLatin = false }
-    if (diffStarts.has(pos))  { marked += `${DIFF_OPEN}${diffStarts.get(pos)!}${DIFF_SEP}`; inDiff  = true }
-    if (latinOpenSet.has(pos)) { marked += LATIN_OPEN; inLatin = true }
-    marked += text[pos]
+    if (latinAt.has(pos)) marked += `${LATIN_OPEN}${text[pos]}${LATIN_CLOSE}`
+    else if (confAt.has(pos)) marked += `${CONF_OPEN}${text[pos]}${CONF_CLOSE}`
+    else marked += text[pos]
   }
-  if (inDiff)  marked += DIFF_CLOSE
-  if (inLatin) marked += LATIN_CLOSE
 
   let html = marked.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
   html = applyHighlights(html, levelMap)
-  html = html.replace(DIFF_TOKEN_RE, (_, tokenIdx, inner) =>
-    `<mark class="diff-suggestion" data-token="${tokenIdx}">${inner}</mark>`)
-  html = html.replace(LATIN_TOKEN_RE, (_, ch) =>
-    `<mark class="latin-char">${ch}</mark>`)
+  html = html.replace(LATIN_TOKEN_RE, (_, ch) => `<mark class="latin-char">${ch}</mark>`)
+  html = html.replace(CONF_TOKEN_RE, (_, ch) => `<mark class="low-conf">${ch}</mark>`)
   return html
 }
 
@@ -276,13 +220,6 @@ function findLayerHtml(text: string, matches: FindMatch[], current: number): str
     pos = m.end
   })
   return html + escapeHtml(text.slice(pos))
-}
-
-interface ScanInfo {
-  total: number
-  matched: number
-  byLevel: { depth: number; name: string; tokens: string[] }[]
-  unmatched: string[]
 }
 
 interface PageState {
@@ -331,7 +268,6 @@ export default function Review(): React.JSX.Element {
   const [findQuery, setFindQuery] = useState('')
   const [findCase, setFindCase] = useState(false)
   const [findIdx, setFindIdx] = useState(0)
-  const [scanInfo, setScanInfo] = useState<ScanInfo | null>(null)
   const [lightTagOpen, setLightTagOpen] = useState(false)
   const [fontSize, setFontSize] = useState(() => {
     const saved = localStorage.getItem('review:fontSize')
@@ -391,9 +327,6 @@ export default function Review(): React.JSX.Element {
     return () => { document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp) }
   }, [])
 
-  const [compareMode, setCompareMode] = useState(false)
-  const [krakenCompareText, setKrakenCompareText] = useState<string | null>(null)
-  const [krakenLines, setKrakenLines] = useState<{ text: string; corners: [number, number][] }[]>([])
   // Line boxes start visible on the tour's demo project, so the tour shows its zones.
   const [showGeometry, setShowGeometry] = useState(() => project?.id === TOUR_DEMO_ID)
   const [activeLbLineId, setActiveLbLineId] = useState<string | null>(null)
@@ -435,13 +368,10 @@ export default function Review(): React.JSX.Element {
   const [caretPos, setCaretPos] = useState(0)
   const [editorScrollTick, setEditorScrollTick] = useState(0)
   const [linePopupPos, setLinePopupPos] = useState<{ top: number; width: number } | null>(null)
-  const [compareLoading, setCompareLoading] = useState(false)
-  const [compareError, setCompareError] = useState<string | null>(null)
-  const krakenCacheRef = useRef<Map<string, { text: string; lines: { text: string; corners: [number, number][] }[] }>>(new Map())
-  const [activeSuggestion, setActiveSuggestion] = useState<SuggestionRange | null>(null)
-  const [ignoredTokens, setIgnoredTokens] = useState<Set<number>>(new Set())
 
   const [latinMode, setLatinMode] = useState(false)
+  const [confMode, setConfMode] = useState(false)
+  const [confThreshold, setConfThreshold] = useState(DEFAULT_CONFIDENCE_THRESHOLD)
   const [activeLatinChar, setActiveLatinChar] = useState<LatinChar | null>(null)
   const [ignoredLatinPositions, setIgnoredLatinPositions] = useState<Set<number>>(new Set())
 
@@ -476,7 +406,15 @@ export default function Review(): React.JSX.Element {
       if (pages.has(page.n)) return
       const content = await window.api.loadMarkdown(project.projectDir, page.n)
       // loadMarkdown returns '' when file is missing; fall back to page.markdown (used by tour demo)
-      setPages((prev) => new Map(prev).set(page.n, makePageState(content || page.markdown || '')))
+      const raw = content || page.markdown || ''
+      // Refs the declared hierarchy can place get their level automatically (a single
+      // declared level → level 1); the page is then marked as changed so it gets saved.
+      const hier = flattenHierarchy(project.hierarchy ?? [])
+      const annotated = hier.length > 0 ? annotateRefLevels(raw, hier) : raw
+      const state = annotated === raw
+        ? makePageState(raw)
+        : { ...makePageState(annotated), dirty: true, original: raw }
+      setPages((prev) => new Map(prev).set(page.n, state))
     },
     [project, pages]
   )
@@ -616,41 +554,19 @@ export default function Review(): React.JSX.Element {
     setLinePopupPos((prev) => (prev && prev.top === top && prev.width === width ? prev : { top, width }))
   }, [popupLine, content, caretPos, fontSize, editorScrollTick])
 
-  const krakenDiffTokens = useMemo<DiffTokens>(() => {
-    if (!krakenCompareText) return []
-    return computeDiff(content, krakenCompareText)
-  }, [content, krakenCompareText])
-
-  const suggestionRanges = useMemo<SuggestionRange[]>(() => {
-    if (!compareMode || !krakenDiffTokens.length) return []
-    return computeSuggestionRanges(content, krakenDiffTokens).filter((r) => !ignoredTokens.has(r.tokenIdx))
-  }, [compareMode, krakenDiffTokens, content, ignoredTokens])
-
-  useEffect(() => { setActiveSuggestion(null); setIgnoredTokens(new Set()) }, [krakenDiffTokens])
-
   const latinChars = useMemo<LatinChar[]>(() => {
     if (!latinMode) return []
     return detectLatinChars(content).filter((c) => !ignoredLatinPositions.has(c.origStart))
   }, [latinMode, content, ignoredLatinPositions])
 
-  // Find which Kraken line the active suggestion's replacement text falls in
-  const activeSuggestionLineIdx = useMemo<number | null>(() => {
-    if (!activeSuggestion || !krakenCompareText || !krakenDiffTokens.length) return null
-    let krakenPos = 0
-    for (let i = 0; i < activeSuggestion.tokenIdx; i++) {
-      const t = krakenDiffTokens[i]
-      if (!t.removed) krakenPos += t.value.length
-    }
-    const lines = krakenCompareText.split('\n')
-    let acc = 0
-    for (let i = 0; i < lines.length; i++) {
-      acc += lines[i].length + 1
-      if (krakenPos < acc) return i
-    }
-    return lines.length - 1
-  }, [activeSuggestion, krakenCompareText, krakenDiffTokens])
+  // Characters the model was unsure of, in lines still as it read them.
+  const lowConfRanges = useMemo(
+    () => (confMode ? lowConfidenceRanges(content, currentPage?.lineGeometry ?? [], confThreshold) : []),
+    [confMode, content, currentPage?.lineGeometry, confThreshold]
+  )
+  const hasConfidence = !!currentPage?.lineGeometry?.some((l) => l.conf)
 
-  useEffect(() => { autoGrow() }, [content, compareMode])
+  useEffect(() => { autoGrow() }, [content])
 
   const setContent = (value: string): void => {
     if (!currentPage) return
@@ -939,7 +855,7 @@ export default function Review(): React.JSX.Element {
   // Image Kraken should read for this page: the masked render when masks exist.
   const krakenImagePath = async (): Promise<string> => {
     if (!project || !currentPage) throw new Error('No page')
-    if (currentPage.masks.length > 0) {
+    if (hasMasking(currentPage)) {
       return window.api.joinPaths(project.projectDir, await renderMaskedPage(project.projectDir, currentPage))
     }
     return window.api.joinPaths(project.projectDir, currentPage.maskedImagePath ?? currentPage.imagePath)
@@ -1145,37 +1061,6 @@ export default function Review(): React.JSX.Element {
     closePopover()
   }, [content, currentPage, cursorTag]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const runScan = useCallback((): void => {
-    const byLevel = new Map<number, { depth: number; name: string; tokens: string[] }>()
-    const unmatched: string[] = []
-    let total = 0
-    const re = new RegExp(UNCLASSIFIED_REF.source, 'gs')
-    for (const m of content.matchAll(re)) {
-      const tok = m[1].trim()
-      if (!tok) continue
-      total++
-      const level = matchLevel(tok, levelList)
-      if (level) {
-        if (!byLevel.has(level.depth)) byLevel.set(level.depth, { depth: level.depth, name: level.name, tokens: [] })
-        const entry = byLevel.get(level.depth)!
-        if (!entry.tokens.includes(tok)) entry.tokens.push(tok)
-      } else {
-        if (!unmatched.includes(tok)) unmatched.push(tok)
-      }
-    }
-    setScanInfo({
-      total,
-      matched: total - unmatched.length,
-      byLevel: Array.from(byLevel.values()).sort((a, b) => a.depth - b.depth),
-      unmatched,
-    })
-  }, [content, levelList])
-
-  const applyAnnotations = useCallback((): void => {
-    setContent(annotateContent(content, levelList))
-    setScanInfo(null)
-  }, [content, levelList]) // eslint-disable-line react-hooks/exhaustive-deps
-
   const replaceAllHyphens = useCallback((): void => {
     setContent(content.replace(/(\p{L}+)-[ \t]+/gmu, '$1<lb break="no"/>'))
   }, [content]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -1376,8 +1261,6 @@ export default function Review(): React.JSX.Element {
 
   useEffect(() => {
     setImgZoom(1.0); setImgNaturalWidth(null); setImgNaturalHeight(null)
-    setCompareMode(false)
-    setKrakenCompareText(null); setKrakenLines([]); setCompareError(null); setActiveSuggestion(null)
     setActiveLatinChar(null); setIgnoredLatinPositions(new Set())
     setActiveLbLineId(null); setGroupMode(false); setDrawingRect(null); drawingRef.current = null
     setRedrawLineId(null); setRedrawRect(null); redrawRectRef.current = null; setLineOcr(null)
@@ -1481,7 +1364,7 @@ export default function Review(): React.JSX.Element {
     setReOcrError(null)
     try {
       if (currentState?.dirty) await window.api.saveMarkdown(project.projectDir, currentPage.n, content)
-      const page = currentPage.masks.length > 0
+      const page = hasMasking(currentPage)
         ? { ...currentPage, maskedImagePath: await renderMaskedPage(project.projectDir, currentPage) }
         : currentPage
       let failure: string | null = null
@@ -1517,7 +1400,7 @@ export default function Review(): React.JSX.Element {
     setReOcrError(null)
     try {
       let imgPath: string
-      if (currentPage.masks.length > 0) {
+      if (hasMasking(currentPage)) {
         imgPath = await window.api.joinPaths(project.projectDir, await renderMaskedPage(project.projectDir, currentPage))
       } else {
         imgPath = await window.api.joinPaths(
@@ -1539,30 +1422,6 @@ export default function Review(): React.JSX.Element {
       setReOcrRunning(false)
     }
   }, [project, currentPage, reOcrEngine, runPageStep, saveProject]) // eslint-disable-line react-hooks/exhaustive-deps
-
-  const runKrakenCompare = useCallback(async () => {
-    if (!project || !currentPage) return
-    const cacheKey = `${currentPage.imagePath}|${JSON.stringify(currentPage.masks)}`
-    const cached = krakenCacheRef.current.get(cacheKey)
-    if (cached) {
-      setKrakenLines(cached.lines)
-      setKrakenCompareText(cached.text)
-      return
-    }
-    setCompareLoading(true); setCompareError(null); setKrakenCompareText(null)
-    try {
-      const result = await window.api.rerunPageKraken(await krakenImagePath(), krakenPaths)
-      const text = result.text.normalize('NFKC')
-      const lines = result.lines ?? []
-      krakenCacheRef.current.set(cacheKey, { text, lines })
-      setKrakenLines(lines)
-      setKrakenCompareText(text)
-    } catch (err: unknown) {
-      setCompareError(String(err))
-    } finally {
-      setCompareLoading(false)
-    }
-  }, [project, currentPage, krakenPaths]) // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!project) return <div className="p-8">{t('common.noProjectOpen')}</div>
   if (activePages.length === 0) {
@@ -1802,52 +1661,12 @@ export default function Review(): React.JSX.Element {
           </div>
         </div>
 
-        {/* Scan results */}
-        {scanInfo !== null && (
-          <div
-            className="px-6 py-2.5 border-b shrink-0 flex items-center gap-4 text-[11.5px] flex-wrap"
-            style={{ borderColor: 'var(--line)', background: '#f0f9ff' }}
-          >
-            <span className="font-mono font-semibold shrink-0" style={{ color: '#0369a1' }}>
-              {scanInfo.total !== 1 ? t('review.unclassifiedRefs', { count: scanInfo.total }) : t('review.unclassifiedRef', { count: scanInfo.total })}
-            </span>
-            {scanInfo.total === 0 ? (
-              <span style={{ color: 'var(--mute)' }}>{t('review.noUnclassified')}</span>
-            ) : (
-              <>
-                {scanInfo.byLevel.map((l) => (
-                  <span key={l.depth} className="font-mono shrink-0" style={{ color: 'var(--ink)' }}>
-                    <span className="font-semibold" style={{ color: 'var(--oxblood)' }}>L{l.depth} {l.name}:</span>{' '}
-                    {l.tokens.slice(0, 6).join(', ')}{l.tokens.length > 6 ? ` +${l.tokens.length - 6}` : ''}
-                  </span>
-                ))}
-                {scanInfo.unmatched.length > 0 && (
-                  <span className="font-mono shrink-0" style={{ color: '#7b2d8b' }}>
-                    <span className="font-semibold">{t('review.unmatched')}:</span>{' '}
-                    {scanInfo.unmatched.slice(0, 5).join(', ')}{scanInfo.unmatched.length > 5 ? ` +${scanInfo.unmatched.length - 5}` : ''}
-                  </span>
-                )}
-                <button
-                  className="btn btn-quiet text-[11px] shrink-0"
-                  style={{ background: '#0369a1', color: '#fff', borderColor: '#0369a1', padding: '3px 10px' }}
-                  onClick={applyAnnotations}
-                >
-                  {t('review.annotateMatched', { count: scanInfo.matched })}
-                </button>
-              </>
-            )}
-            <button className="tool-btn ml-auto shrink-0" style={{ width: 20, height: 20 }} onClick={() => setScanInfo(null)}>
-              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6 6 18M6 6l12 12" /></svg>
-            </button>
-          </div>
-        )}
-
         {/* Light-tagger suggestions */}
         {lightTagOpen && (
           <LightTagPanel
             key={currentPage?.n}
             content={content}
-            onApply={setContent}
+            onApply={(md) => setContent(levelList.length > 0 ? annotateContent(md, levelList) : md)}
             onClose={() => setLightTagOpen(false)}
           />
         )}
@@ -2111,25 +1930,6 @@ export default function Review(): React.JSX.Element {
                       ))}
                     </svg>
                   )}
-                  {activeSuggestionLineIdx !== null &&
-                    krakenLines[activeSuggestionLineIdx] &&
-                    imgNaturalWidth && imgNaturalHeight && (() => {
-                      const PAD_V = 14
-                      const corners = krakenLines[activeSuggestionLineIdx].corners
-                      const cy = corners.reduce((s, c) => s + c[1], 0) / corners.length
-                      const padded = corners.map(([x, y]) => (
-                        `${x},${y + (y < cy ? -PAD_V : PAD_V)}`
-                      )).join(' ')
-                      return (
-                        <svg
-                          style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', pointerEvents: 'none' }}
-                          viewBox={`0 0 ${imgNaturalWidth} ${imgNaturalHeight}`}
-                          preserveAspectRatio="none"
-                        >
-                          <polygon points={padded} fill="rgba(220,38,38,0.18)" stroke="none" />
-                        </svg>
-                      )
-                    })()}
                   {activeLbLineId && currentPage?.lineGeometry && imgNaturalWidth && imgNaturalHeight && (() => {
                     const line = currentPage.lineGeometry.find((l) => l.id === activeLbLineId)
                     if (!line) return null
@@ -2553,14 +2353,6 @@ export default function Review(): React.JSX.Element {
                 <button
                   className="btn btn-quiet text-[11.5px]"
                   style={{ padding: '4px 8px' }}
-                  onClick={runScan}
-                >
-                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg>
-                  {t('review.scanRefs')}
-                </button>
-                <button
-                  className="btn btn-quiet text-[11.5px]"
-                  style={{ padding: '4px 8px' }}
                   title={t('review.lightTagTitle')}
                   onClick={() => setLightTagOpen(true)}
                 >
@@ -2618,30 +2410,6 @@ export default function Review(): React.JSX.Element {
                 <div className="w-px h-4 ml-auto" style={{ background: 'var(--line-2)' }} />
 
                 <div className="flex items-center gap-2" data-tour="review-tools">
-                  {/* Compare with Kraken */}
-                  <button
-                    className="btn btn-quiet text-[11px]"
-                    style={{ padding: '3px 8px', ...(compareMode ? { color: '#0369a1', borderColor: '#0369a1', background: '#e0f2fe' } : {}) }}
-                    onClick={() => {
-                      if (!compareMode) {
-                        setCompareMode(true)
-                        if (krakenCompareText === null && !compareLoading) runKrakenCompare()
-                      } else {
-                        setCompareMode(false)
-                      }
-                    }}
-                  >
-                    {compareLoading
-                      ? <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="animate-spin"><path d="M21 12a9 9 0 1 1-6.3-8.6" /></svg>
-                      : <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 3H5a2 2 0 0 0-2 2v4m6-6h10a2 2 0 0 1 2 2v4M9 3v18m0 0h10a2 2 0 0 0 2-2v-4M9 21H5a2 2 0 0 1-2-2v-4m0 0h18" /></svg>}
-                    {t('review.compare')}
-                    {compareMode && suggestionRanges.length > 0 && (
-                      <span style={{ marginLeft: 3, background: '#0369a1', color: '#fff', borderRadius: 8, padding: '0 5px', fontSize: 10, fontWeight: 600, lineHeight: '16px' }}>
-                        {suggestionRanges.length}
-                      </span>
-                    )}
-                  </button>
-
                   {/* Line image popup toggle */}
                   {!!currentPage?.lineGeometry?.length && (
                     <button
@@ -2686,6 +2454,33 @@ export default function Review(): React.JSX.Element {
                       </span>
                     )}
                   </button>
+
+                  {/* Low-confidence characters (Kraken's own score) */}
+                  {hasConfidence && (
+                    <span className="inline-flex items-center gap-1">
+                      <button
+                        className="btn btn-quiet text-[11px]"
+                        style={{ padding: '3px 8px', ...(confMode ? { color: '#b45309', borderColor: '#b45309', background: '#fef3c7' } : {}) }}
+                        onClick={() => setConfMode((m) => !m)}
+                        title={t('review.confidenceTitle')}
+                      >
+                        {t('review.confidence')}
+                        {confMode && lowConfRanges.length > 0 && (
+                          <span style={{ marginLeft: 3, background: '#b45309', color: '#fff', borderRadius: 8, padding: '0 5px', fontSize: 10, fontWeight: 600, lineHeight: '16px' }}>
+                            {lowConfRanges.length}
+                          </span>
+                        )}
+                      </button>
+                      {confMode && (
+                        <input
+                          type="range" min={0.5} max={0.99} step={0.01} value={confThreshold}
+                          onChange={(e) => setConfThreshold(Number(e.target.value))}
+                          title={`${t('review.confidenceThreshold')}: ${Math.round(confThreshold * 100)}%`}
+                          style={{ width: 70 }}
+                        />
+                      )}
+                    </span>
+                  )}
                 </div>
 
               </div>
@@ -2762,34 +2557,6 @@ export default function Review(): React.JSX.Element {
                 </div>
               </div>
             )}
-            {/* Suggestion banner */}
-            {compareMode && activeSuggestion && (
-              <div className="shrink-0 border-b px-4 py-2 flex items-center gap-3 text-[12px] flex-wrap" style={{ borderColor: 'var(--line)', background: '#fff8f0' }}>
-                <span className="font-mono shrink-0" style={{ color: 'var(--mute)', fontSize: 10, textTransform: 'uppercase', letterSpacing: '.1em' }}>{t('review.compareKraken')}</span>
-                <del style={{ color: '#b91c1c', textDecoration: 'line-through', fontFamily: "'Noto Sans Mono', monospace" }}>{activeSuggestion.removedText || '(empty)'}</del>
-                <span style={{ color: 'var(--mute)' }}>→</span>
-                <ins style={{ color: '#15803d', textDecoration: 'none', fontFamily: "'Noto Sans Mono', monospace" }}>{activeSuggestion.addedText || t('review.suggestionDelete')}</ins>
-                <div className="ml-auto flex items-center gap-1.5 shrink-0">
-                  <button
-                    className="btn btn-quiet text-[11px]"
-                    style={{ padding: '3px 10px', background: '#dcfce7', borderColor: '#15803d', color: '#15803d' }}
-                    onClick={() => {
-                      setContent(acceptSuggestion(content, krakenDiffTokens, activeSuggestion.tokenIdx))
-                      setActiveSuggestion(null)
-                    }}
-                  >{t('review.suggestionAccept')}</button>
-                  <button
-                    className="btn btn-quiet text-[11px]"
-                    style={{ padding: '3px 10px' }}
-                    onClick={() => {
-                      setIgnoredTokens((prev) => new Set(prev).add(activeSuggestion.tokenIdx))
-                      setActiveSuggestion(null)
-                    }}
-                  >{t('review.suggestionDismiss')}</button>
-                </div>
-              </div>
-            )}
-
             {/* Latin char banner */}
             {latinMode && activeLatinChar && (
               <div className="shrink-0 border-b px-4 py-2 flex items-center gap-3 text-[12px] flex-wrap" style={{ borderColor: 'var(--line)', background: '#eff6ff' }}>
@@ -2844,8 +2611,8 @@ export default function Review(): React.JSX.Element {
                   aria-hidden="true"
                   className="absolute inset-0 px-4 pt-4 pb-10 overflow-hidden pointer-events-none leading-relaxed whitespace-pre-wrap break-words"
                   style={{ color: 'transparent', background: 'transparent', fontSize, fontFamily: "'Noto Sans Mono', monospace" }}
-                  dangerouslySetInnerHTML={{ __html: (compareMode && suggestionRanges.length) || (latinMode && latinChars.length)
-                    ? highlightMarkdownWithDiff(content, levelMap, suggestionRanges, latinChars)
+                  dangerouslySetInnerHTML={{ __html: (latinMode && latinChars.length) || lowConfRanges.length
+                    ? highlightMarkdownWithDiff(content, levelMap, latinChars, lowConfRanges)
                     : highlightMarkdown(content, levelMap) }}
                 />
                 <textarea
@@ -2862,10 +2629,6 @@ export default function Review(): React.JSX.Element {
                     updateCursorTag()
                     const ta = e.currentTarget
                     const pos = ta.selectionStart
-                    if (compareMode && suggestionRanges.length) {
-                      const hit = suggestionRanges.find((r) => pos >= r.origStart && pos <= r.origEnd)
-                      setActiveSuggestion(hit ?? null)
-                    }
                     if (latinMode && latinChars.length) {
                       const hit = latinChars.find((c) => pos >= c.origStart && pos <= c.origStart + 1)
                       setActiveLatinChar(hit ?? null)
@@ -3067,9 +2830,8 @@ export default function Review(): React.JSX.Element {
         mark.tag-misc { background: #e2ddc7; color: #6b5a2b; }
         mark.tag-head { background: transparent; color: #4a6f8a; font-weight: 600; }
         mark.tag-lb   { background: #d6e7df; color: #2e5a4a; }
-        mark.diff-suggestion { background: transparent; text-decoration: underline wavy #dc2626; text-decoration-thickness: 1.5px; cursor: pointer; border-radius: 0; }
-        mark.diff-suggestion:hover { background: rgba(220,38,38,0.08); }
         mark.latin-char { background: transparent; text-decoration: underline wavy #2563eb; text-decoration-thickness: 1.5px; cursor: pointer; border-radius: 0; }
+        mark.low-conf { background: rgba(245,158,11,0.28); border-bottom: 2px solid #d97706; border-radius: 0; }
         mark.latin-char:hover { background: rgba(37,99,235,0.08); }
         mark.find-hit { background: #fde68a; color: transparent; border-radius: 2px; }
         mark.find-cur { background: #f59e0b; }

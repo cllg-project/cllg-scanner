@@ -206,7 +206,6 @@ export const demoApi: ElectronAPI = {
   stopOCR: async () => {},
   rerunPageLM: async () => { desktopOnly(); throw new DesktopOnlyError() },
   getKrakenBuiltinPaths: async () => BUILTIN_PATHS,
-  rerunPageKraken: async () => { desktopOnly(); throw new DesktopOnlyError() },
   ocrLineKraken: async () => { desktopOnly(); throw new DesktopOnlyError() },
   selectKrakenModel: async () => { desktopOnly(); return null },
 

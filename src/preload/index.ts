@@ -100,12 +100,6 @@ const api = {
   }> =>
     ipcRenderer.invoke('kraken:getBuiltinPaths'),
 
-  rerunPageKraken: (
-    imagePath: string,
-    krakenConfig: KrakenConfig
-  ): Promise<{ text: string; lines: { text: string; corners: [number, number][] }[] }> =>
-    ipcRenderer.invoke('kraken:rerun-page', imagePath, krakenConfig.segModelPath, krakenConfig.recModelPath, krakenConfig.roModelPath),
-
   // Re-OCR one line: only `polygon` (page-image pixels) of the page is kept.
   ocrLineKraken: (
     imagePath: string,

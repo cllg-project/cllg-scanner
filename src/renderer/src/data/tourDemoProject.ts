@@ -5,7 +5,7 @@ import md3 from '../assets/tour/galien_p3.md?raw'
 import img1 from '../assets/tour/galien_p1.png'
 import img2 from '../assets/tour/galien_p2.png'
 import img3 from '../assets/tour/galien_p3.png'
-// Masks, Kraken line geometry and manual zones of the three pages, from a real project.
+// Selections, Kraken line geometry and manual zones of the three pages, from a real project.
 import layout from '../assets/tour/galien_demo.json'
 
 export const TOUR_DEMO_ID = '__tour_demo__'
@@ -20,7 +20,7 @@ export const TOUR_DEMO_ID = '__tour_demo__'
  *   1. Persée cover — skipped for OCR, kept because it records where the document
  *      comes from and under which licence.
  *   2. Title (head zone), sections 1 and 2; line numbers in the left margin, a running
- *      head and footnotes, all masked.
+ *      head and footnotes, all left out by one selection around the Greek text.
  *   3. Section 2 continues from page 2 (Continued zone), then section 3.
  */
 export const TOUR_IMAGE_URLS = [img1, img2, img3]
@@ -53,6 +53,7 @@ export async function buildTourDemoProject(): Promise<Project> {
         n: i + 1,
         imagePath: uri,          // data URI — passes through page:loadImage as-is
         masks: l.masks as Mask[],
+        selections: (l as { selections?: unknown[] }).selections as Mask[] | undefined,
         status: l.status as PageStatus,
         markdown: MARKDOWNS[i],
         lineGeometry: l.lineGeometry.length ? (l.lineGeometry as LineGeometry[]) : undefined,

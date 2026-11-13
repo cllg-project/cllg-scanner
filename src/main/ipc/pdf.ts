@@ -196,7 +196,7 @@ export function registerPDFHandlers(): void {
     let annId = 1
 
     for (const page of project.pages) {
-      if (!page.masks || page.masks.length === 0) continue
+      if ((page.masks?.length ?? 0) + (page.selections?.length ?? 0) === 0) continue
 
       let width = 0, height = 0
       try {
@@ -209,11 +209,15 @@ export function registerPDFHandlers(): void {
 
       images.push({ id: page.n, file_name: basename(page.imagePath), width, height })
 
-      for (const mask of page.masks) {
+      const rects = [
+        ...(page.selections ?? []).map((r) => ({ r, cat: 2 })),   // MainText: content kept
+        ...(page.masks ?? []).map((r) => ({ r, cat: 1 })),        // legacy: ApparatusCriticus
+      ]
+      for (const { r: mask, cat } of rects) {
         annotations.push({
           id: annId++,
           image_id: page.n,
-          category_id: 1,
+          category_id: cat,
           bbox: [mask.x, mask.y, mask.width, mask.height],
           area: mask.width * mask.height,
           segmentation: [],
@@ -227,7 +231,10 @@ export function registerPDFHandlers(): void {
       licenses: [],
       images,
       annotations,
-      categories: [{ id: 1, name: 'ApparatusCriticus', supercategory: '' }]
+      categories: [
+        { id: 1, name: 'ApparatusCriticus', supercategory: '' },
+        { id: 2, name: 'MainText', supercategory: '' }
+      ]
     }
 
     await writeFile(result.filePath, JSON.stringify(coco, null, 2))

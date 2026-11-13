@@ -1,4 +1,5 @@
 import type { Page } from '@shared/types'
+import { maskingPlan } from '@shared/pageMask'
 
 export async function renderMaskedPage(projectDir: string, page: Page): Promise<string> {
   const imgPath = await window.api.joinPaths(projectDir, page.imagePath)
@@ -13,8 +14,21 @@ export async function renderMaskedPage(projectDir: string, page: Page): Promise<
   canvas.width = img.naturalWidth
   canvas.height = img.naturalHeight
   const ctx = canvas.getContext('2d')!
-  ctx.drawImage(img, 0, 0)
-  for (const mask of page.masks) {
+  const { keep, hide } = maskingPlan(page)
+  if (keep.length > 0) {
+    // Positive selection: only the selected rectangles keep their pixels.
+    ctx.fillStyle = '#ffffff'
+    ctx.fillRect(0, 0, canvas.width, canvas.height)
+    ctx.save()
+    ctx.beginPath()
+    for (const r of keep) ctx.rect(r.x, r.y, r.width, r.height)
+    ctx.clip()
+    ctx.drawImage(img, 0, 0)
+    ctx.restore()
+  } else {
+    ctx.drawImage(img, 0, 0)
+  }
+  for (const mask of hide) {
     ctx.fillStyle = mask.fill
     ctx.fillRect(mask.x, mask.y, mask.width, mask.height)
   }

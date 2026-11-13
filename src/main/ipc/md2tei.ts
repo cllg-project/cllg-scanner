@@ -6,6 +6,7 @@
 import { DOMParser, XMLSerializer } from '@xmldom/xmldom'
 import { parse as parseYaml } from 'yaml'
 import type { BibEntry } from '@shared/types'
+import { annotateRefLevels } from '@shared/refLevels'
 
 const NS = 'http://www.tei-c.org/ns/1.0'
 const ELEM = 1
@@ -890,7 +891,10 @@ export function runMd2Tei({ markdownText, yamlConfigText, bibliography = [], log
   // The output is declared NFC (Export shows "UTF-8 (NFC)"), and Kraken can emit
   // decomposed accents (α + U+0301): normalize once here so every rule — hyphenation
   // joins in particular — sees composed letters.
-  const body = buildBody(markdownText.normalize('NFC'), lm, ms, levels, log)
+  // An unclassified <ref> would degrade to a <note>: let the declared structure place it
+  // first (a single level takes every ref; otherwise the level's format decides).
+  const flat = levels.map((l) => ({ depth: l.level, name: l.name, pattern: l.format, missingFirst: l.missingFirst, isMilestone: l.isMilestone }))
+  const body = buildBody(annotateRefLevels(markdownText.normalize('NFC'), flat), lm, ms, levels, log)
 
   const meta = (config.metadata ?? {}) as Record<string, unknown>
   const metaStr = (k: string): string => (typeof meta[k] === 'string' ? (meta[k] as string).trim() : '')

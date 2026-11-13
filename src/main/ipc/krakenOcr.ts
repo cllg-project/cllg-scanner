@@ -10,6 +10,7 @@ import { persistPageStatus, persistPageGeometry, persistPageZones } from '../pag
 import { krakenLinesToPageMarkdown, regionLinesToPageMarkdown } from '../krakenMarkdown'
 import { assignLinesToRegions, regionsToZones, suppressOverlappingRegions, type DetectedRegion } from '../regionMerge'
 import { applyLineStep, applyTextStep, applyZoneStep, reassignZoneLines, type ProcessedLine } from '../krakenSteps'
+import { lineConfidence } from '@shared/confidence'
 import { findAnchors } from '@shared/lbAnchors'
 import { migratePageZones, writeAllZoneTags } from '@shared/zones'
 import { rebuildCombinedMarkdown } from './pdf'
@@ -39,11 +40,11 @@ const LEGACY = {
 
 type Obb = { cx: number; cy: number; w: number; h: number; angle: number; corners: [number, number][] }
 type KrakenPipelineT = {
-  process: (img: string | Buffer) => Promise<{ text: string; obb: Obb; polygon: [number, number][]; type: string }[]>
+  process: (img: string | Buffer) => Promise<{ text: string; obb: Obb; polygon: [number, number][]; type: string; chars?: { char: string; conf: number }[] }[]>
 }
 
 // Cache the pipeline *promise*, not the resolved value — two concurrent callers
-// (kraken:run and kraken:rerun-page, or a re-run right after kraken:stop) must see
+// (kraken:run and kraken:ocr-line, or a re-run right after kraken:stop) must see
 // the same in-flight create() rather than each awaiting a stale null cache and
 // building their own ONNX sessions, with the first set silently dropped while its
 // runs may still be in flight.
@@ -243,23 +244,6 @@ export function registerKrakenHandlers(): void {
     }
   )
 
-  ipcMain.handle(
-    'kraken:rerun-page',
-    async (
-      _event,
-      imagePath: string,
-      segModelPath: string,
-      recModelPath: string,
-      roModelPath?: string
-    ): Promise<{ text: string; lines: { text: string; corners: [number, number][] }[] }> => {
-      const pipeline = await getPipeline(segModelPath, recModelPath, roModelPath)
-      const rawLines = await pipeline.process(imagePath)
-      const lines = rawLines.map((l) => ({ text: l.text, corners: l.obb.corners }))
-      const text = lines.map((l) => l.text).join('\n')
-      return { text, lines }
-    }
-  )
-
   // Re-OCR a single line. Recognizing a bare line crop is exactly the pattern that
   // crashed the app (see the comment on cachedPipeline), so this stays on the proven
   // full-page path: a page-sized white image holding only the line's region, at its
@@ -391,7 +375,7 @@ async function ocrPageFull(
   policy?: Record<string, ZoneAction>
 ): Promise<string> {
   const raw = await pipeline.process(imgPath)
-  let lines = raw.map((l, i) => ({ text: l.text, id: `k${i}`, regionType: l.type, polygon: l.polygon, blockId: undefined as string | undefined }))
+  let lines = raw.map((l, i) => ({ text: l.text, id: `k${i}`, regionType: l.type, polygon: l.polygon, blockId: undefined as string | undefined, conf: lineConfidence(l.text, l.chars) }))
   let detected: PageZone[] = []
   if (regionSegmenter) {
     const regions = await detectRegions(regionSegmenter, imgPath)
@@ -408,6 +392,7 @@ async function ocrPageFull(
     ...(l.blockId ? { blockId: l.blockId } : {}),
     source: 'kraken',
     text: l.text,
+    ...(l.conf ? { conf: l.conf } : {}),
   }))
   await persistPageGeometry(projectDir, page.n, newGeometry, { replace: true })
 
@@ -553,7 +538,7 @@ async function runKrakenStepsLoop(
 
           let processed: ProcessedLine[] = []
           if (pipeline) {
-            processed = (await pipeline.process(imgPath)).map((l) => ({ text: l.text, polygon: l.polygon, type: l.type }))
+            processed = (await pipeline.process(imgPath)).map((l) => ({ text: l.text, polygon: l.polygon, type: l.type, conf: lineConfidence(l.text, l.chars) }))
           }
           if (wants('line')) {
             if (!geometry.length && !findAnchors(md).length) {
@@ -580,12 +565,13 @@ async function runKrakenStepsLoop(
           if (wants('text')) {
             const r = applyTextStep(md, geometry, processed)
             md = r.markdown
+            geometry = r.geometry
             result.textLines = r.textLines
             parts.push(`${r.textLines} lines re-read` + (r.unmatched ? `, ${r.unmatched} unmatched` : ''))
           }
 
           await writeFile(cachePath, md, 'utf-8')
-          if (wants('line') || wants('zone')) await persistPageGeometry(projectDir, page.n, geometry, { replace: true })
+          if (wants('line') || wants('zone') || wants('text')) await persistPageGeometry(projectDir, page.n, geometry, { replace: true })
           await persistPageZones(projectDir, page.n, zones)
           result.zones = zones.length
           summary = parts.join(' · ')

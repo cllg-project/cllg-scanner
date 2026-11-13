@@ -5,6 +5,7 @@ import type { KrakenConfig, KrakenStep, OCRProgressEvent, Page } from '@shared/t
 import Sidebar from '../components/Sidebar'
 import { useProject } from '../App'
 import { renderMaskedPage } from '../utils/renderMaskedPage'
+import { hasMasking } from '@shared/pageMask'
 import KrakenModelPicker from '../components/KrakenModelPicker'
 import KrakenThreadsSetting from '../components/KrakenThreadsSetting'
 
@@ -168,7 +169,7 @@ export default function OCRRun(): React.JSX.Element {
   // Kraken reads the masked render of a page that has masks.
   const applyMasks = async (pages: Page[]): Promise<Page[]> => {
     if (!project) return pages
-    const toMask = pages.filter((p) => p.masks.length > 0)
+    const toMask = pages.filter((p) => hasMasking(p))
     if (toMask.length === 0) return pages
     addLog(`[info] Applying masks to ${toMask.length} pages…`)
     const maskedPaths = new Map<number, string>()

@@ -25,7 +25,7 @@
   },
   "steps": {
     "import": "Import",
-    "mask": "Mask",
+    "mask": "Select",
     "ocr": "OCR",
     "config": "Config",
     "review": "Review",
@@ -34,7 +34,7 @@
   },
   "nav": {
     "home": "Home",
-    "masker": "Masker",
+    "masker": "Selection",
     "ocrRun": "OCR Run",
     "structure": "Structure",
     "review": "Review",
@@ -73,7 +73,7 @@
   "home": {
     "welcomeBack": "Welcome back",
     "heroTitle": "Begin a new edition, or resume your work.",
-    "heroSubtitle": "Import a PDF, DjVu, or folder of images — CLLG will render them for masking and OCR.",
+    "heroSubtitle": "Import a PDF, DjVu, or folder of images — CLLG will render them for selection and OCR.",
     "newProject": "New project (PDF / DjVu)",
     "imageFolder": "Image folder…",
     "altoFolder": "ALTO + images…",
@@ -141,7 +141,7 @@
     "importingPage": "Importing page {{cur}} of {{total}}…",
     "importPages": "Import {{count}} pages",
     "pages": "Pages",
-    "pagesStats": "{{total}} total · {{masked}} masked",
+    "pagesStats": "{{total}} total · {{masked}} selected",
     "maxExamples": "Max {{count}} example pages",
     "removeExample": "Remove as example page",
     "setExample": "Set as OCR example page (max {{max}})",
@@ -151,21 +151,21 @@
     "skipPage": "Skip this page",
     "unskipPage": "Include this page again",
     "toolPointer": "Pointer",
-    "toolRect": "Rectangle mask",
-    "altoAutoMask": "Generate masks from ALTO regions",
+    "toolRect": "Select an area to keep",
+    "altoAutoMask": "Select the main text from ALTO regions",
     "deleteSelected": "Delete selected",
     "copyToAll": "Copy to all pages",
-    "copyToAllTitle": "Copy current page masks to all pages",
-    "instructionsBefore": "Draw rectangles to cover",
+    "copyToAllTitle": "Copy the current page selection to all pages",
+    "instructionsBefore": "Draw a rectangle around the text to read, leaving out the",
     "apparatusCriticus": "apparatus criticus",
-    "instructionsAfter": "and marginalia — masked areas are whited out before OCR",
-    "pagesMasked": " · {{count}} pages masked",
+    "instructionsAfter": "and marginalia — everything outside the selection is whited out before OCR",
+    "pagesMasked": " · {{count}} pages selected",
     "exportCoco": "Export COCO",
-    "exportCocoTitle": "Export all masks as COCO JSON (class: ApparatusCriticus)",
-    "masksCount": "{{count}} masks",
+    "exportCocoTitle": "Export all selections as COCO JSON (class: MainText)",
+    "masksCount": "{{count}} areas",
     "loading": "Loading…",
     "statusPend": "Pend",
-    "statusMask": "Mask",
+    "statusMask": "Sel.",
     "statusOcr": "OCR",
     "statusSkip": "Skip",
     "statusErr": "Err"
@@ -328,7 +328,6 @@
     "tagBibl": "Wrap selection in <bibl> (⌘B)",
     "fixHyphens": "Fix hyphens",
     "fixHyphensCount": "Fix hyphens ({{count}})",
-    "scanRefs": "Scan refs",
     "betacode": "betacode",
     "betacodeEnable": "Enable",
     "betacodeEnabled": "Enabled",
@@ -354,11 +353,6 @@
     "lightTagFound": "{{count}} suggested tags",
     "lightTagStale": "Page edited since — close and re-run",
     "lightTagApply": "Apply {{count}} tags",
-    "unclassifiedRefs": "{{count}} unclassified <ref>s found",
-    "unclassifiedRef": "{{count}} unclassified <ref> found",
-    "noUnclassified": "No unclassified <ref> tags on this page.",
-    "annotateMatched": "Annotate {{count}} matched",
-    "unmatched": "unmatched",
     "showGeometry": "Show line boxes",
     "groupTool": "Draw Zone",
     "groupToolTitle": "Draw Zone (G, with the pointer over the image): draw a rectangle to group lines into a zone · T opens the zone type list (type to filter), P/Q/H/C pick Paragraph, Quote, Heading or Continued directly · click a zone to select it, drag to move, drag its handles to resize, Delete to remove",
@@ -376,14 +370,12 @@
     "lmNoModel": "(no model set)",
     "runReOcr": "Run",
     "runningReOcr": "Running…",
-    "compare": "2nd read",
     "compareKraken": "KRAKEN",
-    "compareRefresh": "Refresh",
-    "compareRunning": "Running Kraken…",
-    "compareStale": "Click Refresh to run Kraken on this page",
     "suggestionAccept": "Accept",
     "suggestionDismiss": "Dismiss",
-    "suggestionDelete": "(delete)",
+    "confidence": "Doubtful",
+    "confidenceTitle": "Highlight the characters the OCR model was unsure of (its own confidence score, kept with the line geometry)",
+    "confidenceThreshold": "Confidence threshold",
     "latin": "Latin",
     "latinTitle": "Detect Latin characters that may be OCR confusions with Greek",
     "latinLabel": "LATIN",
@@ -468,7 +460,7 @@
     "steps": {
       "welcome": {
         "title": "CLLG — Guided Tour",
-        "body": "CLLG turns scans of Greek and Latin scholarship into structured TEI XML in seven steps: import, document, mask, OCR, structure, review and export. Recognition runs locally with Kraken. The demo project is the start of the editio princeps of Galen's De propriis placitis (V. Boudon-Millot & A. Pietrobelli, Revue des Études Grecques 118, 2005), distributed by Persée under a CC BY-NC-ND licence. It is full of small challenges; nothing you do in the tour is saved."
+        "body": "CLLG turns scans of Greek and Latin scholarship into structured TEI XML in seven steps: import, document, selection, OCR, structure, review and export. Recognition runs locally with Kraken. The demo project is the start of the editio princeps of Galen's De propriis placitis (V. Boudon-Millot & A. Pietrobelli, Revue des Études Grecques 118, 2005), distributed by Persée under a CC BY-NC-ND licence. It is full of small challenges; nothing you do in the tour is saved."
       },
       "home-new-project": {
         "title": "Step 1 · Import your document",
@@ -484,15 +476,15 @@
       },
       "document-zones": {
         "title": "Which zones to keep",
-        "body": "The layout model knows a list of zone types (9 for CLLG, 37 for LADaS). For each, choose «Annotate» (the text is kept and tagged, e.g. <p zone=\"r3\">, and the zone can be edited in Review), «Keep text» (plain lines, no tag) or «Drop» (left out of the transcription). By default, running titles, page numbers and noise are dropped. On page 2 of the demo, «172  V. BOUDON-MILLOT ET A. PIETROBELLI» is a running title: once detected, it is left out of the text even without a mask."
+        "body": "The layout model knows a list of zone types (9 for CLLG, 37 for LADaS). For each, choose «Annotate» (the text is kept and tagged, e.g. <p zone=\"r3\">, and the zone can be edited in Review), «Keep text» (plain lines, no tag) or «Drop» (left out of the transcription). By default, running titles, page numbers and noise are dropped. On page 2 of the demo, «172  V. BOUDON-MILLOT ET A. PIETROBELLI» is a running title: once detected, it is left out of the text even outside the selection."
       },
       "masker-canvas": {
-        "title": "Step 3 · Mask what shouldn't be read",
-        "body": "Draw white rectangles over everything that is not the main text: masked areas are whited out before Kraken reads the page. Page 2 of the demo has three: the running head («172  V. BOUDON-MILLOT ET A. PIETROBELLI»), the line numbers in the left margin (5, 10, 15…) and the footnotes. Challenge: page 3 prints its line numbers in the right margin — does it need a mask too?"
+        "title": "Step 3 · Select what to read",
+        "body": "Draw a rectangle around the text to transcribe: everything outside is whited out before Kraken reads the page. On page 2 of the demo, the selection covers the Greek text only, leaving out the running head («172  V. BOUDON-MILLOT ET A. PIETROBELLI»), the line numbers in the left margin (5, 10, 15…) and the footnotes. Challenge: page 3 prints its line numbers in the right margin — does your selection leave them out?"
       },
       "masker-tools": {
-        "title": "Masking tools",
-        "body": "Rectangle mask (D) draws, Pointer (S) selects, Delete removes. «Copy to all pages» repeats a layout across the book; hover a thumbnail and click ⊘ to skip a page (like the cover). «Generate masks from ALTO regions» builds masks from imported zones and «Export COCO» saves them as training data."
+        "title": "Selection tools",
+        "body": "Rectangle (D) draws a selection, Pointer (S) moves or resizes it, Delete removes it. «Copy to all pages» repeats a layout across the book; hover a thumbnail and click ⊘ to skip a page (like the cover). «Select the main text from ALTO regions» builds the selection from imported zones and «Export COCO» saves the selections as training data."
       },
       "ocr-models": {
         "title": "Step 4 · Choose the Kraken models",
@@ -528,7 +520,7 @@
       },
       "review-tools": {
         "title": "Checking tools and Greek typing",
-        "body": "«2nd read» runs Kraken again and underlines disagreements; «Line» shows the image of the current line above the caret; the magnifier (⌘F) searches the page; «Latin» flags Latin letters inside Greek. β (⌘K) is a betacode keyboard, diacritics first: «)a» gives ἀ, «:» the ano teleia ·, «?» the Greek question mark, and «<» «>» the Leiden brackets ⟨ ⟩ that this edition uses for supplied words (page 2: «περὶ ⟨ὧν⟩»)."
+        "body": "«Line» shows the image of the current line above the caret; the magnifier (⌘F) searches the page; «Latin» flags Latin letters inside Greek. β (⌘K) is a betacode keyboard, diacritics first: «)a» gives ἀ, «:» the ano teleia ·, «?» the Greek question mark, and «<» «>» the Leiden brackets ⟨ ⟩ that this edition uses for supplied words (page 2: «περὶ ⟨ὧν⟩»)."
       },
       "export-generate": {
         "title": "Step 7 · Export",
@@ -575,7 +567,7 @@
   "document": {
     "title": "Document",
     "subtitle": "What kind of document this is, and which zones of the page to keep in the transcription. You can come back and change this at any time.",
-    "continue": "Continue to masking",
+    "continue": "Continue to selection",
     "typeTitle": "Document type",
     "typeDescription": {
       "cllg": "A Greek scholarly edition. The section markers in the margins (Stephanus, Bekker, chapter numbers…) are merged into the text as <ref>, longer margin text as an inline <note>. Uses the CLLG layout model.",
@@ -612,7 +604,7 @@
   },
   "models": {
     "title": "Downloading the Kraken models",
-    "intro": "The built-in OCR models are not part of the application: they are downloaded once from the release on GitHub ({{size}} MB) and kept for the next launches. Importing and masking work in the meantime; OCR needs them.",
+    "intro": "The built-in OCR models are not part of the application: they are downloaded once from the release on GitHub ({{size}} MB) and kept for the next launches. Importing and selecting work in the meantime; OCR needs them.",
     "error": "The download failed:",
     "retry": "Retry",
     "continueWithout": "Continue without",

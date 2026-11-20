@@ -329,6 +329,9 @@ export default function Masker(): React.JSX.Element {
       })
   }, [page?.imagePath])
 
+  // Indices refer to the current page's rectangles.
+  useEffect(() => { setSelectedRectId(null) }, [selectedPageIdx])
+
   // Sync transformer to selected rect
   useEffect(() => {
     if (!transformerRef.current) return
@@ -929,7 +932,8 @@ export default function Masker(): React.JSX.Element {
                     dash={kind === 'mask' ? [4, 3] : undefined}
                     strokeWidth={1.5}
                     draggable={tool === 'pointer'}
-                    onClick={() => { if (tool === 'pointer') setSelectedRectId(i) }}
+                    onMouseDown={(e) => { e.cancelBubble = true; setSelectedRectId(i) }}
+                    onTap={() => setSelectedRectId(i)}
                     onDragEnd={(e) => {
                       const next = [...items]
                       next[i] = { kind, rect: { ...next[i].rect, x: e.target.x() / zoom, y: e.target.y() / zoom } }

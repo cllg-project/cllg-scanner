@@ -13,6 +13,15 @@ import { registerAltoHandlers } from './ipc/alto'
 import { registerPageExportHandlers } from './ipc/pageExport'
 import { registerSearchablePdfExportHandlers } from './ipc/searchablePdfExport'
 
+// Optional software-compositing escape hatch for platforms whose GPU
+// stack is a work in progress (WIP Vulkan bring-up on non-conformant
+// drivers): Chromium's GPU process can crash-loop on such drivers,
+// while the OCR pipeline itself never uses GPU rendering. The OCR
+// runtime (kraken-js / onnxruntime-node) is unaffected either way.
+if (process.env['CLLG_DISABLE_GPU'] === '1') {
+  app.commandLine.appendSwitch('disable-gpu')
+}
+
 // Durable crash log — survives even if nobody is watching the terminal or DevTools
 // at the moment something goes wrong. Lives outside the app bundle so it's easy to
 // find and share after a crash.

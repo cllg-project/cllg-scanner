@@ -43,12 +43,15 @@ linux:
     - target: AppImage
       arch:
         - x64
+        - arm64
     - target: deb
       arch:
         - x64
+        - arm64
     - target: tar.gz
       arch:
         - x64
+        - arm64
   icon: cllg.png
   category: Utility
   maintainer: "Thibault Clérice <leponteineptique@gmail.com>"
